@@ -6,6 +6,7 @@ verbatim, so the arena can check them.
 
 import json
 import logging
+import re
 import time
 
 from arena_kit.agents.llm import ID_RE
@@ -70,6 +71,30 @@ class TemplateWriter:
         return "\n".join(lines)
 
 
+NOTE_START = re.compile(
+    r"^\s*(-{3,}|_{3,}|\*{3,})\s*$|"
+    r"^\s*\**\s*(internal note|note for the (purchasing )?team|note to the (purchasing )?team|"
+    r"notes? for (the )?(purchasing|internal)|for the purchasing team)\b|\(not part of the e-?mail\)",
+    re.I,
+)
+
+
+def strip_notes(text):
+    """The model sometimes appends a note to our own team after the e-mail ("--- Internal note for the purchasing
+    team (not part of the e-mail): ... the profile says the MD cannot sign margin cuts", P11 v18 R1/R4) or starts
+    with a "Subject:" line. Both went to the supplier verbatim. Keep the e-mail only."""
+    lines = text.splitlines()
+    if lines and lines[0].lower().startswith("subject:"):
+        lines = lines[1:]
+        while lines and not lines[0].strip():
+            lines = lines[1:]
+    for i, ln in enumerate(lines):
+        if NOTE_START.search(ln) and i > 0:
+            lines = lines[:i]
+            break
+    return "\n".join(lines).rstrip()
+
+
 class LLMWriter:
     """A model writes the body around fixed facts; the template is the safety net."""
 
@@ -80,7 +105,8 @@ Include every CLAIM sentence verbatim (they carry data IDs the supplier checks).
 State each proposed package exactly as given. Never reveal urgency, a budget, a deadline, or that we
 lack alternatives. Never invent figures. Match the supplier's register (owner of a family firm,
 sales rep of a group, etc.) using the PROFILE. If they asked a question, answer it briefly if the
-facts allow. Sign as "Hollerau Pumpenwerke GmbH, Purchasing"."""
+facts allow. Sign as "Hollerau Pumpenwerke GmbH, Purchasing". Output only the e-mail body: no subject line,
+no notes or comments to our own team - everything you write is sent to the supplier."""
 
     def __init__(self, complete, budget_s=25.0):
         self.complete, self.budget_s, self.fallback = complete, budget_s, TemplateWriter()
@@ -118,6 +144,9 @@ facts allow. Sign as "Hollerau Pumpenwerke GmbH, Purchasing"."""
             return draft
         if time.monotonic() - t0 > self.budget_s or not text:
             return draft
+        text = strip_notes(text)
+        if SIGN.splitlines()[-1] not in text:  # the note was after the signature or swallowed it: sign again
+            text = text.rstrip() + "\n\n" + SIGN
         allowed = {i for c in claims for i in c.ids}
         allowed |= {s["term_sheet_id"] for m in events for s in m.get("term_sheets") or [] if s.get("term_sheet_id")}
 
