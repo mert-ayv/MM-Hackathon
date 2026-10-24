@@ -44,7 +44,9 @@ class Supplier:
         country = row.get("country") or "DE"
         base = b.get("current_unit_price") or b["fallback_unit_price"]
         full, _ = intel_mod.estimate_full_cost(case, pkg, sid, country)
-        self.full = (full or base / 1.1) * rng.uniform(0.95, 1.05)
+        # replays: C_best sits 13-29 % under the opening in leverage cases, i.e. real floors run well below
+        # our should-cost estimate (Fable review) - draw the true cost below it
+        self.full = (full or base / 1.1) * rng.uniform(0.78, 0.95)
         self.min_margin = rng.uniform(0.02, 0.05)
         ask = OPEN_ASK.get(case.get("type"), 0.05) + rng.uniform(-0.02, 0.03)
         self.p0 = round(max(base * (1 + ask), self.full * (1 + self.min_margin) * 1.04), 2)
