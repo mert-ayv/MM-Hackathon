@@ -62,3 +62,21 @@
 | Sun morning | Pre-flight from the VM; freeze features by ~11:30; bug fixes only |
 | **Sun 13:00** | **Code freeze, submit commit hash** |
 | **Sun 13:25** | **Runner running on the VM, logging** |
+
+## How we experiment (read before running anything)
+
+We share **one arena key and 200 practice sessions per 24h**, and the arena can't tell whose agent played a session. So:
+
+1. **Approaches live in git.** Small changes are *variants*: parameter presets in [`starter-kit/csee/variants.py`](starter-kit/csee/variants.py). Bigger rewrites go on a branch `exp/<name>`. Never measure uncommitted local edits; the ledger marks them `+dirty`.
+2. **Every run is logged automatically** to `experiments/<date>-<author>.jsonl` (variant, git commit, author, LLM on/off, session, score, note). **Commit and push your ledger file** after each run; it's one file per person, so there are no merge conflicts.
+3. **Compare with the board:** `uv run python -m csee board` shows variant × case against the house agent, for the whole team.
+4. **`main` is the champion.** A variant gets promoted (its values become the `Params` defaults) only if the board shows it beats `main` on the same cases, **run close in time** (the practice bots may get dumber overnight when Tacto's AI budget runs out).
+5. **Quota etiquette:** use the sandbox (`run --set sandbox`, free) and the simulator for smoke tests; spend a full practice run (10 sessions) only to measure a real change; announce big runs in the team chat. Check what's left with `uv run arena me`.
+6. **Read the replays, not just the scores:** `uv run python -m csee eval` then `uv run python -m csee show <session_id>` shows our e-mails, the supplier's reasons and its back office.
+
+```bash
+# typical loop (from starter-kit/)
+uv run python -m csee --variant my-idea --note "faster concessions" run   # 10 sessions
+uv run python -m csee board
+git add ../experiments && git commit -m "ledger: my-idea" && git push
+```
