@@ -100,3 +100,40 @@ def test_raw_joint_menu_does_not_change_other_case_types():
     b=MertSkipHedgeAgent(params=variants.params('v14a'))
     b.prepare(c,copy.deepcopy(threads))
     assert a.thread_move(c,threads,sid)['term_sheets']==b.thread_move(c,threads,sid)['term_sheets']
+
+
+def test_candidate_writer_receives_fixed_scope():
+    from csee.writer import LLMWriter
+    from csee.agents.mert import MertScopedWriter
+    seen=[]
+    def complete(system,user):
+        seen.append((system,user))
+        return 'Thank you. Best regards, Purchasing'
+    a,c,threads,sid=setup(MertQualityMenuAgent,'case:P11')
+    a.scope_writer=True
+    a.writer=LLMWriter(complete)
+    a.prepare(c,threads)
+    assert isinstance(a.writer,MertScopedWriter)
+    msg=a.thread_move(c,threads,sid)
+    msg['_write']()
+    system,prompt=seen[-1]
+    assert 'Never promise to change' in system
+    assert '"payment_days":60' in prompt
+    assert '"volume_per_year":15900' in prompt
+    assert 'NEGOTIABLE: '+','.join(c['negotiable']) in prompt
+
+
+def test_fixed_ladder_is_bounded_and_resumes_from_sent_messages():
+    from csee.agents.mert import MertFixedLadderAgent
+    a,c,threads,sid=setup(MertFixedLadderAgent,'case:P02')
+    theirs={'unit_price':374,'payment_days':90,'index_clause':None}
+    for price in [364,366,368,369]:
+        t=a.next_terms(c,threads,sid,theirs,{},None,9)
+        assert t['unit_price']==price
+        assert a.sheets(c,sid,t,{},None)==[t]
+        threads[sid].append({'from':'buyer','term_sheets':[{'terms':t}]})
+        a.threads[sid].events=threads[sid]
+    assert not a.fixed_probe(c,sid)
+    b=MertFixedLadderAgent(params=variants.params('v14a'))
+    b.prepare(c,threads)
+    assert not b.fixed_probe(c,sid)

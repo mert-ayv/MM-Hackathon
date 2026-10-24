@@ -9,6 +9,7 @@ disabled final pushes. No claimed practice improvement until measured.
 """
 
 import math
+import json
 import re
 from datetime import date
 from dataclasses import dataclass, replace
@@ -20,7 +21,7 @@ from arena_kit.play import latest
 from .. import intel, levers
 from ..agent import CseeAgent
 from ..agent import must_haves_ok as csee_must_haves_ok
-from ..writer import SIGN
+from ..writer import SIGN, LLMWriter
 from .emre import EmreAgent
 
 CONTINUATION_REASON = "open supplier still conceding: hold last package"
@@ -1364,6 +1365,29 @@ class PlannerRawAgent(PlanMixin, MertAgent):
     """mert (raw material: clause/payment alternatives) + the planner."""
 
 
+class MertScopedWriter(LLMWriter):
+    """Candidate-only writer: do not promise concessions on immutable case terms."""
+
+    SYSTEM = LLMWriter.SYSTEM + (
+        '\nThe FIXED TERMS are binding facts, not options. State them accurately when relevant. '
+        'Never promise to change or separately negotiate them. Answer volume questions from '
+        'those facts; do not invent an internal review or extra commitments. '
+        'Only the NEGOTIABLE fields may change.'
+    )
+
+    def write(self, case, agent, sid, events, sheets, claims, ask_breakdown, focus=''):
+        scope = 'FIXED TERMS: ' + json.dumps(case.get('fixed_terms', {}), separators=(',', ':'))
+        scope += '; NEGOTIABLE: ' + ','.join(case['negotiable'])
+        return super().write(case, agent, sid, events, sheets, claims, ask_breakdown,
+                             focus=scope + ('; ' + focus if focus else ''))
+
+
+def scoped_writer(writer):
+    if type(writer) is LLMWriter:
+        return MertScopedWriter(writer.complete, writer.budget_s)
+    return writer
+
+
 class MertQualityMenuAgent(CseeAgent):
     """Isolated quality/price menu. Each relaxed commitment costs no more than main.
 
@@ -1371,9 +1395,13 @@ class MertQualityMenuAgent(CseeAgent):
     supplier-specific scores or prices, and no post-final negotiation override.
     """
 
+    scope_writer = False  # separate ablation; leave the successful first live policy unchanged
+
     def prepare(self, case, threads):
         super().prepare(case, threads)
         self.p = replace(self.p, final_push=0.0, push_after_final=0)
+        if self.scope_writer:
+            self.writer = scoped_writer(self.writer)
 
     def sheets(self, case, sid, ours, std, supplier):
         out = super().sheets(case, sid, ours, std, supplier)
@@ -1418,23 +1446,29 @@ class MertFixedProbeAgent(MertLeverAgent):
     offline-scored hypothesis, not evidence of acceptance. Other cases unchanged.
     """
 
+    fixed_prices = (368.0,)
+
     def prepare(self, case, threads):
         super().prepare(case, threads)
         self.p = replace(self.p, final_push=0.0, push_after_final=0)
+        self.writer = scoped_writer(self.writer)
+        for sid, events in threads.items():
+            self.threads[sid].events = list(events)
 
     def fixed_probe(self, case, sid):
         return (case.get('case_id') == 'case:P02'
-                and not any(m.get('from') == 'buyer' for m in self.threads[sid].events)
+                and sum(m.get('from') == 'buyer' for m in self.threads[sid].events) < len(self.fixed_prices)
                 and {'unit_price', 'payment_days', 'index_clause'} <= set(case['negotiable'])
                 and 90 in levers.options(case, 'payment_days')
                 and None in levers.options(case, 'index_clause'))
 
     def next_terms(self, case, threads, sid, theirs, std, supplier, left):
         if self.fixed_probe(case, sid):
-            t = complete_offer(case, {**theirs, 'unit_price': 368.0,
+            n = sum(m.get('from') == 'buyer' for m in self.threads[sid].events)
+            t = complete_offer(case, {**theirs, 'unit_price': self.fixed_prices[n],
                                       'payment_days': 90, 'index_clause': None})
             if must_haves_ok(case, t, std):
-                self.threads[sid].why = 'isolated P02 fixed-price probe; clause fallback next round'
+                self.threads[sid].why = f'isolated P02 fixed-price probe {n + 1}/{len(self.fixed_prices)}; bounded clause fallback'
                 return t
         return super().next_terms(case, threads, sid, theirs, std, supplier, left)
 
@@ -1442,6 +1476,17 @@ class MertFixedProbeAgent(MertLeverAgent):
         if self.fixed_probe(case, sid):
             return [complete_offer(case, ours)]
         return super().sheets(case, sid, ours, std, supplier)
+
+
+class MertFixedLadderAgent(MertFixedProbeAgent):
+    """P02-only bounded fixed-price negotiation before opening the clause fallback.
+
+    Tests whether the first probe ended too early by offering an immediately
+    acceptable clause. All four fixed targets score above the clause ceiling if
+    accepted under the calibrated practice economics. Does not override closing.
+    """
+
+    fixed_prices = (364.0, 366.0, 368.0, 369.0)
 
 
 class MertRawJointMenuAgent(MertSkipHedgeAgent):
