@@ -218,6 +218,8 @@ class LocalTable:
         return self.case, json.loads(json.dumps(self.threads))
 
     def send(self, supplier_id, message):
+        if message.get("action"):
+            return {"result": self.close(supplier_id, message)}
         return self.sup[supplier_id].respond(message)
 
     def close(self, supplier_id, message):

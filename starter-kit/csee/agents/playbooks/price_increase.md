@@ -1,31 +1,24 @@
-# Playbook: price increase (a supplier's letter announces a higher price from a date)
+# Price increase: evidence and strategy
 
-**Three levers, not one: the price, the date it takes effect, and payment days.** Every unit bought
-before the new price takes effect costs today's price, so delaying the increase is often worth more than
-cents off the new price. P01 (Brandlhuber, +9.5 % from 1 Nov): EUR 137.80 from 1 April scored 0.77, EUR
-135.30 from 1 Nov only 0.60. Check every package with price_package - the date moves C a lot.
+Establish what changed: the supplier's claimed drivers, the current price, proposed effective date,
+contractual notice and demand. Read the actual letter and quote. A profile or a past practice result is
+context, not proof about the supplier in this case. Discover missing evidence with the tools.
 
-**Open at today's price.** Accept none of the increase in the first ask; the rules cap our anchor at the
-current price. Then concede on the price slowly and keep the latest effective date as long as possible;
-offer an earlier date only as a trade sheet for a clearly lower price.
+Evaluate complete packages. Delaying an increase may matter more than a lower price. Earlier payment
+may cost us less than it is worth to a cash-constrained supplier; an index clause may exchange price
+certainty for a lower base price. Use the actual negotiable fields and published index path. Do not
+assume these levers exist in every price-increase case.
 
-**Strategic suppliers (goal stabilise / secure_supply): do not squeeze too far.** Leaving the supplier
-below a sustainable margin is charged to us per margin point (P01: EUR 15,470, P02: EUR 31,920), and
-price_package includes it. Past a point a lower price raises our C - find that point with price_package
-and stop there. P02 (Nordmark, a 4,800-staff group, copper): the best reachable deal was only about 1 %
-under its letter's price at 90 days; it scored 0.44 at EUR 372.45, and one game ended without a deal.
+For strategic/bottleneck goals, inspect the relationship penalty and its supplier-cost sensitivity.
+Should-cost is an estimate, not the supplier's reservation price. When rankings change across scenarios,
+record the uncertainty and consider asking for a breakdown or testing a conditional trade.
 
-**Index clauses on a rising series cost us.** If the case's index path rises (P02 copper: +5 % expected),
-a clause with a small deadband passes the rise on; a fixed price, or the widest deadband, is cheaper.
-Accept a clause only for a base price low enough that price_package shows a lower C.
+Choose the anchor and pace from this supplier's evidence. A firm hold, a rejection of one package, an
+internal approval request and an offer-validity period mean different things. Compare non-price terms
+before interpreting a price increase as a concession reversal. There is no universal round at which
+to stop and no required discount relative to the deterministic baseline.
 
-**The arguments that land in these cases (all checked by the arena):**
-- The notice period: "your letter gives X days' notice, our agreement requires Y" - when the letter is
-  shorter than the contract, the increase cannot start on its date at all.
-- The cost drivers the letter blames (energy, wages, copper, steel) - cite only indices that FELL over the
-  window; a rising index "confirms their case".
-- Our should-cost estimate, when the new price is well above it.
-- A weak delivery or quality record (scorecard), and its own history of asking much and settling low.
-
-**Family firms remember how they were treated; groups have approval ladders.** Be firm on numbers and
-warm in tone with a family supplier; with a group, expect small steps and a final offer that is final.
+Use checked claims when they support the argument; otherwise ask a useful qualitative question.
+Never invent a buyer budget ceiling or claim to know the supplier's approval authority. An immediately
+accepted ask may leave room, but reopening it risks the offer. Decide using the available alternative,
+the supplier's responses and the remaining time. Accept or stop when further bargaining is not worthwhile.

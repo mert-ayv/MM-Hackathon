@@ -93,6 +93,10 @@ def main(argv=None):
     sm.add_argument("--variants", nargs="+", default=["base"])
     sm.add_argument("--seeds", type=int, default=3)
     sm.add_argument("--cases", nargs="*")
+    sm.add_argument(
+        "--llm", action="store_true",
+        help="exercise the model against local suppliers (LLM charges, no arena quota)",
+    )
     bn = sub.add_parser("bench", help="FREE: sandbox cases, several times per variant")
     bn.add_argument("--agents", nargs="+", help="team agents to compare (default: --agent)")
     bn.add_argument("--variants", nargs="+", default=["base"])
@@ -186,12 +190,19 @@ def command(args, runs):
 
         from . import localsim
 
+        if args.llm and args.no_llm:
+            raise SystemExit("sim --llm conflicts with --no-llm")
         logging.getLogger("csee").setLevel(logging.ERROR)
         cases = [c for c in localsim.cases() if not args.cases or c["case_id"] in args.cases]
         rows = []
         for a in args.agents or [args.agent]:
             for v in args.variants:
-                factory = agent_factory(False, v, a)
+                factory = agent_factory(args.llm, v, a)
+                llm = bool(getattr(agent_factory, "llm", False))
+                if args.llm and not llm:
+                    raise SystemExit("sim --llm requires a configured model and key; refusing a silent template comparison")
+                if args.llm and a == "ege" and not factory().llm:
+                    raise SystemExit("Ege's tool strategist requires LLM_PROVIDER=anthropic and ANTHROPIC_API_KEY")
                 run = new_run(args, runs, "sim", a, v)
                 for case in cases:
                     for seed in range(args.seeds):
@@ -206,7 +217,7 @@ def command(args, runs):
                                 "agent": a,
                                 "variant": v,
                                 "commit": ledger.commit(),
-                                "llm": False,
+                                "llm": llm,
                                 "set": "localsim",
                                 "case_id": case["case_id"],
                                 "score": res.get("score") or 0.0,

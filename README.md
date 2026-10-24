@@ -93,6 +93,32 @@ Add `--no-llm` to use template e-mails. Without an LLM key it uses templates any
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | **how the agent works + changelog of architecture versions with evidence** |
 | `profiles/` | one JSON profile per supplier: situation, pressures, what it values, arguments to use/avoid |
 
+### Ege's strategy layer
+
+`--agent ege` uses a tool-calling strategist for price increases, RFQs and bundles when an Anthropic
+model is configured. It reads the complete conversation, retrieves documents and case-local evidence,
+keeps evidence-backed supplier hypotheses, and chooses offers, concessions, questions and stopping.
+Base's next move is optional advice and a fallback if the model fails or exceeds its time budget.
+
+The deterministic tools calculate package costs, show the breakdown and supplier-cost sensitivity,
+construct factual argument sentences, and check allowed fields, must-haves and acceptable standing
+offers. Relationship costs remain estimates; the cost tool does not predict acceptance or the true
+arena score. Conditional trade packages may cost different amounts, and offer validity is not treated
+as a refusal to negotiate. The code renders every submitted sheet and checked argument in the email.
+
+Run the actual model against local suppliers with:
+
+```bash
+cd starter-kit
+uv run python -m csee --agent ege sim --llm --cases case:P01 case:P02 --seeds 1
+```
+
+This uses **LLM credits, no arena sessions**. Without `sim --llm`, simulation uses template/base
+behaviour and cannot measure the strategist. The fully offline checks use scripted HTTP responses
+through the real SDK tool runner: `uv run pytest -q tests/test_ege_agent.py tests/test_ege_strategy.py`.
+They cover unseen suppliers, evidence retrieval, invalid-move correction, strategy freedom, contract
+validation and timeouts; they do not establish a score improvement on hosted or hidden cases.
+
 ## Dashboard
 
 A local web app for debugging runs and for the pitch replay ([dashboard/README.md](dashboard/README.md)):

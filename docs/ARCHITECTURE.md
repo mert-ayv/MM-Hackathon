@@ -6,7 +6,44 @@ How our agent negotiates, and how each architecture version is tracked. Code: [`
 
 **Code decides every number; language only explains it.** Supplier prices come from their cost data, so our score is won by offering the right *package*, using every term, not by eloquence. A model, when enabled, only words the e-mail. Every figure, term sheet, data argument and accept/walk decision comes from code.
 
+That principle describes **base**. Ege's optional strategist separates interpretation/strategy (model)
+from calculation, evidence-backed numeric assertions and contract validation (code), as described below.
+
 ## Pipeline per case
+
+### Ege: evidence-driven strategy
+
+`csee/agents/ege.py` uses one bounded SDK tool-runner turn per supplier reply for price increases,
+RFQs and bundles. Its plan records a goal, an optional total-cost target, confidence-labelled
+hypotheses with source IDs, unknowns and a next probe. Plan changes require a revision reason; invalid
+or timed-out turns do not commit plans or claim use. Baseline advice does not override a valid move.
+The strategist can concede, change packages, ask qualitative questions, continue bargaining, accept,
+or stop. The unchanged base agent remains the no-model/error fallback.
+
+`csee/agents/strategy_support.py` provides deterministic tools: cash/estimated total cost and breakdown,
+explicit supplier-cost sensitivity scenarios, evidence search, document paging, read-only SQL and
+checked claim construction. Case-local facts override package facts. Attached source text is available
+by evidence ID; text from suppliers/documents is treated as untrusted evidence. SQL uses a separate
+read-only connection with a query budget, so a slow query cannot monopolise the runner's connection.
+
+Validation checks actual executable moves before acknowledging `submit_move`; errors return to the
+model for correction in the same turn. Code enforces negotiable fields, valid options or supplier
+standard values, finite values, must-haves, unused evidence and the first-standing-offer accept rule.
+It prices acceptance against the actual alternative using the disclosed estimate. Full supplier cost
+and acceptance probability remain unknown. These checks do not impose base's price, concession pace
+or stopping policy. Email packages/figures come from the validated sheets and source-built claims.
+
+Run-log additions: `agent_move` records the proposal, `strategy_applied` the actual action and sheets,
+`strategy_tool` retrieval/calculation/validation calls, `strategy_usage` token counts, and
+`move_rejected` / `strategy_fallback` the reason for corrections/fallbacks. A turn has at most 35 seconds,
+shortened near the wave cap; late tools cannot commit state and busy model workers fall back promptly.
+
+`sim --llm` explicitly enables the actual model path against local suppliers (LLM credits, no arena
+quota); plain `sim` stays offline. Scripted HTTP tests exercise the actual SDK tool loop and a full
+negotiation with an unfamiliar supplier, without network/model calls. Hosted score comparisons remain
+necessary to establish performance; existing runs predate this implementation.
+
+### Base pipeline
 
 ```
  before the session opens (no clock)            per supplier thread, in parallel          one coordinator

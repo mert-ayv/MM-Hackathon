@@ -1,5 +1,11 @@
 # Run log format (contract between agent and dashboard)
 
+Ege's strategist also emits `agent_move` (the model's checked proposal), `strategy_applied` (actual
+action/sheets), `strategy_tool` (tool name, inputs, result and seconds), `strategy_usage` (input/output
+token counts), `move_rejected` (validation errors), and `strategy_fallback` (why base was used).
+These use the same event envelope below. Readers may ignore unsupported event types. They distinguish
+a successful model turn from a fallback; a plain offline `sim` run does not exercise the strategist.
+
 Every run writes one folder: `runs/<run_id>/`
 
 ```
