@@ -31,3 +31,6 @@ venv/
 
 # Arena runner logs
 logs/
+
+# Practice run logs
+runs/
