@@ -68,6 +68,16 @@ from .mert import (
     PlannerRawAgent,
 )
 from .records import MesoBase, MesoLever, MesoMert, PlanMesoLever, PlanMesoRaw, PledgeBase
+from .mert_dossier import (
+    BaseDossier,
+    PlanMesoLeverDossier,
+    PlanMesoLeverDossierClaims,
+    PlanMesoRawDossier,
+    PlannerDossier,
+    PlannerDossierClaims,
+    PlanMesoRawDossierClaims,
+    SkipHedgeDossier,
+)
 from .router import RouterAgent, RouterPlanAgent
 
 AGENTS = {
@@ -98,6 +108,15 @@ AGENTS = {
     "mert-plan-meso-lever": PlanMesoLever,  # planner + payment MESO + levers (P01 14-day route)
     "mert-plan-meso-raw": PlanMesoRaw,  # planner + payment MESO + skip-hedge raw packages
     "mert-pledge": PledgeBase,  # P11 record: on-time-payment commitment when payment is fixed and we paid late
+    # dossier (csee/dossier): hedge-aware claims; "-d" planners also take the supplier's fitted persona priors
+    "base-d": BaseDossier,
+    "mert-skiphedge-d": SkipHedgeDossier,
+    "mert-plan-d": PlannerDossier,
+    "mert-plan-meso-lever-d": PlanMesoLeverDossier,
+    "mert-plan-meso-lever-dc": PlanMesoLeverDossierClaims,  # claims hook only
+    "mert-plan-meso-raw-d": PlanMesoRawDossier,
+    "mert-plan-dc": PlannerDossierClaims,  # claims hook only
+    "mert-plan-meso-raw-dc": PlanMesoRawDossierClaims,  # claims hook only
     "router": RouterAgent,
     "router-plan": RouterPlanAgent,  # A/B candidate: the planner on every non-RFQ type
 }

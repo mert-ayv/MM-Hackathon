@@ -15,6 +15,7 @@ All times are **CET, the new time** (clocks go back overnight: 03:00 → 02:00).
 - [ ] **08:05** `cd starter-kit && uv run arena data`, then check that the release was found (it must not print `None`):
   `uv run python -c "from arena_kit.data import DataPackage as D; p=D('data/package'); print(p.release, len(p.ids('news:')))"`
 - [ ] Same on the final machine (or copy `data/release-sunday` over).
+- [ ] `uv run python -m csee.dossier`: lists what the release adds per supplier (new hedges, price letters, cash asks, news). The agent re-derives these at runtime from the merged package; check that nothing looks wrong (e.g. a hedge on the wrong series).
 - [ ] Optional: extend the supplier profiles with the release's letters and news: `scripts/sunday_release.sh` (Annika's profile builder; see `docs/SUNDAY_RELEASE.md`; needs `ANTHROPIC_API_KEY`). It only **stages** changes. Before `apply`:
   - **Read every newly added `arguments_to_avoid` entry by hand.** The agent drops an argument whose kind keywords appear there (`should-cost`, `cost:`, `quote`, `competitor`, `otd`, `delivery record`, `ppm`, `forecast`, `notice`, `news:`, or an index series and its theme: electric, copper, alloy, steel). One careless entry can silently switch off our strongest argument for that supplier.
   - Check the "Removed" section (removal matching is loose).

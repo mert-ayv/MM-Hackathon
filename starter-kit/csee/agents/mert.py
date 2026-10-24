@@ -388,7 +388,8 @@ class MertHedgeLateAgent(MertHedgeAgent):
 RAW_RECIP = 0.6  # our move >= this share of the supplier's last move, in C
 RAW_MIN_GAP = 0.03  # ... but our main package stays at least this share of C below its current package
 HEDGE_RE = re.compile(
-    r"(?:covered at fixed prices|hedged|bought forward|fixed[- ]price cover)[^.]*?until\s+([A-Z][a-z]+)\s+(\d{4})",
+    # "bought their copper forward until March 2027": the call-note wording (70190, 70520-M4, 70560, 70730)
+    r"(?:covered at fixed prices|hedged|bought (?:\w+ ){0,4}?forward|fixed[- ]price cover)[^.]*?until\s+([A-Z][a-z]+)\s+(\d{4})",
     re.I,
 )
 MONTHS = {m: i for i, m in enumerate(
@@ -1070,9 +1071,21 @@ class PlanMixin:
     """Put first: class X(PlanMixin, Parent). Parent decides terms; the planner decides the main price."""
 
     plan = PlanParams()
+    dossier_plan = False  # True: supplier-specific PlanParams from csee/dossier (fitted personas only, else defaults)
 
     def prepare(self, case, threads):
         super().prepare(case, threads)
+        self.plan_by = {}
+        if self.dossier_plan:
+            from .. import dossier
+
+            for sid in case["suppliers"]:
+                ov = dossier.plan_overrides(dossier.get(sid, self.pkg), case, self.plan)
+                try:
+                    if ov:
+                        self.plan_by[sid] = replace(self.plan, **ov)
+                except (TypeError, ValueError):
+                    continue
         self.case_negotiable = list(case["negotiable"])
         # the planner decides when a thread is done: the parent's close-gap stop must never fire
         self.p = replace(self.p, close_gap=-1.0, close_room=0.0, final_push=0.0, push_after_final=0)
@@ -1083,7 +1096,11 @@ class PlanMixin:
         st = self.threads[sid]
         base = {"standard": closing_terms(case, st.opening, std), "ppm": self.real_ppm(case, sid, std)}
         rate = self.revealed_rate(case, sid, base)
-        return {**base, "interest_rate": rate if rate is not None else self.plan.default_rate}
+        return {**base, "interest_rate": rate if rate is not None else self.plan_for(sid).default_rate}
+
+    def plan_for(self, sid):
+        """This supplier's PlanParams: the dossier's priors when dossier_plan is on and it has them, else `plan`."""
+        return (getattr(self, "plan_by", None) or {}).get(sid, self.plan)
 
     def revealed_rate(self, case, sid, base):
         """Its money rate from two of its sheets that differ only in payment days: the rate at which both are
@@ -1179,7 +1196,7 @@ class PlanMixin:
     # ---------- the plan ----------
     def plan_value(self, case, threads, sid, sup, left):
         """Target value of our next main sheet, or (None, why) to stop writing."""
-        P = self.plan
+        P = self.plan_for(sid)
         B, A, S, theirs = self.history(case, sid, sup)
         if not A:
             return None, "no supplier value"
