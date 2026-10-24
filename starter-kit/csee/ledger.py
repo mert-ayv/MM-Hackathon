@@ -6,6 +6,8 @@ Commit and push it; `python -m csee board` compares every variant across the who
 """
 
 import getpass
+import hashlib
+import socket
 import os
 import json
 import statistics
@@ -30,14 +32,34 @@ def author():
     return "".join(ch for ch in name.lower().replace(" ", "-") if ch.isalnum() or ch == "-") or "unknown"
 
 
-def _commit():
+def _snapshot():
+    """(tag, patch path, on origin) of the agent code this run executes. Uncommitted edits under
+    starter-kit/csee (tracked and new files) are saved as experiments/patches/<hash>.diff, so any run
+    is reproducible: `git checkout <commit> && git apply experiments/patches/<hash>.diff`."""
     head = _git("rev-parse", "--short", "HEAD") or "nogit"
-    dirty = bool(_git("status", "--porcelain", "--", "starter-kit/csee"))
-    return head + ("+dirty" if dirty else "")
+    diff = _git("diff", "HEAD", "--", "starter-kit/csee")
+    for f in _git("ls-files", "--others", "--exclude-standard", "--", "starter-kit/csee").split():
+        diff += "\n" + _git("diff", "--no-index", "--", "/dev/null", f)
+    try:
+        on_origin = (
+            subprocess.run(
+                ["git", "merge-base", "--is-ancestor", "HEAD", "origin/main"], cwd=ROOT, timeout=5
+            ).returncode
+            == 0
+        )
+    except Exception:
+        on_origin = False
+    if not diff.strip():
+        return head, None, on_origin
+    digest = hashlib.sha1(diff.encode()).hexdigest()[:8]
+    patch = FOLDER / "patches" / f"{digest}.diff"
+    patch.parent.mkdir(parents=True, exist_ok=True)
+    patch.write_text(diff.strip() + "\n")
+    return f"{head}+{digest}", str(patch.relative_to(ROOT)), on_origin
 
 
 # taken once, when the run starts: edits made while it runs do not belong to it
-COMMIT = _commit()
+COMMIT, PATCH, ON_ORIGIN = _snapshot()
 
 
 def commit():
@@ -52,6 +74,9 @@ def record(case_id, set_, result, variant, params, llm, note=""):
         "author": author(),
         "variant": variant,
         "commit": commit(),
+        "patch": PATCH,  # uncommitted agent edits this run used (None = exactly the commit)
+        "on_origin": ON_ORIGIN,  # the commit was already on origin/main (others can check it out)
+        "host": socket.gethostname(),
         "llm": llm,
         "set": set_,
         "case_id": case_id,
