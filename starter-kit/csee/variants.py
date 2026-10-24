@@ -118,6 +118,18 @@ VARIANTS = {
         "value_neutral_terms": True,
         "contract_at_horizon": True,
     },
+    "v13": {
+        "adopt_insisted": True,
+        "rival_only_lower": True,
+        "cash_trade_always": True,
+        "anchor_leverage": 0.22,
+        "rfq_anchor_vs_leader": 0.08,
+        "adopt_revealed": True,
+        "sticky_terms": True,
+        "sticky_max_cost": 0.008,
+        "value_neutral_terms": True,
+        "contract_at_horizon": True,
+    },
 }
 
 
@@ -145,6 +157,8 @@ DESCRIPTIONS = {
     "v12": "v9 fixed by the coverage review: sticky only for quality terms (v9 locked in must-have-breaking "
     "volume/lead time, P01 dates); chargeback/ppm/payment chosen at the price that keeps the supplier's value "
     "equal (it pays chargebacks at its real ppm); no contract beyond the horizon when a rising index clause looms.",
+    "v13": "v9 with sticky terms only where keeping the supplier's value costs us <= 0.8 % of C (D01 payment "
+    "sticks; P01's early date does not) + v12's value-neutral quality terms and contract cap.",
     "v4": "base tactics (12% anchor, steady concessions keep the supplier conceding: D01) + v2's adopt-held-terms, "
     "lower-rival-only, cash sheet + floor guard (P05 anchored 0.5% below the opening) + RFQ: beat the leader.",
 }

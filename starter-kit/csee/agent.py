@@ -104,6 +104,7 @@ class Params:
     sticky_terms: bool = False  # after our first ask, keep the non-price terms of its cheapest sheet (P11)
     text_signals: bool = False
     # v12 switches (coverage review)
+    sticky_max_cost: float = 0.0  # >0: stick to a term only if keeping it costs us <= this share of C
     sticky_fields: tuple = ()  # with sticky_terms: only these fields stick (empty = all non-price fields)
     value_neutral_terms: bool = False  # pick chargeback/ppm/payment at the price that keeps its value equal
     contract_at_horizon: bool = False  # no contract beyond the horizon when an index clause is in play and rising  # infer cash/capacity/volume pressure from the supplier's e-mails, not only profiles
@@ -483,7 +484,18 @@ class CseeAgent:
             # three times and accepted the dearest set it had offered): keep its cheapest-for-us sheet's terms,
             # negotiate the price, trade other terms only in alternative sheets
             sticky = self.p.sticky_fields or tuple(f for f in case["negotiable"] if f != "unit_price")
-            fixed.update({f: theirs[f] for f in sticky if f in case["negotiable"] and f in theirs})
+            stick = {f: theirs[f] for f in sticky if f in case["negotiable"] and f in theirs}
+            if self.p.sticky_max_cost and stick:
+                # keep only the terms that are cheap for us to concede (D01: its 30 days = 0.7 % of C, stick;
+                # P01: its early start date = several %, don't) - the rest we still negotiate
+                ours_best = levers.best_terms(case, {**theirs}, std, supplier)
+                c0 = total_cost(case, ours_best, std, supplier)
+                stick = {
+                    f: v
+                    for f, v in stick.items()
+                    if total_cost(case, {**ours_best, f: v}, std, supplier) - c0 <= self.p.sticky_max_cost * c0
+                }
+            fixed.update(stick)
         if self.p.adopt_revealed:
             fixed.update(self.revealed_fields(case, threads[sid], theirs))
         # never adopt a supplier value that breaks one of our must-haves (P10: volume 19,890 < 22,230)
