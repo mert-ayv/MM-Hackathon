@@ -100,6 +100,13 @@ class Params:
     push_after_final: int = 0  # rounds we still push after its final_offer (0 = accept the final offer)
     final_push: float = 0.0  # >0: after a final offer, ask only this small step below it (D01 agreed to 0.5 %;
     #                          a far-off push made DEMO-C1 walk away) - and only with the bidder holding the best deal
+    # v14 switches (price-increase review: relationship-goal anchors)
+    rel_anchor: bool = (
+        False  # stabilise/secure_supply: anchor at the relationship-optimal price, not the should-cost floor
+    )
+    rel_full: float = 0.98  # own-plant should-cost runs ~2 % above the real full cost (P01 130.04 vs 132.64)
+    close_room: float = 0.0  # >0: thread is done only when the C gap <= this share of the room (opening C - anchor C)
+    trade_no_rel: bool = False  # price trade sheets without the relationship term (price_for bisection breaks with it)
     time_aware: bool = True  # Live Final: pace concessions to the rounds that fit before the wave's cap
     sticky_terms: bool = False  # after our first ask, keep the non-price terms of its cheapest sheet (P11)
     text_signals: bool = False
@@ -120,6 +127,7 @@ class ThreadState:
     cited_rival: float | None = None  # the rival price we last cited to this supplier
     alt_requested: str | None = None  # an alternative sheet of theirs we proposed back
     events: list = field(default_factory=list)  # the thread so far (for the supplier's own signals)
+    anchor_c: tuple | None = None  # (our anchor's C, its opening C): the room of this thread
     pushed: int = 0  # rounds pushed after a final offer
     round_s: list = field(default_factory=list)  # seconds per round (our move + its reply), for the wave cap
     asked_breakdown: bool = False
@@ -548,13 +556,27 @@ class CseeAgent:
             p = p_s * (1 - self.p.anchor_below_open)
             if b.get("current_unit_price") and case.get("type") in ("price_increase", "raw_material", "renewal"):
                 p = min(p, b["current_unit_price"])
+            if self.p.rel_anchor and rel_goal:
+                floor = None  # should-cost is not the bot's floor: P01/P02/P17 should-cost >= the supplier's own ask
             if floor and not (
                 self.p.floor_guard
                 and b.get("category_goal") not in RELATIONSHIP_GOALS
                 and floor >= p_s * 0.97  # an estimate above its own ask is wrong, not a floor
             ):
                 p = max(p, floor)
-            if b.get("category_goal") in RELATIONSHIP_GOALS and supplier:
+            if self.p.rel_anchor and rel_goal and st.intel.full_cost:
+                # the price below which the margin charge outweighs the saving, at the supplier's REAL cost
+                # (should-cost x 0.98): P02 anchors at ~358 (the KAM's own +2 % line) instead of 369 (0.5 % below its ask)
+                real = {
+                    **(supplier or {}),
+                    "full_cost": st.intel.full_cost * self.p.rel_full,
+                    "interest_rate": 0.08,
+                    "standard": closing_terms(case, st.opening, std),
+                }
+                p_rel = levers.relationship_optimal_price(case, base, std, real, real["full_cost"] * 0.9, p_s)
+                if p_rel:
+                    p = max(p, p_rel * 0.99)
+            elif b.get("category_goal") in RELATIONSHIP_GOALS and supplier:
                 p_rel = levers.relationship_optimal_price(case, base, std, supplier, supplier["full_cost"], p_s)
                 if p_rel:
                     p = max(p, p_rel * 0.99)
@@ -609,12 +631,21 @@ class CseeAgent:
         # their sheet already as cheap as ours (on all terms): nothing to win by writing
         c_theirs = total_cost(case, theirs, std, supplier)
         c_ours = total_cost(case, ours, std, supplier)
-        if c_theirs <= c_ours * (1 + self.p.close_gap):
+        if not st.our_prices:
+            opening_c = total_cost(case, st.opening, std, supplier) if st.opening.get("unit_price") else None
+            st.anchor_c = (c_ours, opening_c)
+        allow = c_ours * self.p.close_gap
+        if self.p.close_room and st.anchor_c and st.anchor_c[1]:
+            # P02: 0.4 % of C was 19 % of the whole room - we stopped at round 5 with 5 rounds left
+            allow = min(allow, self.p.close_room * max(st.anchor_c[1] - st.anchor_c[0], 0))
+        if c_theirs <= c_ours + allow:
             st.why = f"their C {c_theirs:.0f} within close_gap of ours {c_ours:.0f}: ready"
             return None
         return ours
 
     def sheets(self, case, sid, ours, std, supplier):
+        if self.p.trade_no_rel:
+            supplier = None  # with the relationship term C is not monotone in price: price_for returned 0 (P01)
         """Our main sheet, plus up to two trades: a term the supplier values for a lower price."""
         out = [complete_offer(case, ours)]
         c_main = total_cost(case, out[0], std, supplier)
