@@ -59,6 +59,8 @@ from .mert import (
     MertDialogueAgent,
     MertHedgeAgent,
     MertHedgeLateAgent,
+    MertLeverAgent,
+    MertLeverRawAgent,
     MertRawAgent,
 )
 from .router import RouterAgent
@@ -76,6 +78,8 @@ AGENTS = {
     "mert-raw": MertRawAgent,
     "mert-hedge": MertHedgeAgent,
     "mert-hedge-late": MertHedgeLateAgent,
+    "mert-lever": MertLeverAgent,
+    "mert-lever-raw": MertLeverRawAgent,
     "mert-anchorcap": AnchorCapAgent,
     "mert-gatedpush": GatedPushAgent,  # rejected: P18 afada094 walked after a push inside the gate
     "mert-final": FinalCandidateAgent,

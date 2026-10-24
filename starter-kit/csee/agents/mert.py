@@ -11,9 +11,9 @@ disabled final pushes. No claimed practice improvement until measured.
 import math
 import re
 from datetime import date
-from dataclasses import replace
+from dataclasses import dataclass, replace
 
-from arena_kit.cost import RELATIONSHIP_GOALS, closing_terms, complete_offer, must_haves_ok, total_cost
+from arena_kit.cost import RELATIONSHIP_GOALS, closing_terms, complete_offer, must_haves_ok, supplier_value, total_cost
 from arena_kit.docs import standard_terms
 from arena_kit.play import latest
 
@@ -576,3 +576,427 @@ class AnchorCapAgent(MertAgent):
 
 class FinalCandidateAgent(GatedPushAgent, AnchorCapAgent):
     """Anchor cap by case type + gated push after a final offer."""
+
+
+# ---------- mert-lever: give the supplier what it names ----------
+# Give the supplier what it names (mert-lever).
+# 
+# Suppliers say what would move them: "faster payment would help us", "we can offer a Preisgleitklausel on
+# CU-NOTATION", "in return for the 24-month commitment", "a lead time of 42 days is not feasible; we must
+# maintain 54", "we are willing to adjust the effective date to 1 January 2027", "which volume can you
+# commit to?". The base agent reads a few keywords and otherwise answers with its own trade list.
+# 
+# This mixin turns every lever the supplier NAMES into an answer:
+#   * negotiable field -> an alternative term sheet with that field at the supplier's value, priced by code:
+#       - the supplier's side: its cash value (arena_kit.supplier_value at its OWN money rate, read off its
+#         sheets), plus what its own alternative sheets reveal per unit of a field (lead time, chargeback,
+#         ppm), plus a security value for an index clause (share x the rise it claims, less the deadband) and
+#         for a longer contract. p_ind = the price at which the sheet is worth exactly its current ask to it.
+#       - our side: the TRUE C (relationship charge at the calibrated supplier: should-cost x 0.98, its money
+#         rate). The sheet is offered at max(p_ind, our relationship-optimal price) if that beats the deal we
+#         expect without the lever (its current ask less its projected remaining steps) by trade_gain; else at
+#         the highest price that does (a real trade, not acceptable at once); never if even that is below our
+#         own main ask (the lever costs us more than it is worth to it).
+#   * fixed field it asks about -> one honest sentence (the fixed volume in every package is binding; the
+#     payment term is fixed by the contract) - never a commitment the case does not allow.
+# Regex extraction (no model call): the bots' e-mails are formulaic (scratchpad/sub-lever/sentences.txt).
+
+KAPPA_CLAUSE = 0.5  # share of the claimed index exposure a clause is worth to the supplier (P18 fit 0.8, P02 >= 0.35)
+CONTRACT_SECURITY = 0.005  # per extra year of contract, share of price (P07/P03/P04: welcomed, never priced alone)
+MARGIN = 0.05  # a lever sheet must beat the expected close by 5 % of the room (opening C - expected C)
+N_FINAL = 5  # bots go final around their 4th-5th reply (practice traces)
+MONTHS = {m: i for i, m in enumerate(
+    "january february march april may june july august september october november december".split(), 1)}
+NUM = re.compile(r"(\d+(?:[.,]\d+)?)")
+RISE = re.compile(r"([A-Z][A-Z0-9-]{2,}) rose ([\d.]+) ?% in twelve months and is (\d+) ?% of our cost")
+
+
+@dataclass
+class Named:
+    field: str
+    kind: str  # wants | requires | offers | question
+    sentence: str
+    value: object = None
+
+
+PATTERNS = [
+    ("payment_days", "wants", re.compile(
+        r"faster payment|pay(ing)? (us |your invoices )?(faster|on time)|cash (is|flow)|better payment terms|"
+        r"\d+[- ]day payment terms?,? which (are|is) necessary|(maintain|keep)(ing)? (our )?(standard )?\d+[- ]day payment|"
+        r"standard payment terms of \d+ days", re.I)),
+    ("index_clause", "offers", re.compile(
+        r"(Preisgleitklausel|index clause|price adjustment clause) on [A-Z]|(must|need to) include (the |an )?"
+        r"([A-Z][A-Z0-9-]+ )?index clause|cannot offer a fixed price|insist on the [A-Z][A-Z0-9-]+ index clause", re.I)),
+    ("contract_months", "wants", re.compile(
+        r"(in return for|welcome|appreciate|agreeable to|support|pleased to).{0,60}\b(24|36|48)[- ]month|"
+        r"longer (contract|term|agreement)", re.I)),
+    ("volume_per_year", "question", re.compile(r"which volume|binding (higher )?volume|volume commitment", re.I)),
+    ("lead_time_days", "requires", re.compile(
+        r"lead ?time of \d+ days is not feasible|(maintain|keep) (the )?(lead ?time|Lieferzeit) at \d+|"
+        r"must maintain \d+ days|fully booked|capacity utili[sz]ation", re.I)),
+    ("effective_date", "wants", re.compile(r"(adjust|move|shift) the effective date to \d{1,2} \w+ \d{4}", re.I)),
+    ("ppm_commitment", "offers", re.compile(r"(drop|lower|relax) the ppm commitment to \d+", re.I)),
+]
+
+
+def sentences(body):
+    body = re.sub(r"\s+", " ", body or "")
+    return [s.strip() for s in re.split(r"(?<=[.?!])\s+(?=[A-Z])", body) if s.strip()]
+
+
+def extract(body):
+    """Every lever a supplier e-mail names: [Named]. Pure regex (the bots' phrasing is formulaic)."""
+    out = []
+    for s in sentences(body):
+        for field, kind, rx in PATTERNS:
+            if rx.search(s):
+                out.append(Named(field, kind, s))
+    return out
+
+
+def _date(s):
+    m = re.search(r"(\d{1,2}) (\w+) (\d{4})", s)
+    if m and m.group(2).lower() in MONTHS:
+        return f"{m.group(3)}-{MONTHS[m.group(2).lower()]:02d}-{int(m.group(1)):02d}"
+    return None
+
+
+class LeverMixin:
+    """Put before the agent class: class X(LeverMixin, SomeAgent). Adds sheets and sentences, never removes the
+    main sheet or changes its price."""
+
+    REAL_FULL = 0.98
+
+    # ---------- reading ----------
+    def named_levers(self, case, sid, latest_only=False):
+        """Levers the supplier named (latest reply first, one per field), with target values. An index it
+        blames ("CU-NOTATION rose 47.7 % ... 20 % of our cost") names a clause when we may write one on it."""
+        st = self.threads[sid]
+        replies = [m for m in st.events if m.get("from") != "buyer"]
+        if latest_only:
+            replies = replies[-1:]
+        out, seen = [], set()
+        for m in reversed(replies):
+            found = extract(m.get("body"))
+            if not latest_only and "index_clause" in case["negotiable"]:
+                for series, rise, share in RISE.findall(m.get("body") or ""):
+                    if any(c and c.get("series") == series for c in levers.options(case, "index_clause")):
+                        found.append(Named("index_clause", "blames", f"{series} rose {rise} %", {series}))
+            for n in found:
+                if n.field in seen:
+                    continue
+                seen.add(n.field)
+                if n.value is None:
+                    n.value = self.target_value(case, sid, n)
+                out.append(n)
+        return out
+
+    def target_value(self, case, sid, n):
+        st, f = self.threads[sid], n.field
+        opts = levers.options(case, f)
+        theirs = [t.get("terms") or {} for m in st.events if m.get("from") != "buyer" for t in m.get("term_sheets") or []]
+        seen = {t.get(f) for t in theirs if isinstance(t.get(f), int | float | str)}
+        nums = [float(x.replace(",", ".")) for x in NUM.findall(n.sentence)]
+        if f == "payment_days":
+            named = [int(x) for x in nums if 7 <= x <= 120 and (int(x) in opts or int(x) in seen)]
+            if named:
+                return named[0]
+            ours = [m["term_sheets"][0].get("terms", {}).get("payment_days") for m in st.events
+                    if m.get("from") == "buyer" and m.get("term_sheets")]
+            now = next((d for d in reversed(ours) if d), None) or st.opening.get("payment_days") or 60
+            faster = [d for d in opts if d < now]
+            return (30 if 30 in faster else max(faster)) if faster else None
+        if f == "contract_months":
+            named = [int(x) for x in nums if int(x) in (opts or [12, 24, 36])]
+            return max(named) if named else (max(opts) if opts else None)
+        if f == "lead_time_days":
+            named = [int(x) for x in nums if int(x) in seen or int(x) in opts]
+            return max(named) if named else st.opening.get("lead_time_days")
+        if f == "effective_date":
+            return _date(n.sentence)
+        if f == "ppm_commitment":
+            named = [int(x) for x in nums if int(x) in opts or int(x) in seen]
+            return named[0] if named else None
+        if f == "index_clause":
+            series = set(re.findall(r"\b([A-Z][A-Z0-9]{1,}(?:-[A-Z0-9]+)+)\b", n.sentence))
+            if not series:  # "we must include an index clause": the series its sheets carry
+                series = {(t.get("index_clause") or {}).get("series") for t in theirs} - {None}
+            return series or None
+        if f == "volume_per_year":
+            more = [v for v in opts if v > (st.opening.get("volume_per_year") or 0)]
+            return min(more) if more else None
+        return None
+
+    # ---------- the supplier's side ----------
+    def bot_model(self, case, sid, std):
+        st = self.threads[sid]
+        default = self.p.cash_rate if self.cash_short(sid) else 0.08
+        return {
+            "standard": closing_terms(case, st.opening, std),
+            "interest_rate": implied_rate(st.events, default),
+            "ppm": self.real_ppm(case, sid, std),
+        }
+
+    def claimed_rise(self, sid, series):
+        text = " ".join(m.get("body") or "" for m in self.threads[sid].events if m.get("from") != "buyer")
+        rises = [float(r) for s, r, _ in RISE.findall(text) if s == series]
+        return max(rises) if rises else None
+
+    def security(self, case, sid, t):
+        """Share of price the non-cash terms are worth to the supplier (arena: clause and contract are security)."""
+        s = 0.0
+        ic = t.get("index_clause")
+        if ic:
+            rise = self.claimed_rise(sid, ic["series"])
+            if rise is None:
+                rise = abs((case["buyer"].get("index_paths") or {}).get(ic["series"], 0.0)) * 100
+            s += KAPPA_CLAUSE * ic.get("material_share", 0) * max(rise - (ic.get("deadband_pct") or 0), 0) / 100
+        std_m = self.threads[sid].opening.get("contract_months") or 12
+        if t.get("contract_months"):
+            s += CONTRACT_SECURITY * max(0, t["contract_months"] - std_m) / 12
+        return s
+
+    def revealed_slopes(self, case, sid):
+        """EUR per unit of a numeric field, from its own sheets that differ only in that field and the price
+        (P10: 33.60 at 42 days vs 31.70 at 54 -> -0.158 EUR per day of lead time)."""
+        out = {}
+        for m in self.threads[sid].events:
+            if m.get("from") == "buyer":
+                continue
+            sh = [x.get("terms") or {} for x in m.get("term_sheets") or []]
+            for a in sh:
+                for b in sh:
+                    if a is b or a.get("unit_price") is None or b.get("unit_price") is None:
+                        continue
+                    diff = [k for k in set(a) | set(b) if k != "unit_price" and a.get(k) != b.get(k)]
+                    if len(diff) != 1 or diff[0] in ("payment_days", "index_clause", "contract_months"):
+                        continue
+                    f = diff[0]
+                    if isinstance(a.get(f), int | float) and isinstance(b.get(f), int | float) and a[f] != b[f]:
+                        out[f] = (a["unit_price"] - b["unit_price"]) / (a[f] - b[f])
+        return out
+
+    def bot_value(self, case, sid, std, t, ref=None):
+        """What sheet t is worth to the supplier per unit (cash + security + revealed field premiums vs ref)."""
+        sup = self.bot_model(case, sid, std)
+        t = closing_terms(case, t, std)
+        try:
+            v = supplier_value(case, t, sup)
+        except Exception:
+            return -math.inf
+        v += self.security(case, sid, t) * t["unit_price"]
+        if ref:
+            ref = closing_terms(case, ref, std)
+            for f, slope in self.revealed_slopes(case, sid).items():
+                if isinstance(t.get(f), int | float) and isinstance(ref.get(f), int | float):
+                    v += slope * (t[f] - ref[f])
+        return v
+
+    def indifferent_price(self, case, sid, std, sheet, theirs):
+        """The price at which `sheet` is worth to the supplier what its current ask is worth (bisection)."""
+        target = self.bot_value(case, sid, std, theirs, theirs)
+        lo, hi = 0.0, (theirs.get("unit_price") or sheet["unit_price"]) * 2
+        for _ in range(50):
+            mid = (lo + hi) / 2
+            if self.bot_value(case, sid, std, {**sheet, "unit_price": mid}, theirs) < target:
+                lo = mid
+            else:
+                hi = mid
+        return hi
+
+    # ---------- our side ----------
+    def true_model(self, case, sid, std):
+        st = self.threads[sid]
+        if case["buyer"].get("category_goal") not in RELATIONSHIP_GOALS or not st.intel.full_cost:
+            return self.supplier_estimate(case, sid, std)
+        return {
+            "full_cost": st.intel.full_cost * self.REAL_FULL,
+            "interest_rate": implied_rate(st.events),
+            "standard": closing_terms(case, st.opening, std),
+        }
+
+    def expected_close(self, case, sid, std, theirs, sup):
+        """C of the deal we expect WITHOUT the lever: its ask less its projected remaining steps (its standing
+        sheet's own price steps, same terms, last two; bots go final around reply N_FINAL)."""
+        st = self.threads[sid]
+        c_now = total_cost(case, theirs, std, sup)
+        if latest(st.events).get("status") == "final_offer":
+            return c_now
+        firsts = [(m.get("term_sheets") or [{}])[0].get("terms") or {} for m in st.events
+                  if m.get("from") != "buyer" and m.get("term_sheets")]
+        steps = []
+        for a, b in zip(firsts, firsts[1:]):
+            same = all(a.get(k) == b.get(k) for k in set(a) | set(b) if k != "unit_price")
+            if same and a.get("unit_price") and b.get("unit_price"):
+                steps.append(max(a["unit_price"] - b["unit_price"], 0.0))
+        step = sum(steps[-2:]) / len(steps[-2:]) if steps else 0.002 * (theirs.get("unit_price") or 0)
+        k = max(0, N_FINAL - len(firsts))
+        return total_cost(case, {**theirs, "unit_price": theirs["unit_price"] - step * k}, std, sup)
+
+    def price_lever(self, case, sid, std, sheet, theirs, main):
+        """(price, note) for a lever sheet, or None. See the module docstring."""
+        sup = self.true_model(case, sid, std)
+        c = lambda p: total_cost(case, {**sheet, "unit_price": p}, std, sup)  # noqa: E731
+        e = self.expected_close(case, sid, std, theirs, sup)
+        room = abs(total_cost(case, self.threads[sid].opening and closing_terms(case, self.threads[sid].opening, std) or theirs, std, sup) - e)
+        target = e - MARGIN * room  # must beat the expected close by a share of this thread's room
+        if len(case["suppliers"]) > 1:  # RFQ: a lever sheet must also beat the best rival on the table
+            try:
+                target = min(target, self.leader_cost(case, {s: ev for s, ev in self._threads_seen.items()}, exclude=sid))
+            except Exception:
+                pass
+        p_ind = self.indifferent_price(case, sid, std, sheet, theirs)
+        p = p_ind
+        rel = levers.relationship_optimal_price(case, sheet, std, sup, p_ind * 0.9, p_ind * 1.05, steps=300)
+        if rel and rel > p:
+            p = rel  # higher price, lower C for us (relationship charge): better on both sides
+        p = math.ceil(p * 100 - 1e-6) / 100  # the cent goes to the supplier: at p_ind it must not fall short
+        if c(p) <= target:
+            return p, f"acceptable (p_ind {p_ind:.2f})"
+        # the highest price that still beats the expected close: scan down from p_ind
+        lo = main["unit_price"]
+        best = None
+        for i in range(201):
+            q = p - (p - lo) * i / 200
+            if c(q) <= target:
+                best = math.floor(q * 100) / 100
+                break
+        if best is None or best <= main["unit_price"]:
+            return None
+        return best, f"trade (p_ind {p_ind:.2f} too dear for us)"
+
+    def lever_sheets(self, case, sid, main, std):
+        """[(C_true, sheet, Named, note)] for every named negotiable lever, cheapest for us first."""
+        if "unit_price" not in case["negotiable"]:
+            return []
+        st = self.threads[sid]
+        _, theirs = self.their_sheet(case, st.events, std, self.supplier_estimate(case, sid, std))
+        if theirs.get("unit_price") is None:
+            return []
+        theirs = closing_terms(case, theirs, std)
+        sup = self.true_model(case, sid, std)
+        out = []
+        for n in self.named_levers(case, sid):
+            if n.field not in case["negotiable"] or n.value is None:
+                continue
+            variants = []
+            if n.field == "index_clause":
+                paths = case["buyer"].get("index_paths") or {}
+                for c in levers.options(case, "index_clause"):
+                    if c and c.get("series") in n.value:
+                        variants.append({"index_clause": c})
+                if not variants or main.get("index_clause"):
+                    continue
+                _ = paths
+            else:
+                if main.get(n.field) == n.value:
+                    continue
+                rank = levers._supplier_rank
+                if main.get(n.field) is not None and rank(n.field, n.value, case) <= rank(n.field, main[n.field], case):
+                    continue  # not a step toward the supplier (it accepted our 24 months: no 24-month 'lever' vs 36)
+                variants.append({n.field: n.value})
+            for change in variants:
+                t = complete_offer(case, {**main, **change})
+                if not must_haves_ok(case, t, std):
+                    continue
+                priced = self.price_lever(case, sid, std, t, theirs, main)
+                if not priced:
+                    continue
+                t["unit_price"], note = priced
+                out.append((total_cost(case, t, std, sup), t, n, note))
+        out.sort(key=lambda x: x[0])
+        seen, uniq = set(), []
+        for x in out:  # one sheet per field (the clause: its cheapest deadband for us)
+            if x[2].field in seen:
+                continue
+            seen.add(x[2].field)
+            uniq.append(x)
+        return uniq
+
+    # ---------- the agent hooks ----------
+    def sheets(self, case, sid, ours, std, supplier):
+        out = super().sheets(case, sid, ours, std, supplier)
+        if not out:
+            return out
+        main = out[0]
+        found = self.lever_sheets(case, sid, main, std)
+        self.threads[sid].lever_notes = []
+        if not found:
+            return out
+        extra = [t for _, t, _, _ in found if t not in out]
+        rest = [s for s in out[1:] if s not in extra]
+        # a clause sheet from a hedge parent already answers a clause lever
+        if any(s.get("index_clause") for s in rest):
+            extra = [t for t in extra if not t.get("index_clause")]
+        merged = [main] + extra[:2] + rest
+        self.threads[sid].lever_notes = [(n, t, note) for _, t, n, note in found if t in merged[:3]]
+        self.threads[sid].why += "; levers: " + ", ".join(f"{n.field}->{t['unit_price']} ({note})" for n, t, note in self.threads[sid].lever_notes)
+        return merged[:3]
+
+    def answers(self, case, sid, sheets):
+        """Sentences for the e-mail: which package answers a lever named in its LATEST reply (a clause package
+        always: the template's package line omits the clause); fixed fields it asks about answered honestly."""
+        st = self.threads[sid]
+        latest_named = {n.field for n in self.named_levers(case, sid, latest_only=True)}
+        lines = []
+        for n, t, _ in getattr(st, "lever_notes", []):
+            idx = next((i for i, s in enumerate(sheets)
+                        if all(s.get(k) == t.get(k) for k in case["negotiable"])), None)
+            if idx is None or (n.field not in latest_named and n.field != "index_clause"):
+                continue
+            ic = t.get("index_clause") or {}
+            what = {
+                "payment_days": f"payment at {t.get('payment_days')} days net",
+                "contract_months": f"a binding {t.get('contract_months')}-month agreement",
+                "lead_time_days": f"your lead time of {t.get('lead_time_days')} days",
+                "effective_date": f"the new price valid from {t.get('effective_date')}",
+                "volume_per_year": f"a binding {(t.get('volume_per_year') or 0):,} units a year",
+                "ppm_commitment": f"a {t.get('ppm_commitment')} ppm commitment",
+                "index_clause": f"a Preisgleitklausel on {ic.get('series')} ({ic.get('material_share', 0):.0%} material share, "
+                                f"{ic.get('deadband_pct', 0):g} % deadband, base month {ic.get('base_month')}), which shares the "
+                                "index risk with you",
+            }.get(n.field)
+            if what:
+                lead = "As you asked, our" if n.field in latest_named else "Our"
+                lines.append(f"{lead} package {idx + 1} gives you {what}, at EUR {t['unit_price']:.2f} per unit.")
+        fixed = case.get("fixed_terms") or {}
+        main = closing_terms(case, sheets[0], {}) if sheets else {}
+        if "volume_per_year" in latest_named and "volume_per_year" not in case["negotiable"]:
+            vol, months = fixed.get("volume_per_year") or main.get("volume_per_year"), main.get("contract_months")
+            if vol and months:
+                lines.append(f"On volume: every package is a binding commitment of {vol:,.0f} units a year for "
+                             f"{months:g} months, the full need of this enquiry.")
+        if "payment_days" in latest_named and "payment_days" not in case["negotiable"] and fixed.get("payment_days"):
+            lines.append(f"On payment: the payment term is fixed at {fixed['payment_days']} days net for this "
+                         "contract and is not part of this negotiation.")
+        return lines
+
+    def thread_move(self, case, threads, sid):
+        self._threads_seen = threads  # read-only snapshot (runner contract): rivals for the RFQ cap
+        msg = super().thread_move(case, threads, sid)
+        if not msg or not msg.get("term_sheets"):
+            return msg
+        sheets = [s["terms"] for s in msg["term_sheets"]]
+        lines = self.answers(case, sid, sheets)
+        if not lines:
+            return msg
+        addition = "\n".join(lines)
+
+        def explain(body):
+            if SIGN in body:
+                return body.replace(SIGN, addition + "\n\n" + SIGN)
+            return body.rstrip() + "\n\n" + addition
+
+        msg["body"] = explain(msg["body"])
+        write = msg.get("_write")
+        if write:
+            msg["_write"] = lambda: explain(write())
+        return msg
+
+
+class MertLeverAgent(LeverMixin, CseeAgent):
+    """Base + an answer to every lever the supplier names (price_increase, renewal, capacity, quality, bundling)."""
+
+
+class MertLeverRawAgent(LeverMixin, MertAgent):
+    """mert/v16 raw material + the same answers (its clause packages stay; lever sheets never touch the main sheet)."""
