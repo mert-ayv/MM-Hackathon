@@ -1,0 +1,34 @@
+diff --git a/starter-kit/csee/__main__.py b/starter-kit/csee/__main__.py
+index 2de585a..83332d0 100644
+--- a/starter-kit/csee/__main__.py
++++ b/starter-kit/csee/__main__.py
+@@ -35,15 +35,27 @@ from . import agents, evaluate, ledger, runlog, variants
+ from .runner import play_all, play_case, play_waves
+ 
+ 
++def find_data():
++    """The data package: ARENA_DATA (the kit's `arena data` unpacks to data/package), else the copy
++    checked into the repo root (`../data` from starter-kit/). None if neither exists."""
++    here = Path(__file__).resolve().parents[2]  # the repo root
++    for p in (os.environ.get("ARENA_DATA"), "data/package", here / "data"):
++        if p and (Path(p) / "facts.json").is_file():
++            return str(p)
++    return None
++
++
+ def agent_factory(use_llm=True, variant="base", agent="base"):
+     cls = agents.get(agent)
+     package = None
+-    data = os.environ.get("ARENA_DATA", "data/package")
+-    if Path(data).exists():
++    data = find_data()
++    if data:
+         from arena_kit.data import DataPackage
+ 
+         package = DataPackage(data)
+         package.lookup("")  # build the ID index once, before agents share it
++    else:  # no should-cost, no floors, no data claims: the agent still plays, but much weaker
++        log.warning("NO DATA PACKAGE (ARENA_DATA=%s, no ../data): playing without data", os.environ.get("ARENA_DATA"))
+     writer = None
+     if use_llm and (os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("LLM_API_KEY")):
+         from arena_kit.agents.llm import llm_from_env
