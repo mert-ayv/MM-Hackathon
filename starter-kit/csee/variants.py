@@ -10,6 +10,15 @@ from .agent import Params
 
 VARIANTS = {
     "base": {},  # Params defaults: the current champion on main
+    # D02 lessons: stop fighting held terms, cite only lower rivals, always offer cash, concede slower
+    "v2": {
+        "adopt_insisted": True,
+        "rival_only_lower": True,
+        "cash_trade_always": True,
+        "follow_share": 0.5,
+        "hold_above_floor": 0.4,
+        "anchor_below_open": 0.18,
+    },
 }
 
 

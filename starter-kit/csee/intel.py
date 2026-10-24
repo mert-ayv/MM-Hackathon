@@ -23,6 +23,7 @@ class Claim:
     ids: list
     kind: str  # index | should_cost | rival | scorecard | notice | forecast | news | history
     strength: float = 1.0  # how strongly it supports a lower price (for ordering)
+    price: float | None = None  # the figure, for rival offers
 
 
 @dataclass
@@ -199,7 +200,9 @@ def rival_claims(case, threads_standing, me):
             best = (offer_id, terms["unit_price"])
     if not best:
         return []
-    return [Claim(f"We hold a competing offer at EUR {best[1]:.2f} per unit ({best[0]}).", [best[0]], "rival", 2.5)]
+    return [
+        Claim(f"We hold a competing offer at EUR {best[1]:.2f} per unit ({best[0]}).", [best[0]], "rival", 2.5, best[1])
+    ]
 
 
 def parse_cost_breakdown(text):

@@ -28,10 +28,18 @@ def author():
     return "".join(ch for ch in name.lower().replace(" ", "-") if ch.isalnum() or ch == "-") or "unknown"
 
 
-def commit():
+def _commit():
     head = _git("rev-parse", "--short", "HEAD") or "nogit"
     dirty = bool(_git("status", "--porcelain", "--", "starter-kit/csee"))
     return head + ("+dirty" if dirty else "")
+
+
+# taken once, when the run starts: edits made while it runs do not belong to it
+COMMIT = _commit()
+
+
+def commit():
+    return COMMIT
 
 
 def record(case_id, set_, result, variant, params, llm, note=""):

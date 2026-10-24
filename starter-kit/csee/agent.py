@@ -33,6 +33,12 @@ class Params:
     max_claims: int = 2  # data arguments per message (the arena checks at most 3)
     cash_rate: float = 0.14  # a cash-short supplier's cost of money
     reserve_moves: int = 1  # keep this many messages in hand
+    # v2 switches (off = the v1 baseline behaviour)
+    adopt_insisted: bool = False  # a term the supplier held twice against our ask: take its value
+    rival_only_lower: bool = False  # cite a rival offer only if it beats this supplier's price
+    cash_trade_always: bool = False  # always offer a faster-payment sheet, not only for cash-short profiles
+    follow_share: float = 1.1  # our step at most this share of the supplier's last step
+    hold_above_floor: float = 0.0  # with a known cost floor: concede only this share while above floor*1.08
 
 
 @dataclass
@@ -41,6 +47,7 @@ class ThreadState:
     our_prices: list = field(default_factory=list)
     their_prices: list = field(default_factory=list)
     breakdown: dict | None = None
+    cited_rival: float | None = None  # the rival price we last cited to this supplier
     asked_breakdown: bool = False
     ready: bool = False  # nothing more to gain by writing: wait for the coordinator
 
@@ -146,7 +153,8 @@ class CseeAgent:
         p_s = theirs.get("unit_price")
         if p_s is None:
             return None
-        base = levers.best_terms(case, {**theirs}, std, supplier)
+        fixed = self.insisted_fields(case, threads[sid]) if self.p.adopt_insisted else {}
+        base = levers.best_terms(case, {**theirs, **fixed}, std, supplier, fixed=tuple(fixed))
         floor = self.floor_price(st)
         if not st.our_prices:  # the anchor
             p = p_s * (1 - self.p.anchor_below_open)
@@ -169,7 +177,9 @@ class CseeAgent:
             if their_step <= 0:  # they did not move: we barely move
                 step = min(step, 0.1 * gap)
             else:
-                step = min(step, max(their_step * 1.1, 0.05 * gap))
+                step = min(step, max(their_step * self.p.follow_share, 0.05 * gap))
+            if self.p.hold_above_floor and floor and p_b > floor * 1.08:
+                step *= self.p.hold_above_floor  # we know there is room above its cost: hold
             p = p_b + max(step, 0)
         ours = {**base, "unit_price": round(p, 2)}
         # their sheet already as cheap as ours (on all terms): nothing to win by writing
@@ -189,7 +199,7 @@ class CseeAgent:
         tradeables = [t.get("lever") for t in profile.get("likely_tradeables", [])]
         trades = []
         if "payment_days" in case["negotiable"] and (
-            "cash" in values or "payment" in values or "payment_days" in tradeables
+            self.p.cash_trade_always or "cash" in values or "payment" in values or "payment_days" in tradeables
         ):
             faster = [d for d in levers.options(case, "payment_days") if d < out[0]["payment_days"]]
             if faster:
@@ -226,7 +236,16 @@ class CseeAgent:
         claims = list(st.intel.claims)
         if len(case["suppliers"]) > 1:
             stand = {s: standing(threads[s]) for s in threads}
-            claims = intel_mod.rival_claims(case, stand, sid) + claims
+            rivals = intel_mod.rival_claims(case, stand, sid)
+            if self.p.rival_only_lower:
+                mine = stand.get(sid, (None, {}))[1].get("unit_price") or 0
+                cited = st.cited_rival
+                rivals = [
+                    c for c in rivals if c.price is not None and c.price < mine and (cited is None or c.price < cited)
+                ]
+                if rivals:
+                    st.cited_rival = rivals[0].price
+            claims = rivals + claims
         avoid = " ".join(a.get("argument", "") for a in st.intel.profile.get("arguments_to_avoid", [])).lower()
         out = []
         for c in claims:
@@ -240,6 +259,25 @@ class CseeAgent:
             self.used_ids.update(i for i in c.ids if c.kind != "rival")
             if len(out) >= self.p.max_claims:
                 break
+        return out
+
+    @staticmethod
+    def insisted_fields(case, events):
+        """Non-price terms the supplier answered with the same value at least twice against a
+        different ask of ours: {field: its value}. Fighting those wastes rounds."""
+        pairs, ask = [], None
+        for m in events:
+            if m.get("from") == "buyer" and m.get("term_sheets"):
+                ask = m["term_sheets"][0].get("terms", m["term_sheets"][0])
+            elif m.get("from") != "buyer" and ask and m.get("term_sheets"):
+                pairs.append((ask, m["term_sheets"][0]["terms"]))
+        out = {}
+        for f in case["negotiable"]:
+            if f == "unit_price":
+                continue
+            held = [theirs.get(f) for ours, theirs in pairs[-2:] if f in theirs and theirs.get(f) != ours.get(f)]
+            if len(held) == 2 and held[0] == held[1]:
+                out[f] = held[0]
         return out
 
     # ---------- the whole case ----------
