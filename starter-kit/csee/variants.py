@@ -146,6 +146,8 @@ VARIANTS = {
         "close_room": 0.1,
     },
 }
+VARIANTS["v15"] = {**VARIANTS["v14"], "final_push": 0.008}
+
 
 
 # What each variant tests, in words - stored with every ledger row (keep it one or two sentences).
@@ -174,6 +176,8 @@ DESCRIPTIONS = {
     "equal (it pays chargebacks at its real ppm); no contract beyond the horizon when a rising index clause looms.",
     "v13": "v9 with sticky terms only where keeping the supplier's value costs us <= 0.8 % of C (D01 payment "
     "sticks; P01's early date does not) + v12's value-neutral quality terms and contract cap.",
+    "v15": "v14 + after a final offer one push 0.8 % below it, leading bidder only (sandbox logs: 10 of 11 "
+    "pushes <= 2 % improved the deal, none walked; 9.6 % and 15.7 % pushes walked).",
     "v14": "v13 + price-increase review: relationship goals anchor at the relationship-optimal price at the "
     "supplier's real cost (should-cost x0.98), not the should-cost floor (P02 369 -> 358); trade sheets priced "
     "without the relationship term (they were all dropped); close only when the gap <= 10 % of the room.",

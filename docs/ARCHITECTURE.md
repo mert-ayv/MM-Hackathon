@@ -113,3 +113,15 @@ How our agent negotiates, and how each architecture version is tracked. Code: [`
   - after 3 refused closes, it tries the kit's closing move, then a walk-away (an open session would sit until the wave cap);
   - a final case that failed before closing is played again (409 -> resume).
 - **Check:** sim unchanged (base .267, v13 .285, v14 .317); sandbox v14 0.97 / 0.70; 159 tests pass.
+
+| v15 | v14 + one 0.8 % push after a final offer, leading bidder only (sandbox logs: 10 of 11 pushes <= 2 % improved the deal, none walked) | 0.97 / 0.72 / 0.846 (2 repeats each; v14 0.835) | 0.317 (= v14: the sim bot treats a final offer as hard) | – | **candidate**: needs practice evidence that practice bots move after "final" |
+
+**Free-tool ceiling (Sat ~17:00):**
+- The local sim can't rank variants: levels are off by about 0.3 and it ranks P11 the wrong way round.
+- A replay-calibrated bot per case (scratchpad `ceiling/`, leave-one-out error 0.046) says v14 never loses to v13 across 360 bot settings and gains on P02.
+- The open bets need practice bots:
+  - the v14 anchor (P01/P02);
+  - pushing after a final offer (v15);
+  - more checkable claims in round 2+ (suppliers asked for data in P03/P11/P18, and we sent none);
+  - the "<= 2 % desk authority" line (P02/P10);
+  - continuing the RFQ auction with an agreed bidder (P05).
