@@ -88,6 +88,7 @@ Add `--no-llm` to use template e-mails. Without an LLM key it uses templates any
 | `writer.py` | e-mail wording: templates, or a model (claim sentences kept verbatim) |
 | `runner.py` | all supplier threads of a case **in parallel** (the 60 s clock is per thread), practice runs, Live Final waves |
 | `evaluate.py` | fetch results + traces + back office, report vs house agent |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | **how the agent works + changelog of architecture versions with evidence** |
 | `profiles/` | one JSON profile per supplier: situation, pressures, what it values, arguments to use/avoid |
 
 ## How scoring works (short version)

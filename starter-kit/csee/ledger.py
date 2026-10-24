@@ -63,12 +63,19 @@ def record(case_id, set_, result, variant, params, llm, note=""):
         "c_best": result.get("c_best") if isinstance(result, dict) else None,
         "error": None if isinstance(result, dict) else str(result)[:300],
         "params": params,
+        "variant_desc": _desc(variant),
         "note": note,
     }
     path = FOLDER / f"{now:%Y-%m-%d}-{row['author']}.jsonl"
     with path.open("a") as f:
         f.write(json.dumps(row, ensure_ascii=False, default=str) + "\n")
     return row
+
+
+def _desc(variant):
+    from .variants import description
+
+    return description(variant)
 
 
 def load():

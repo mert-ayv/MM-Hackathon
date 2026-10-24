@@ -20,7 +20,8 @@ VARIANTS = {
         "anchor_below_open": 0.18,
     },
     # replay lessons: weigh every offered sheet, cheapest clause when insisted, should-cost x0.95
-    "fix": {"all_sheets": True, "clause_when_insisted": True, "fullcost_discount": 0.95},
+    # v1 behaviour before `fix` was promoted into base (kept to reproduce the baseline)
+    "v1": {"all_sheets": False, "clause_when_insisted": False, "fullcost_discount": 1.0},
     "v3": {
         "adopt_insisted": True,
         "rival_only_lower": True,
@@ -32,6 +33,18 @@ VARIANTS = {
         "clause_when_insisted": True,
         "fullcost_discount": 0.95,
     },
+}
+
+
+# What each variant tests, in words - stored with every ledger row (keep it one or two sentences).
+DESCRIPTIONS = {
+    "base": "Champion on main (v1 + fix): lever engine, verified claims, parallel threads; anchors 12% below "
+    "the opening, concedes 25%/50% of the gap; weighs every offered sheet, cheapest clause when insisted, "
+    "should-cost x0.95.",
+    "v1": "The first baseline: like base but takes only the supplier's first sheet, no clause rule, should-cost x1.",
+    "v2": "base + D02 sandbox lessons: adopt terms the supplier held twice, cite a rival only if lower, "
+    "always offer a faster-payment sheet, concede at most half the supplier's step, anchor 18% below.",
+    "v3": "v2 + the replay fixes (now in base) = base + v2's concession tactics.",
 }
 
 
@@ -47,3 +60,7 @@ def params(name):
 
 def describe(name):
     return asdict(params(name))
+
+
+def description(name):
+    return DESCRIPTIONS.get(name, "")

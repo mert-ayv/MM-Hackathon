@@ -40,9 +40,9 @@ class Params:
     follow_share: float = 1.1  # our step at most this share of the supplier's last step
     hold_above_floor: float = 0.0  # with a known cost floor: concede only this share while above floor*1.08
     # v3 switches (replay lessons P01/P05/P08/P10)
-    all_sheets: bool = False  # weigh every term sheet the supplier sends, not only its first
-    clause_when_insisted: bool = False  # supplier insists on an index clause: ask for its cheapest form
-    fullcost_discount: float = 1.0  # should-cost runs high (error ~5%): scale it for the relationship term
+    all_sheets: bool = True  # weigh every term sheet the supplier sends, not only its first
+    clause_when_insisted: bool = True  # supplier insists on an index clause: ask for its cheapest form
+    fullcost_discount: float = 0.95  # should-cost runs high (error ~5%): scale it for the relationship term
 
 
 @dataclass
