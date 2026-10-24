@@ -85,7 +85,7 @@ Add `--no-llm` to use template e-mails. Without an LLM key it uses templates any
 | `levers.py` | the best value of every term for us, EUR value of each lever, price for a target cost |
 | `intel.py` | supplier cost-floor estimate, verified data arguments (indices, should-cost, notice periods, scorecards, rival offers), cost-breakdown parser |
 | `agent.py` | per-thread concessions and term sheets, trade sheets, the accept/walk decision (`base`, the champion) |
-| `agents/` | one agent per teammate (`ege.py`, `mert.py`, `annika.py`, `emre.py`), each a `CseeAgent` subclass; registry in `agents/__init__.py` |
+| `agents/` | one agent per teammate (`ege.py`, `mert.py`, `annika.py`, `emre.py`), each a `CseeAgent` subclass; registry in `agents/__init__.py`; `agents/router.py` plays each case type with the agent that wins it (`--agent router`, for the final) |
 | `writer.py` | e-mail wording: templates, or a model (claim sentences kept verbatim) |
 | `runner.py` | all supplier threads of a case **in parallel** (the 60 s clock is per thread), practice runs, Live Final waves |
 | `evaluate.py` | fetch results + traces + back office, report vs house agent |

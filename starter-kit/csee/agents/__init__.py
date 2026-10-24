@@ -5,8 +5,8 @@ It must offer what `runner.play_case` calls: `prepare(case, threads)`, `thread_m
 sid)` -> message or None, `close(case, threads, force)` -> accept/walk, and `threads[sid].ready`.
 Subclassing `CseeAgent` and overriding only what you change gives you all of that.
 
-Run one with `--agent NAME` (e.g. `uv run python -m csee --agent ege sim`); `base` is the champion
-that runs in the final unless we pick another.
+Run one with `--agent NAME` (e.g. `uv run python -m csee --agent ege sim`). `router` plays each
+case with the agent that owns its case type (`agents/router.py`, ROUTES), meant for the final.
 """
 
 from ..agent import CseeAgent
@@ -14,6 +14,7 @@ from .annika import AnnikaAgent
 from .ege import EgeAgent
 from .emre import EmreAgent
 from .mert import MertAgent
+from .router import RouterAgent
 
 AGENTS = {
     "base": CseeAgent,
@@ -21,6 +22,7 @@ AGENTS = {
     "ege": EgeAgent,
     "emre": EmreAgent,
     "mert": MertAgent,
+    "router": RouterAgent,
 }
 
 

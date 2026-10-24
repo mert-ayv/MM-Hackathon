@@ -57,3 +57,17 @@ def test_every_practice_case(pkg, agent_name, variant):
                 agent.thread_move(case, threads, sid)
         decision = agent.close(case, threads, force=True)
         assert decision["message"]["action"]["type"] in ("accept", "walk_away"), case["case_id"]
+
+
+def test_router_routes():
+    """Every slot names a real agent (not the router itself) and variant; each case type gets its slot."""
+    from csee.agents.router import FALLBACK, ROUTES, RouterAgent, resolve
+
+    for route in [*ROUTES.values(), FALLBACK]:
+        assert route.partition("/")[0] != "router", route
+        resolve(route, variants.params("base"))  # SystemExit on an unknown agent or variant
+    for case in json.loads(CASES.read_text()):
+        router = RouterAgent(params=variants.params("base"))
+        router._route(case)
+        name = ROUTES.get(case["type"], FALLBACK).partition("/")[0]
+        assert type(router.inner) is agents.get(name), case["case_id"]
