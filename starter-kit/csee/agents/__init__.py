@@ -67,6 +67,7 @@ from .mert import (
     PlannerLeverAgent,
     PlannerRawAgent,
 )
+from .records import MesoBase, MesoLever, MesoMert, PledgeBase
 from .router import RouterAgent
 
 AGENTS = {
@@ -91,6 +92,10 @@ AGENTS = {
     "mert-plan": PlannerAgent,  # online move planner (engine-model caps / gap budget), base terms
     "mert-plan-lever": PlannerLeverAgent,  # planner + mert-lever sheets (price_increase)
     "mert-plan-raw": PlannerRawAgent,  # planner + mert raw-material sheets
+    "mert-meso": MesoBase,  # records study: shortest/longest payment sheets at equal C (P01 record = 14 days)
+    "mert-meso-lever": MesoLever,
+    "mert-meso-raw": MesoMert,
+    "mert-pledge": PledgeBase,  # P11 record: on-time-payment commitment when payment is fixed and we paid late
     "router": RouterAgent,
 }
 

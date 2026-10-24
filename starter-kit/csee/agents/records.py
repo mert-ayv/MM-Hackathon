@@ -1,0 +1,224 @@
+"""Record-route mixins (sub-records). Put before the agent class: class X(PayMesoMixin, MertLeverAgent).
+
+PayMesoMixin - payment days as a MESO choice (rival records P01: Clooless 130.15 @ 14 d / Apr, Hack It 1.0 = 14 d;
+P18 record = 45 d db3; P08 record = 90 d db3):
+  * every message carries the shortest and the longest payment option next to the main sheet, each priced
+    at the SAME C for us as the main sheet (true C: relationship term at should-cost x 0.98). At equal C a
+    sheet is worth more to the supplier exactly when its money rate differs from ours in that direction, so
+    the sheet it counters on reveals its rate (bots counter on our sheet worth most to them).
+  * from the 2nd message on, the main sheet adopts the payment days of the sheet it countered on, repriced
+    to equal C - the negotiation then runs on the structure that is best for both.
+  * never re-offer a structure below the price we offered it at before (P01 mert-lever 74fb6f: 30-day sheet
+    134.07 -> 129.66 drew "your price for 30-day terms has decreased significantly" and a hold).
+"""
+import math
+
+from arena_kit.cost import RELATIONSHIP_GOALS, closing_terms, complete_offer, must_haves_ok, total_cost
+
+from csee import levers
+from csee.agent import CseeAgent
+from csee.agents.mert import MertAgent, MertLeverAgent, implied_rate
+
+NON_PRICE_KEY = lambda case, t: tuple((f, str(t.get(f))) for f in case["negotiable"] if f != "unit_price")  # noqa: E731
+
+
+class PayMesoMixin:
+    REAL_FULL = 0.98
+    MESO_MIN_GAIN = 0.0  # adopt its payment days only if it does not cost us more than this share of C
+
+    # ---------- our C ----------
+    def meso_sup(self, case, sid, std):
+        st = self.threads[sid]
+        if case["buyer"].get("category_goal") in RELATIONSHIP_GOALS and st.intel.full_cost:
+            return {"full_cost": st.intel.full_cost * self.REAL_FULL, "interest_rate": implied_rate(st.events),
+                    "standard": closing_terms(case, st.opening, std)}
+        return None  # no relationship term: C is monotone in price
+
+    def equal_c_price(self, case, sheet, c_target, std, sup, ref_price):
+        """Highest 2-decimal price with C(sheet) <= c_target (C may be U-shaped with the relationship term)."""
+        hi, lo = ref_price * 1.06, ref_price * 0.92
+        n = int((hi - lo) * 100)
+        for i in range(n + 1):
+            p = math.floor(hi * 100 - i) / 100
+            if total_cost(case, {**sheet, "unit_price": p}, std, sup) <= c_target + 1e-6:
+                return p
+        return None
+
+    def pay_options(self, case):
+        return sorted(levers.options(case, "payment_days") or [])
+
+    # ---------- hooks ----------
+    def next_terms(self, case, threads, sid, theirs, std, supplier, left):
+        ours = super().next_terms(case, threads, sid, theirs, std, supplier, left)
+        if not ours or "payment_days" not in case["negotiable"] or "unit_price" not in case["negotiable"]:
+            return ours
+        st = self.threads[sid]
+        sent = [m for m in threads[sid] if m.get("from") == "buyer" and m.get("term_sheets")]
+        d = (theirs or {}).get("payment_days")
+        if not sent or d is None or d == ours.get("payment_days") or d not in self.pay_options(case):
+            return ours
+        offered = {s.get("terms", {}).get("payment_days") for m in sent for s in m.get("term_sheets") or []}
+        if d not in offered:
+            return ours  # its own standard days, not a choice among ours: keep ours
+        prev_main = (sent[-1].get("term_sheets") or [{}])[0].get("terms", {})
+        t = complete_offer(case, {**ours, "payment_days": d})
+        if not must_haves_ok(case, t, std):
+            return ours
+        if prev_main.get("payment_days") == d:
+            # already on its structure: super() conceded from our last price on it against its price on it
+            st.why += f"; meso: stay on its {d} d"
+            return {**ours, "payment_days": d}
+        # first switch: our last price for that structure (the equal-C MESO sheet) plus super()'s concession step
+        self.monotone(case, sid, [])  # builds the history if needed
+        hist = st.meso_hist
+        last_on_d = hist.get(NON_PRICE_KEY(case, {**t, "unit_price": None}))
+        step = ours["unit_price"] - (st.our_prices[-1] if st.our_prices else ours["unit_price"])
+        if last_on_d is None:
+            sup = self.meso_sup(case, sid, std)
+            last_on_d = self.equal_c_price(case, t, total_cost(case, ours, std, sup), std, sup, ours["unit_price"])
+            step = 0.0
+            if last_on_d is None:
+                return ours
+        p = round(last_on_d + max(step, 0.0), 2)
+        st.why += f"; meso: adopt its {d} d (our last {last_on_d} + step {step:.2f} -> {p})"
+        return {**ours, "payment_days": d, "unit_price": p}
+
+    def sheets(self, case, sid, ours, std, supplier):
+        out = super().sheets(case, sid, ours, std, supplier)
+        if not out or "payment_days" not in case["negotiable"] or "unit_price" not in case["negotiable"]:
+            return self.monotone(case, sid, out)
+        main = out[0]
+        sup = self.meso_sup(case, sid, std)
+        c_main = total_cost(case, main, std, sup)
+        opts = self.pay_options(case)
+        meso = []
+        for d in (opts[0], opts[-1]):
+            if d == main.get("payment_days"):
+                continue
+            t = complete_offer(case, {**main, "payment_days": d})
+            if not must_haves_ok(case, t, std):
+                continue
+            p = self.equal_c_price(case, t, c_main, std, sup, main["unit_price"])
+            if p:
+                meso.append({**t, "unit_price": p})
+        keys = {NON_PRICE_KEY(case, s) for s in meso}
+        rest = [s for s in out[1:] if NON_PRICE_KEY(case, s) not in keys]
+        # lever sheets (a lever the supplier named, e.g. P02's copper clause) and clause sheets keep priority
+        named = [t for _, t, _ in getattr(self.threads[sid], "lever_notes", []) or []]
+        keep = [s for s in rest if s in named or (s.get("index_clause") != main.get("index_clause"))]
+        other = [s for s in rest if s not in keep]
+        merged = [main] + keep + meso + other
+        return self.monotone(case, sid, merged[:3])
+
+    def monotone(self, case, sid, sheets):
+        st = self.threads[sid]
+        hist = getattr(st, "meso_hist", None)
+        if hist is None:  # rebuilt from the thread (a resumed case, an offline replay)
+            hist = st.meso_hist = {}
+            for m in st.events or []:
+                if m.get("from") == "buyer":
+                    for x in m.get("term_sheets") or []:
+                        t = x.get("terms", x)
+                        if t.get("unit_price") is not None:
+                            k = NON_PRICE_KEY(case, t)
+                            hist[k] = max(hist.get(k, 0.0), t["unit_price"])
+        out = []
+        for s in sheets:
+            k = NON_PRICE_KEY(case, s)
+            if s.get("unit_price") is not None and k in hist and s["unit_price"] < hist[k]:
+                s = {**s, "unit_price": hist[k]}
+            out.append(s)
+        for s in out:
+            if s.get("unit_price") is not None:
+                k = NON_PRICE_KEY(case, s)
+                hist[k] = max(hist.get(k, 0.0), s["unit_price"])
+        return out
+
+
+class MesoLever(PayMesoMixin, MertLeverAgent):
+    pass
+
+
+class MesoBase(PayMesoMixin, CseeAgent):
+    pass
+
+
+class MesoMert(PayMesoMixin, MertAgent):
+    pass
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# PaymentPledgeMixin - P11 hypothesis (Hack It 45.00 vs everyone's 45.50 at 300 ppm / EUR 0): the supplier repeats
+# "Without faster payment, we cannot drop the price any further" while payment is FIXED at 60 days. Our own invoice
+# history shows we pay it ~10 days late (last 12 months). A binding on-time-payment commitment is the one
+# truthful "faster payment" we can give. Untested: worth one P11 practice session.
+import datetime as _dt
+import re as _re
+
+from csee import intel as _intel
+from csee.writer import SIGN as _SIGN
+
+CASH_ASK = _re.compile(r"faster payment|pay(?:ing)? (?:us )?faster|paid faster|cash flow|cash is|Zahlungsziel", _re.I)
+
+
+def late_days(pkg, sid, since_days=365, today=None):
+    """Mean days our payments to `sid` arrived after their due date (invoices.csv), last `since_days`."""
+    rows = _intel._q(pkg, "SELECT invoice_date, due_date, paid_date FROM invoices WHERE supplier_id = ?", (sid,))
+    if not rows:
+        return None, 0
+    dates = [r["invoice_date"] for r in rows if r.get("invoice_date")]
+    end = _dt.date.fromisoformat(max(dates)) if dates else _dt.date.today()
+    start = end - _dt.timedelta(days=since_days)
+    late = []
+    for r in rows:
+        try:
+            if _dt.date.fromisoformat(r["invoice_date"]) < start or not r.get("paid_date"):
+                continue
+            late.append((_dt.date.fromisoformat(r["paid_date"]) - _dt.date.fromisoformat(r["due_date"])).days)
+        except (TypeError, ValueError):
+            continue
+    return (sum(late) / len(late), len(late)) if late else (None, 0)
+
+
+class PaymentPledgeMixin:
+    PLEDGE_MIN_LATE = 3.0  # only when we really have been paying late (days)
+
+    def pledge(self, case, sid):
+        fixed = (case.get("fixed_terms") or {}).get("payment_days")
+        if not fixed or "payment_days" in case["negotiable"]:
+            return None
+        replies = [m for m in self.threads[sid].events if m.get("from") != "buyer"]
+        if not replies or not CASH_ASK.search(replies[-1].get("body") or ""):
+            return None
+        st = self.threads[sid]
+        if getattr(st, "pledged", 0) >= 2:
+            return None
+        days, n = late_days(self.pkg, sid)
+        if days is None or days < self.PLEDGE_MIN_LATE:
+            return None
+        st.pledged = getattr(st, "pledged", 0) + 1
+        return (f"On payment: the term stays {fixed} days net, but we commit to paying every invoice under this "
+                f"agreement on its due date. Over the last twelve months our payments to you arrived on average "
+                f"{days:.0f} days after the due date; from this agreement on you are paid on time, which is cash in "
+                f"your hands about {days:.0f} days earlier on every delivery.")
+
+    def thread_move(self, case, threads, sid):
+        msg = super().thread_move(case, threads, sid)
+        if not msg or not msg.get("term_sheets"):
+            return msg
+        line = self.pledge(case, sid)
+        if not line:
+            return msg
+
+        def add(body):
+            return body.replace(_SIGN, line + "\n\n" + _SIGN) if _SIGN in body else body.rstrip() + "\n\n" + line
+
+        msg["body"] = add(msg["body"])
+        w = msg.get("_write")
+        if w:
+            msg["_write"] = lambda: add(w())
+        return msg
+
+
+class PledgeBase(PaymentPledgeMixin, CseeAgent):
+    pass
