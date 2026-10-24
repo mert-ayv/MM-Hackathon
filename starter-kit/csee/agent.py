@@ -113,7 +113,7 @@ class Params:
     anchor_leverage: float = 0.0  # >0: anchor this far below the opening outside relationship goals, no floor
     rfq_anchor_vs_leader: float = 0.0  # >0: RFQ first ask at most (1 - x) x the cheapest rival's opening price
     alt_quote_claim: bool = False  # cite the case's alternative quote, once per supplier, when it is below the ask
-    should_cost_margin: float = 0.08  # cite should-cost when the ask is this far above it (9 of 9 cites moved it)
+    should_cost_margin: float = 0.03  # cite should-cost from this far above the ask (was 0.08; TEST, revert if worse)
     adopt_revealed: bool = False  # keep a term at the supplier's value when its own sheets show that is cheaper
     hold_on_internal: bool = False  # "we will come back to you on price": hold our price one round
     # v8 switches (trade every lever; read the supplier's own words)
