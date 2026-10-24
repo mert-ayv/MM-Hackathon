@@ -153,6 +153,7 @@ VARIANTS["v14a"] = {**VARIANTS["v14"], "alt_quote_claim": True}
 VARIANTS["v16a"] = {**VARIANTS["v16"], "alt_quote_claim": True}
 VARIANTS["v7a"] = {**VARIANTS["v7"], "alt_quote_claim": True}
 VARIANTS["basea"] = {"rival_only_lower": True, "alt_quote_claim": True}
+VARIANTS["v14r"] = {**VARIANTS["v14a"], "rel_full": 0.965}
 VARIANTS["v14s"] = {**VARIANTS["v14a"], "anchor_below_open": 0.04}
 VARIANTS["v17"] = {**VARIANTS["v16"], "rel_anchor": False, "close_gap": 0.001, "close_room": 0.05}
 
@@ -193,6 +194,8 @@ DESCRIPTIONS = {
     "hold no figures for, cited without one (D01/D02 had no arguments at all).",
     "v15": "v14 + after a final offer one push 0.8 % below it, leading bidder only (sandbox logs: 10 of 11 "
     "pushes <= 2 % improved the deal, none walked; 9.6 % and 15.7 % pushes walked).",
+    "v14r": "v14a with the real full cost at should-cost x 0.965 instead of 0.98 (P02: the bot accepted our "
+    "relationship-optimal clause sheet at reply 1 in every run; C_best is 27 % of the room below it).",
     "v14s": "v14a with a 4 % anchor instead of 12 % (P10: a 12 %-below ask draws a final offer at reply 1 from a "
     "capacity-full supplier whose desk may move 2 %; soft-anchor study).",
     "v14a": "v14 + cite the case's alternative quote (verified) once per supplier when it is below the ask; never a pricier one.",

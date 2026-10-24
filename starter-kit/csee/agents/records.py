@@ -275,3 +275,16 @@ class PlannerSoftRel(PlannerAgent):
     capacity-full group supplier answers 'open' instead of 'final offer' at reply 1. Terms stay base's."""
 
     plan = PlanParams(anchor_rel=0.04)
+
+
+# ---------- real-cost study (P02): the relationship-optimal price under a lower real cost ----------
+# P02 (Nordmark, stabilise, sustainable margin 0.5 %): every run ends at the clause sheet we price "relationship-
+# optimal" at should-cost x 0.98 (362 @ 90 d, CU clause), and the bot ACCEPTS IT AT REPLY 1 ("My call: accept") in
+# all three runs - we never see its counter. The arena's C_best sits 12.6 k EUR (27 % of the room) below that deal,
+# and the practice record is 0.854 vs our 0.733, so its real cost is below our estimate. The relationship charge is
+# quadratic in the margin gap (g^2/10 up to 5 points), so pricing 1.5 % lower costs little even if we overshoot, while
+# the price saving is linear. This agent prices every relationship-goal sheet at should-cost x 0.965 instead.
+class PlanMesoLeverReal(PlanMesoLever):
+    """mert-plan-meso-lever with the real full cost at should-cost x 0.965 (run with --variant v14r)."""
+
+    REAL_FULL = 0.965
