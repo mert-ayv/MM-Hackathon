@@ -4,7 +4,7 @@ Our entry for the [Industrial Agents Hackathon](https://industrialagents.dev) (M
 
 We're building an **AI buyer agent** for Hollerau Pumpenwerke, a fictional German pump maker. It reads the company's procurement data, negotiates by e-mail with Tacto's supplier bots, and closes the best total deal or walks away. A Live Final on hidden cases ranks every team.
 
-Tacto's materials live alongside our code: [brief](brief/brief.md) · [API docs](brief/api.md) · [submission](brief/submission.md) · [starter kit](starter-kit/README.md) · [data](data/README.md) · [FAQ](https://arena.tacto.ai/faq) · [build page](https://arena.tacto.ai/live)
+Tacto's materials live alongside our code: [challenge deck notes](docs/tacto-challenge.md) · [brief](brief/brief.md) · [API docs](brief/api.md) · [submission](brief/submission.md) · [starter kit](starter-kit/README.md) · [data](data/README.md) · [FAQ](https://arena.tacto.ai/faq) · [build page](https://arena.tacto.ai/live)
 
 ## Team
 
