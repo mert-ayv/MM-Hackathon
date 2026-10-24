@@ -70,7 +70,11 @@ def play_case(table, case_id, agent, deadline=None, run=None):
     it). `run`: a `runlog.Run` to log every event of this case to (None: no log)."""
     clog = run.case(case_id) if run else runlog.NULL
     try:
-        return _play_case(table, case_id, agent, deadline, clog)
+        result = _play_case(table, case_id, agent, deadline, clog)
+        reporter = getattr(agent, "report_run", None)
+        if callable(reporter):
+            _quiet(reporter)
+        return result
     except Exception as e:
         _quiet(clog.event, "error", supplier_id=None, status=getattr(e, "status", None), detail=repr(e))
         raise
@@ -85,6 +89,26 @@ def _quiet(fn, *args, **kwargs):
 
 
 def _play_case(table, case_id, agent, deadline, clog):
+    agent.log = clog
+    preflight = getattr(agent, "preflight", None)
+    if callable(preflight):
+        try:
+            case_file = getattr(table, "case", None)
+            set_name = "final" if deadline is not None else "sandbox" if case_id.startswith("case:D") else "practice"
+            if not case_file and getattr(table, "client", None) is not None:
+                case_file = next((c for c in table.client.cases(set_name) if c["case_id"] == case_id), None)
+            sessions = getattr(getattr(table, "client", None), "sessions", None)
+            running = callable(sessions) and any(
+                s.get("case_id") == case_id and s.get("status") == "open" for s in sessions(set_name)
+            )
+            cap = deadline() if callable(deadline) else deadline
+            preparation_margin = getattr(agent, "PREPARE_SECONDS", 15) + 5
+            if not running and case_file and (not cap or cap - time.time() > CLOSE_BEFORE_CAP_S + preparation_margin):
+                preflight(case_file)
+            elif running:
+                log.info("%s: active session; skipping preflight before resume", case_id)
+        except Exception:
+            log.exception("%s: preflight failed; deterministic preparation remains available", case_id)
     case, threads = table.open(case_id)
     last_reply_at = {sid: time.monotonic() for sid in threads}
     clog.session_id = table.session_id
@@ -127,6 +151,9 @@ def _play_case(table, case_id, agent, deadline, clog):
                     return
                 view = snapshot(threads)
             t0 = time.monotonic()
+            turn_deadlines = getattr(agent, "turn_deadlines", None)
+            if turn_deadlines is not None:
+                turn_deadlines[sid] = last_reply_at[sid] + MOVE_LIMIT_S - 5
             msg = agent.thread_move(case, view, sid)  # slow (LLM): outside the lock
             took = time.monotonic() - t0
             if took > MOVE_LIMIT_S * 0.75:

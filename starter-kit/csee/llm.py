@@ -40,16 +40,22 @@ def complete_from_env():
     client, model = anthropic.Anthropic(timeout=45.0), os.environ["LLM_MODEL"]
     extra = {"output_config": {"effort": e}} if (e := os.environ.get("LLM_EFFORT")) else {}
 
-    def complete(system, user):
+    def complete(system, user, *, max_tokens=16000, timeout=None):
         parts = user if isinstance(user, list) else [user]
         content = [{"type": "text", "text": p} for p in parts if p]
         if len(content) > 1:  # cache the stable prefix (system + all parts but the last)
             content[-2]["cache_control"] = {"type": "ephemeral"}
-        r = client.messages.create(
-            model=model, max_tokens=16000, system=system, messages=[{"role": "user", "content": content}], **extra
+        request_client = client.with_options(timeout=timeout, max_retries=0) if timeout is not None else client
+        r = request_client.messages.create(
+            model=model, max_tokens=max_tokens, system=system, messages=[{"role": "user", "content": content}], **extra
         )
         _count(r.usage)
         return "".join(b.text for b in r.content if b.type == "text")
 
     complete.parts = True
+    # Strategy JSON is small. Keep existing writer defaults, but give bounded callers a
+    # short-output request with no SDK retries extending beyond their decision budget.
+    complete.bounded = lambda system, user, budget: complete(
+        system, user, max_tokens=2048, timeout=max(0.1, budget - 0.25)
+    )
     return complete
