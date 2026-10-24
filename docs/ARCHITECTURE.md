@@ -260,3 +260,7 @@ necessary to establish performance; existing runs predate this implementation.
 **Not fixed:**
 - Supplier walk-aways on wide gaps in the rfq/quality/bundling routes (engine assumption; practice only ever saw walks after a push).
 - RFQ scores in the engine are low for every policy: it has no rival-quote model.
+
+**Sat 23:50, payment MESO on renewal (P03, P04; mert-plan-meso): no effect** (0.923 / 0.86 = before).
+- **Why:** both holders froze at their reply-1 price and ignored the 14/30-day sheets. These suppliers value cash below our 8 % (P03 4.1 %), so a sheet at equal cost to us is worth less to them. The MESO only pays with cash-hungry suppliers (P01 9.5 %, on the price-increase route).
+- **Next lead:** with holders, our first message decides everything (P03 freezes after reply 1). Check whether round-1 arguments lower the first counter.
