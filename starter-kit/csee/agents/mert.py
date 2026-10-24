@@ -1362,3 +1362,83 @@ class PlannerLeverAgent(PlanMixin, MertLeverAgent):
 
 class PlannerRawAgent(PlanMixin, MertAgent):
     """mert (raw material: clause/payment alternatives) + the planner."""
+
+
+class MertQualityMenuAgent(CseeAgent):
+    """Isolated quality/price menu. Each relaxed commitment costs no more than main.
+
+    Uses only allowed negotiable terms; fixed payment and volume stay fixed. No
+    supplier-specific scores or prices, and no post-final negotiation override.
+    """
+
+    def prepare(self, case, threads):
+        super().prepare(case, threads)
+        self.p = replace(self.p, final_push=0.0, push_after_final=0)
+
+    def sheets(self, case, sid, ours, std, supplier):
+        out = super().sheets(case, sid, ours, std, supplier)
+        if (case.get('type') != 'quality' or not out
+                or not {'unit_price', 'ppm_commitment'} <= set(case['negotiable'])):
+            return out
+        main = out[0]
+        target = total_cost(case, main, std, supplier)
+        menu = [main]
+        for ppm in sorted(levers.options(case, 'ppm_commitment')):
+            if ppm <= main.get('ppm_commitment', 0):
+                continue
+            t = complete_offer(case, {**main, 'ppm_commitment': ppm})
+            if not must_haves_ok(case, t, std):
+                continue
+            price = levers.price_for(case, t, target, std, supplier)
+            if price is None or price <= 0:
+                continue
+            t['unit_price'] = price
+            # price_for rounds to nearest cent; round toward the buyer if necessary.
+            if total_cost(case, t, std, supplier) > target + 1e-7:
+                t['unit_price'] = round(price - .01, 2)
+            # Never retract an actual earlier offer for this same structure.
+            prior = [x.get('terms', {}) for m in self.threads[sid].events
+                     if m.get('from') == 'buyer' for x in m.get('term_sheets') or []]
+            prices = [p['unit_price'] for p in prior if p.get('unit_price') is not None
+                      and all(p.get(k) == t.get(k) for k in case['negotiable'] if k != 'unit_price')]
+            if prices:
+                t['unit_price'] = max(t['unit_price'], max(prices))
+            if (t['unit_price'] > 0 and must_haves_ok(case, t, std)
+                    and total_cost(case, t, std, supplier) <= target + 1e-7):
+                menu.append(t)
+            if len(menu) == 3:
+                break
+        return menu
+
+
+class MertFixedProbeAgent(MertLeverAgent):
+    """P02-only research probe: one fixed 368/90 offer before normal lever fallback.
+
+    Practice-specific candidate, deliberately NOT a final route. The price is an
+    offline-scored hypothesis, not evidence of acceptance. Other cases unchanged.
+    """
+
+    def prepare(self, case, threads):
+        super().prepare(case, threads)
+        self.p = replace(self.p, final_push=0.0, push_after_final=0)
+
+    def fixed_probe(self, case, sid):
+        return (case.get('case_id') == 'case:P02'
+                and not any(m.get('from') == 'buyer' for m in self.threads[sid].events)
+                and {'unit_price', 'payment_days', 'index_clause'} <= set(case['negotiable'])
+                and 90 in levers.options(case, 'payment_days')
+                and None in levers.options(case, 'index_clause'))
+
+    def next_terms(self, case, threads, sid, theirs, std, supplier, left):
+        if self.fixed_probe(case, sid):
+            t = complete_offer(case, {**theirs, 'unit_price': 368.0,
+                                      'payment_days': 90, 'index_clause': None})
+            if must_haves_ok(case, t, std):
+                self.threads[sid].why = 'isolated P02 fixed-price probe; clause fallback next round'
+                return t
+        return super().next_terms(case, threads, sid, theirs, std, supplier, left)
+
+    def sheets(self, case, sid, ours, std, supplier):
+        if self.fixed_probe(case, sid):
+            return [complete_offer(case, ours)]
+        return super().sheets(case, sid, ours, std, supplier)

@@ -1,0 +1,125 @@
+diff --git a/starter-kit/csee/agents/__init__.py b/starter-kit/csee/agents/__init__.py
+index 2bf7d8f..cbf23a8 100644
+--- a/starter-kit/csee/agents/__init__.py
++++ b/starter-kit/csee/agents/__init__.py
+@@ -53,6 +53,8 @@ from .mert import (
+     FinalCandidateAgent,
+     GatedPushAgent,
+     MertAgent,
++    MertQualityMenuAgent,
++    MertFixedProbeAgent,
+     MertAnchorAgent,
+     MertClauseAgent,
+     MertConsistentAgent,
+@@ -100,6 +102,8 @@ AGENTS = {
+     "ege": EgeAgent,
+     "emre": EmreAgent,
+     "mert": MertAgent,
++    "mert-quality-menu": MertQualityMenuAgent,
++    "mert-fixed-probe": MertFixedProbeAgent,
+     "mert-dialogue": MertDialogueAgent,
+     "mert-anchor": MertAnchorAgent,
+     "mert-consistent": MertConsistentAgent,
+diff --git a/starter-kit/csee/agents/mert.py b/starter-kit/csee/agents/mert.py
+index 3af6c2c..ddf8e2f 100644
+--- a/starter-kit/csee/agents/mert.py
++++ b/starter-kit/csee/agents/mert.py
+@@ -1362,3 +1362,83 @@ class PlannerLeverAgent(PlanMixin, MertLeverAgent):
+ 
+ class PlannerRawAgent(PlanMixin, MertAgent):
+     """mert (raw material: clause/payment alternatives) + the planner."""
++
++
++class MertQualityMenuAgent(CseeAgent):
++    """Isolated quality/price menu. Each relaxed commitment costs no more than main.
++
++    Uses only allowed negotiable terms; fixed payment and volume stay fixed. No
++    supplier-specific scores or prices, and no post-final negotiation override.
++    """
++
++    def prepare(self, case, threads):
++        super().prepare(case, threads)
++        self.p = replace(self.p, final_push=0.0, push_after_final=0)
++
++    def sheets(self, case, sid, ours, std, supplier):
++        out = super().sheets(case, sid, ours, std, supplier)
++        if (case.get('type') != 'quality' or not out
++                or not {'unit_price', 'ppm_commitment'} <= set(case['negotiable'])):
++            return out
++        main = out[0]
++        target = total_cost(case, main, std, supplier)
++        menu = [main]
++        for ppm in sorted(levers.options(case, 'ppm_commitment')):
++            if ppm <= main.get('ppm_commitment', 0):
++                continue
++            t = complete_offer(case, {**main, 'ppm_commitment': ppm})
++            if not must_haves_ok(case, t, std):
++                continue
++            price = levers.price_for(case, t, target, std, supplier)
++            if price is None or price <= 0:
++                continue
++            t['unit_price'] = price
++            # price_for rounds to nearest cent; round toward the buyer if necessary.
++            if total_cost(case, t, std, supplier) > target + 1e-7:
++                t['unit_price'] = round(price - .01, 2)
++            # Never retract an actual earlier offer for this same structure.
++            prior = [x.get('terms', {}) for m in self.threads[sid].events
++                     if m.get('from') == 'buyer' for x in m.get('term_sheets') or []]
++            prices = [p['unit_price'] for p in prior if p.get('unit_price') is not None
++                      and all(p.get(k) == t.get(k) for k in case['negotiable'] if k != 'unit_price')]
++            if prices:
++                t['unit_price'] = max(t['unit_price'], max(prices))
++            if (t['unit_price'] > 0 and must_haves_ok(case, t, std)
++                    and total_cost(case, t, std, supplier) <= target + 1e-7):
++                menu.append(t)
++            if len(menu) == 3:
++                break
++        return menu
++
++
++class MertFixedProbeAgent(MertLeverAgent):
++    """P02-only research probe: one fixed 368/90 offer before normal lever fallback.
++
++    Practice-specific candidate, deliberately NOT a final route. The price is an
++    offline-scored hypothesis, not evidence of acceptance. Other cases unchanged.
++    """
++
++    def prepare(self, case, threads):
++        super().prepare(case, threads)
++        self.p = replace(self.p, final_push=0.0, push_after_final=0)
++
++    def fixed_probe(self, case, sid):
++        return (case.get('case_id') == 'case:P02'
++                and not any(m.get('from') == 'buyer' for m in self.threads[sid].events)
++                and {'unit_price', 'payment_days', 'index_clause'} <= set(case['negotiable'])
++                and 90 in levers.options(case, 'payment_days')
++                and None in levers.options(case, 'index_clause'))
++
++    def next_terms(self, case, threads, sid, theirs, std, supplier, left):
++        if self.fixed_probe(case, sid):
++            t = complete_offer(case, {**theirs, 'unit_price': 368.0,
++                                      'payment_days': 90, 'index_clause': None})
++            if must_haves_ok(case, t, std):
++                self.threads[sid].why = 'isolated P02 fixed-price probe; clause fallback next round'
++                return t
++        return super().next_terms(case, threads, sid, theirs, std, supplier, left)
++
++    def sheets(self, case, sid, ours, std, supplier):
++        if self.fixed_probe(case, sid):
++            return [complete_offer(case, ours)]
++        return super().sheets(case, sid, ours, std, supplier)
+diff --git a/starter-kit/csee/agents/router.py b/starter-kit/csee/agents/router.py
+index f9f2bf7..444f647 100644
+--- a/starter-kit/csee/agents/router.py
++++ b/starter-kit/csee/agents/router.py
+@@ -26,7 +26,9 @@ ROUTES = {
+     "renewal": "mert-plan-dc/v14a",  # A/B Sat 20:43: P03 0.923 / P04 0.86 in both routers; planner far fewer walk-aways on perturbed suppliers
+     "rfq": "base-d/v7a",  # P05 v7 0.81 vs base 0.35, ege/v9 0.52
+     "raw_material": "mert-plan-meso-raw-dc/v16a",  # A/B: P08 0.744 vs skip-hedge 0.711 (its runs avg 0.72, best 0.754); P18 0.552 both; engine >=
+-    "capacity": "mert-plan-dc/v14a",  # A/B: P10 0.671 (planner) vs 0.57 (base/v14a)
++    "capacity": "base-d/v14s",  # soft-anchor study Sat 21:30: Ravensteiner (desk authority 2 %) answers a 4 % anchor "open" (12 %: final at
++    # reply 1); it charges ~2.00/unit for 42 vs 56 days lead, 14 late days cost us 0.71. base/v14s switched to 56 d itself -> 31.50 = 0.679;
++    # the planner kept 42 d and took a final 33.20 = 0.601 (4 % and 6 %), 0.671 only when the bot volunteered its 54-d alternative
+     "quality": "base-d/v14a",  # A/B: P11 0.71 vs planner 0.626 (planner accepted a hold at 46.00; rule since disabled, untested)
+     "bundling": "base-d/basea",  # A/B: P07 0.766 (best) vs planner 0.734
+ }

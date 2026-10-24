@@ -26,7 +26,9 @@ ROUTES = {
     "renewal": "mert-plan-dc/v14a",  # A/B Sat 20:43: P03 0.923 / P04 0.86 in both routers; planner far fewer walk-aways on perturbed suppliers
     "rfq": "base-d/v7a",  # P05 v7 0.81 vs base 0.35, ege/v9 0.52
     "raw_material": "mert-plan-meso-raw-dc/v16a",  # A/B: P08 0.744 vs skip-hedge 0.711 (its runs avg 0.72, best 0.754); P18 0.552 both; engine >=
-    "capacity": "annika-k9j/v14a",  # P10 annika-k9j 0.686 (practice #5, = house) and annika-k9j2 0.686 (#8) vs planner 0.671 / base 0.57: coverage locked, a sheet at its own standard lead, non-attacking claims, one R2 jump for short-patience suppliers, accept its final (docs/playbooks/capacity.md). Previous: mert-plan-dc/v14a
+    "capacity": "base-d/v14s",  # soft-anchor study Sat 21:30: Ravensteiner (desk authority 2 %) answers a 4 % anchor "open" (12 %: final at
+    # reply 1); it charges ~2.00/unit for 42 vs 56 days lead, 14 late days cost us 0.71. base/v14s switched to 56 d itself -> 31.50 = 0.679;
+    # the planner kept 42 d and took a final 33.20 = 0.601 (4 % and 6 %), 0.671 only when the bot volunteered its 54-d alternative
     "quality": "base-d/v14a",  # A/B: P11 0.71 vs planner 0.626 (planner accepted a hold at 46.00; rule since disabled, untested)
     "bundling": "base-d/basea",  # A/B: P07 0.766 (best) vs planner 0.734
 }
