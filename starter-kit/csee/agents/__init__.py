@@ -46,6 +46,7 @@ The runner's contract (`runner.play_case`), in call order:
 
 from ..agent import CseeAgent
 from .annika import AnnikaAgent
+from .annika_capacity import AnnikaCapacityAgent
 from .ege import EgeAgent
 from .emre import EmreAgent
 from .mert import (
@@ -97,6 +98,7 @@ from .router import RouterAgent, RouterPlanAgent
 AGENTS = {
     "base": CseeAgent,
     "annika": AnnikaAgent,
+    "annika-k": AnnikaCapacityAgent,  # capacity expert (P10/P09 evidence: docs/playbooks/capacity.md)
     "ege": EgeAgent,
     "emre": EmreAgent,
     "mert": MertAgent,

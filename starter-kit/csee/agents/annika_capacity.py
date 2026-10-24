@@ -1,0 +1,386 @@
+"""annika-k: the expert buyer for `capacity` cases (a supplier that is full allocates, stretches lead times
+and prices its scarce capacity). Every other case type plays exactly as base v14.
+
+Evidence (P10 replays, 309 practice + sandbox sessions, docs/playbooks/capacity.md):
+- Patience is the supplier's own: P10 answered our FIRST e-mail with its final offer although our ask sat
+  above its floor (the deep-ask patience cut needs an ask ~7 %+ below the floor: D01, P07, P11, P18 cut;
+  D02-C1 at 22 % below its opening but 4.5 % below its floor did not). So the first e-mail decides the case.
+- Ask depth does not move a first counter (D01: asks 43.38 / 46.55 / 47.50 -> 52.2-52.4 every time); verified
+  arguments the supplier "takes into account" do (D01 52.3 -> 50.7 with two; P18 -3.4 %, P11 -1 %; about
+  1 % per argument, 0-3 %). P10 took should-cost into account and ignored on-time delivery. A forecast
+  claim ("volume change") was taken into account by every supplier that saw one (P01, P02, P03, P07).
+- It prices lead time faster than its standard (P10: 1.90 EUR/unit for 54 -> 42 days, 0.5 %/day) far above
+  what the days cost us (a one-off late cost: 28,800 EUR = 0.61 EUR/unit). Its own standard lead time is a
+  valid value for a sheet (P10 agreed 54 days proposed back).
+- Pushing after a final offer: 20 pushes <= 1 %: 6 agreed, 12 held, 2 walked (P02, P18). Without an
+  alternative a walk scores 0, so we never push.
+- It agrees to its own sheets proposed back and picks the sheet worth most to it among ours.
+
+The rules, over the case file (no supplier names):
+1. Coverage: volume = the smallest option >= need that keeps the must-haves; contract = the longest option
+   (months beyond the horizon cost us nothing and buy allocation priority).
+2. Lead time: one sheet at the supplier's own standard lead time (its opening), one at our need; the one
+   cheaper for us at its expected pricing (premium prior 0.5 %/day vs our late cost) goes first. Both
+   carry the same value to it, so neither reads as a softer ask.
+3. Price: anchor 12 % below its opening at our need lead time, never below the relationship floor
+   (should-cost x 0.98 / (1 - sustainable margin)); the standard-lead sheet at the value-equivalent price.
+4. Arguments (first e-mail, up to 3 checked): should-cost (when its opening is clearly above the
+   sustainable price), our forecast growth with a firm commitment, our order history at today's price
+   (when it asks more), a falling cost driver, a short notice. No delivery or quality attacks on a sole
+   source in the first e-mail. Ask for a delivery schedule, not a cost breakdown (refused on policy).
+5. Closing: price every sheet it sends, take the cheapest valid one (proposing an alternative back word for
+   word); no push after a final offer; never walk without a cheaper alternative.
+Later rounds (a supplier with more patience) play base v14 with the coverage terms locked.
+
+    uv run python -m csee --agent annika-k sim --cases case:P09 case:P10     free, offline
+"""
+
+import re
+from dataclasses import dataclass
+
+from arena_kit.cost import RELATIONSHIP_GOALS, complete_offer, total_cost
+from arena_kit.docs import standard_terms
+
+from .. import intel as intel_mod
+from .. import levers, variants
+from ..agent import CseeAgent, Params, must_haves_ok
+from ..writer import SIGN, describe
+
+
+@dataclass(frozen=True)
+class KParams:
+    anchor_below_open: float = 0.12  # first ask at our need lead time, below its opening
+    lead_premium: float = 0.005  # prior: what a full supplier charges per day faster than its standard (P10 fit)
+    std_lead_sheet: bool = True  # also offer its own standard lead time
+    first_claims: tuple = ("should_cost", "forecast", "history", "index", "notice")
+    min_forecast_pct: float = 3.0  # cite forecast growth from this change on
+    should_cost_room: float = 1.05  # cite should-cost only if its opening > sustainable price x this
+    ask_schedule: bool = True  # ask for a delivery schedule (the document capacity cases render)
+
+
+FORECAST_OK = ("should_cost", "forecast", "history", "index", "notice")
+
+
+class AnnikaCapacityAgent(CseeAgent):
+    K = KParams()
+
+    def __init__(self, package=None, writer=None, params=None):
+        # base v14 unless a variant is passed explicitly (v14 is what the router plays for capacity today)
+        if params is None or params == Params():
+            params = variants.params("v14")
+        super().__init__(package, writer, params)
+        self.plans = {}
+
+    # ---------- preparation ----------
+    @staticmethod
+    def is_capacity(case):
+        return case.get("type") == "capacity"
+
+    def prepare(self, case, threads):
+        super().prepare(case, threads)
+        self.plans = {}
+        if not self.is_capacity(case):
+            return
+        for sid in case["suppliers"]:
+            try:
+                self.plans[sid] = self.plan(case, threads, sid)
+            except Exception as e:  # a plan that fails falls back to base v14, never costs the case
+                self.plans[sid] = None
+                if self.log.enabled:
+                    self.log.event(
+                        "decision", round=1, supplier_id=sid, kind="note", reason=f"capacity plan failed: {e!r}"
+                    )
+            # a group refuses cost breakdowns on policy (P10); we ask for the delivery schedule instead
+            self.threads[sid].asked_breakdown = True
+
+    def plan(self, case, threads, sid):
+        """The first e-mail's terms, computed from the case file, its opening and our data."""
+        b, neg = case["buyer"], case["negotiable"]
+        st = self.threads[sid]
+        std = standard_terms(threads.get(sid) or [])
+        opening = dict(st.opening)
+        need, horizon = b["need_per_year"], b["horizon_years"]
+        fixed = {}
+        probe = complete_offer(case, {**opening, "unit_price": opening.get("unit_price")})
+        if "volume_per_year" in neg:
+            opts = sorted(levers.options(case, "volume_per_year"))
+            ok = [v for v in opts if v >= need and must_haves_ok(case, {**probe, "volume_per_year": v}, std)]
+            fixed["volume_per_year"] = ok[0] if ok else (max(opts) if opts else need)
+        if "contract_months" in neg:
+            opts = levers.options(case, "contract_months")
+            fixed["contract_months"] = max(opts) if opts else max(round(12 * horizon), 12)
+        years = min(fixed.get("contract_months", (std or {}).get("contract_months") or 12) / 12 or 1.0, horizon)
+        committed = (fixed.get("volume_per_year") or opening.get("volume_per_year") or need) * years
+        leads = None
+        if "lead_time_days" in neg:
+            opts = sorted(levers.options(case, "lead_time_days"))
+            need_lt = b["need_lead_time_days"]
+            ours = max((o for o in opts if o <= need_lt), default=None) if opts else need_lt
+            if ours is None:
+                ours = min(opts)
+            its = opening.get("lead_time_days") or (std or {}).get("lead_time_days")
+            if its is None:
+                its = ((st.intel.profile.get("standard_terms_hint") or {}).get("lead_time_days")) or ours
+            if not must_haves_ok(case, {**probe, **fixed, "lead_time_days": its}, std):
+                its = levers.nearest_ok(case, "lead_time_days", its) or ours
+            leads = (ours, its)
+        p_open = opening.get("unit_price")
+        floor_rel = None
+        if b.get("category_goal") in RELATIONSHIP_GOALS and st.intel.full_cost and b.get("sustainable_margin_pct"):
+            floor_rel = st.intel.full_cost * self.p.rel_full / (1 - b["sustainable_margin_pct"] / 100)
+        return {
+            "fixed": fixed,
+            "leads": leads,
+            "committed": committed,
+            "p_open": p_open,
+            "floor_rel": floor_rel,
+            "std": std,
+        }
+
+    # ---------- the first e-mail ----------
+    def first_move(self, case, sid):
+        """Our first e-mail to this supplier is still to be decided (a fixed price: base plays it)."""
+        return bool(
+            self.is_capacity(case)
+            and self.plans.get(sid)
+            and "unit_price" in case["negotiable"]
+            and not self.threads[sid].our_prices
+        )
+
+    def first_sheets(self, case, sid, base_ours, std, supplier):
+        """[first, second(, third)] sheets of the first e-mail and the reason in words."""
+        plan, b = self.plans[sid], case["buyer"]
+        k = self.K
+        p_open = plan["p_open"] or base_ours.get("unit_price")
+        # its opening is quoted at its own standard lead time: the anchor is k below it there, so the ask's
+        # value to it stays within ~12 % of its opening (deeper asks cut patience on D01/P07/P11/P18)
+        p_std = p_open * (1 - k.anchor_below_open)
+        why = [f"anchor {k.anchor_below_open:.0%} below its opening {p_open:.2f}"]
+        if plan["floor_rel"]:
+            if p_std < plan["floor_rel"]:
+                why.append(f"lifted to the relationship floor {plan['floor_rel']:.2f}")
+            p_std = max(p_std, plan["floor_rel"])
+        cap = levers.price_cap(case)
+        if cap is not None:
+            p_std = min(p_std, cap)
+        p_std = min(p_std, p_open * 0.995)
+        main = complete_offer(case, {**base_ours, **plan["fixed"]})
+        sheets = []
+        if plan["leads"]:
+            ours_lt, its_lt = plan["leads"]
+            gap = max(its_lt - ours_lt, 0)
+            # our need at the same value to it: its prior premium per day faster than its standard on top
+            premium = k.lead_premium * gap * p_open
+            p_need = p_std + premium
+            # never more than today's price for our own lead time, never above its opening (P09: 16.90 > 16.02)
+            p_need = min(p_need, max(p_std, b.get("current_unit_price") or p_need), p_open * 0.995)
+            if cap is not None:
+                p_need = min(p_need, cap)
+            need_sheet = complete_offer(case, {**main, "lead_time_days": ours_lt, "unit_price": round(p_need, 2)})
+            need_sheet["lead_time_days"] = ours_lt
+            if k.std_lead_sheet and gap > 0:
+                std_sheet = {**need_sheet, "lead_time_days": its_lt, "unit_price": round(p_std, 2)}
+                # which one is cheaper for us once it has priced both: its premium x units vs our late cost
+                late = b.get("late_cost_per_day", 0) * (
+                    max(0, its_lt - b["need_lead_time_days"]) - max(0, ours_lt - b["need_lead_time_days"])
+                )
+                charge = premium * plan["committed"]
+                if charge > late:
+                    sheets = [std_sheet, need_sheet]
+                    why.append(
+                        f"its standard {its_lt} d first: its premium ~{premium:.2f}/u x {plan['committed']:,.0f} "
+                        f"= {charge:,.0f} > our late cost {late:,.0f}"
+                    )
+                else:
+                    sheets = [need_sheet, std_sheet]
+                    why.append(f"our need {ours_lt} d first: our late cost {late:,.0f} >= its premium {charge:,.0f}")
+            elif gap > 0:
+                sheets = [need_sheet]
+            else:  # its standard is already as fast as we need: ask our need (longer suits it) at the anchor
+                sheets = [{**need_sheet, "unit_price": round(p_std, 2)}]
+        else:
+            sheets = [complete_offer(case, {**main, "unit_price": round(p_std, 2)})]
+        sheets = [s for s in sheets if must_haves_ok(case, s, std)] or [
+            complete_offer(case, {**main, "unit_price": round(p_std, 2)})
+        ]
+        # a faster-payment trade (cash-short supplier, payment negotiable): base's trade sheets
+        if len(sheets) < 3:
+            for t in super().sheets(case, sid, sheets[0], std, supplier)[1:]:
+                if len(sheets) >= 3:
+                    break
+                if t.get("payment_days") != sheets[0].get("payment_days") and t not in sheets:
+                    sheets.append(t)
+        cov = ", ".join(f"{f} {v}" for f, v in plan["fixed"].items())
+        why.insert(0, f"capacity first e-mail: coverage locked ({cov})")
+        return sheets, "; ".join(why)
+
+    def next_terms(self, case, threads, sid, theirs, std, supplier, left):
+        ours = super().next_terms(case, threads, sid, theirs, std, supplier, left)
+        if not self.is_capacity(case) or not self.plans.get(sid) or ours is None:
+            return ours
+        st = self.threads[sid]
+        if self.first_move(case, sid):
+            sheets, why = self.first_sheets(case, sid, ours, std, supplier)
+            st.k_first = sheets
+            st.why = why
+            first = dict(sheets[0])
+            opening_c = total_cost(case, st.opening, std, supplier) if st.opening.get("unit_price") else None
+            st.anchor_c = (total_cost(case, first, std, supplier), opening_c)
+            return first
+        # later rounds: base v14, coverage locked (a lower volume or a short contract costs fallback x 1.25)
+        for f, v in self.plans[sid]["fixed"].items():
+            if ours.get(f) != v and must_haves_ok(case, {**ours, f: v}, std):
+                ours[f] = v
+        return ours
+
+    def sheets(self, case, sid, ours, std, supplier):
+        st = self.threads[sid]
+        first = getattr(st, "k_first", None)
+        if self.is_capacity(case) and first and not st.our_prices:
+            st.k_first = None
+            return [{k: s[k] for k in case["negotiable"] if k in s} for s in first]
+        out = super().sheets(case, sid, ours, std, supplier)
+        if self.is_capacity(case) and self.plans.get(sid):
+            fixed = self.plans[sid]["fixed"]
+            out = [s for s in out if all(s.get(f) == v for f, v in fixed.items()) or s is out[0]]
+        return out
+
+    # ---------- arguments ----------
+    def forecast_claim(self, case):
+        known = {**(self.pkg.facts if self.pkg else {}), **(case.get("facts") or {})}
+        for part in case.get("parts", []):
+            key = f"fc:{part.split(':')[-1]}@"
+            fcs = sorted((r, f) for r, f in known.items() if r.startswith(key) and isinstance(f, dict))
+            if fcs and (fcs[-1][1].get("change_pct") or 0) >= self.K.min_forecast_pct:
+                ref, fc = fcs[-1]
+                return intel_mod.Claim(
+                    f"Our demand forecast for this part grows {fc['change_pct']:+.1f}% ({ref}).",
+                    [ref],
+                    "forecast",
+                    strength=1.5,
+                )
+        return None
+
+    def first_claims(self, case, sid):
+        """Up to 3 checked arguments for the first e-mail, in the rule's order of kinds."""
+        st, plan = self.threads[sid], self.plans[sid]
+        pool = list(st.intel.claims)
+        fc = self.forecast_claim(case)
+        if fc:
+            pool.append(fc)
+        p_open = plan["p_open"] or 0
+        sustainable = plan["floor_rel"]
+        out = []
+        for kind in self.K.first_claims:
+            cands = [c for c in pool if c.kind == kind]
+            if kind == "should_cost" and sustainable and p_open <= sustainable * self.K.should_cost_room:
+                continue  # thin margin: should-cost would argue below its sustainable price (P09)
+            if kind == "history":
+                cands = [
+                    c
+                    for c in cands
+                    if c.tag == "po" and _max_price(c.sentence) and _max_price(c.sentence) < 0.98 * p_open
+                ]
+            if cands:
+                out.append(max(cands, key=lambda c: c.strength))
+        return out
+
+    def pick_claims(self, case, threads, sid):
+        # called after base recorded our first price, so "first" = no e-mail of ours in the thread yet
+        first = (
+            self.is_capacity(case)
+            and self.plans.get(sid)
+            and "unit_price" in case["negotiable"]
+            and not any(m.get("from") == "buyer" for m in threads[sid])
+        )
+        if not first:
+            return super().pick_claims(case, threads, sid)
+        st = self.threads[sid]
+        avoid = " ".join(
+            f"{a.get('argument', '')} {a.get('why', '')}" for a in st.intel.profile.get("arguments_to_avoid", [])
+        ).lower()
+        from ..agent import avoided
+
+        out = []
+        with self.shared_lock:
+            for c in self.first_claims(case, sid):
+                if any(i in self.used_ids for i in c.ids) or avoided(c, avoid):
+                    continue
+                out.append(c)
+                self.used_ids.update(c.ids)
+                if len(out) >= 3:
+                    break
+        return out
+
+    # ---------- the e-mail ----------
+    def thread_move(self, case, threads, sid):
+        first = self.first_move(case, sid) and not any(m.get("from") == "buyer" for m in threads.get(sid, []))
+        msg = super().thread_move(case, threads, sid)
+        if not (msg and first and self.is_capacity(case)):
+            return msg
+        sheets = [ts["terms"] for ts in msg["term_sheets"]]
+        claims = [
+            c
+            for c in self.threads[sid].intel.claims + [self.forecast_claim(case)]
+            if c and set(c.ids) <= set(msg["refs"])
+        ]
+        claims = sorted(claims, key=lambda c: msg["refs"].index(c.ids[0]))
+        msg["body"] = self.first_body(case, sid, sheets, claims)
+        if "_write" in msg:
+            events = list(threads[sid])
+            focus = self.first_focus(case, sid)
+            writer = self.writer
+
+            def write():
+                try:
+                    text = writer.write(case, self, sid, events, sheets, claims, False, focus=focus)
+                except TypeError:  # a writer without `focus`
+                    text = writer.write(case, self, sid, events, sheets, claims, False)
+                if self.K.ask_schedule and "schedule" not in (text or "").lower():
+                    text = (text or "").replace(SIGN, "").rstrip() + "\n" + SCHEDULE + "\n\n" + SIGN
+                return text
+
+            msg["_write"] = write
+        return msg
+
+    def commitment(self, case, sid):
+        fixed = self.plans[sid]["fixed"]
+        vol, months = fixed.get("volume_per_year"), fixed.get("contract_months")
+        if vol and months:
+            return f"We commit firmly to our full need of {vol:,} pieces a year for {months} months."
+        if vol:
+            return f"We commit firmly to our full need of {vol:,} pieces a year."
+        return "We are ready to commit firmly to our full need."
+
+    def first_body(self, case, sid, sheets, claims):
+        lines = [
+            "Good day,",
+            "",
+            "Thank you for your offer and for being open about your capacity situation. "
+            "We want a reliable, long-term arrangement with you.",
+            self.commitment(case, sid),
+        ]
+        lines += [c.sentence for c in claims]
+        lines.append(f"We propose {describe(sheets[0])}.")
+        for s in sheets[1:]:
+            lines.append(f"Alternatively: {describe(s, sheets[0])}.")
+        if self.K.ask_schedule:
+            lines.append(SCHEDULE)
+        lines += ["", SIGN]
+        return "\n".join(lines)
+
+    def first_focus(self, case, sid):
+        return (
+            "A capacity-constrained supplier allocates to customers with firm, long-term commitments. Stress our firm "
+            f"commitment ({self.commitment(case, sid)}), a reliable partnership and simple, plannable call-offs. "
+            "Offer the packages as stated; no threats, no complaints about the allocation, no urgency. "
+            f"End with this request: {SCHEDULE}"
+        )
+
+
+SCHEDULE = "Please send us a delivery schedule for the committed volume (monthly quantities)."
+
+
+def _max_price(sentence):
+    prices = [float(x) for x in re.findall(r"EUR (\d+(?:\.\d+)?)", sentence)]
+    return max(prices) if prices else None
