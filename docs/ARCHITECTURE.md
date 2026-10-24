@@ -154,3 +154,14 @@ How our agent negotiates, and how each architecture version is tracked. Code: [`
   - **Final:** it could turn a hidden "best left without a deal" case into a deal.
 - **Routes now use the a-variants:** mert-lever/v14a, base/v14a, base/v7a, mert/v16a, and base/basea for bundling (base + `rival_only_lower`).
 - **Checks:** sandbox router 0.852 (unchanged); 431 tests pass.
+
+**Sat 20:00 batch and new agents:**
+- **mert-skiphedge/v16** (P08, 2 sessions): **0.754** (new best, was 0.711) and 0.711. The only change: an argument on an index the supplier says it has hedged is moved last, so round 1 cites the unhedged PPI-C2431 fall. Router: raw_material -> mert-skiphedge/v16a.
+- **v18** (v14 + 12 % anchor) on P11: 0.71. The supplier holds 45.5 from reply 3; it is unchanged.
+- **Online move planner** (`mert-plan`, `mert-plan-lever`, `mert-plan-raw`; scratchpad sub-planner) works in the supplier's value units:
+  - it estimates the supplier's cap and decay from its steps;
+  - it asks a full-cap step each round;
+  - it keeps the gap under a per-reply budget (12/8/4/3/2.5/2 %), never drops its ask, and never pushes after a final offer.
+- **Engine results for the planner** (not routed yet):
+  - fitted personas: mean .764 vs router .752; P01 .884 -> .947, P18 .485 -> .552;
+  - 531 perturbed personas: .658 vs .615, with **3 walk-aways vs 36**.

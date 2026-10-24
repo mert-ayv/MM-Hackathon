@@ -22,7 +22,7 @@ ROUTES = {
     "price_increase": "mert-lever/v14a",  # P02 0.733 (copper clause db5 @90 agreed; was 0.633), P01 0.933 (best); engine predicted 0.736. NEVER on raw material (lever sheets near the opening get agreed: engine P08 0.04)
     "renewal": "base/v14a",  # P03 v13 0.92 (= house; v14 = v13 off relationship goals); P04 base 0.86 untested
     "rfq": "base/v7a",  # P05 v7 0.81 vs base 0.35, ege/v9 0.52
-    "raw_material": "mert/v16a",  # P08 0.711, P18 0.552 (emre/base 0.549 / 0.467; latest emre/base P08 0.527); 30 % anchor: 0.278 / 0.485
+    "raw_material": "mert-skiphedge/v16a",  # P08 0.754 (best; unhedged index argument in round 1), P18 = mert/v16 (no hedge) 0.552
     "capacity": "base/v14a",  # P10 v13 0.67 vs base 0.57
     "quality": "base/v14a",  # P11 v13 0.71 and v15 0.71 vs base 0.23
     "bundling": "base/basea",  # P07 base 0.72; the v13 line's deep anchor drew a final offer at reply 2 (v15 0.70 with a push)

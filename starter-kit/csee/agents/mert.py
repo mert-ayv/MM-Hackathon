@@ -19,6 +19,7 @@ from arena_kit.play import latest
 
 from .. import intel, levers
 from ..agent import CseeAgent
+from ..agent import must_haves_ok as csee_must_haves_ok
 from ..writer import SIGN
 from .emre import EmreAgent
 
@@ -1021,3 +1022,326 @@ class MertSkipHedgeAgent(MertAgent):
                 if c.kind == "index" and any(i.startswith("idx:") and i[4:].split("@")[0] in series for i in c.ids)
             ]
             st.intel.claims = [c for c in st.intel.claims if c not in hedged] + hedged
+
+# ---------------------------------------------------------------------------------------------------------
+# The planner (mert-plan*): Online move planner: exploit the supplier engine's concession rule (scratchpad/sub-engine/engine.py).
+#
+# Engine rule (fitted on 260 sessions): reply 1 gives s1; reply k>1 gives min(m * our value step, cap_k), cap_k =
+# cap * dec^(k-2); a hold (no value step) gets a hold; final at reply N, or from reply K0 if our gap > G; some walk on
+# a deep gap; any sheet of ours worth >= its ask is agreed.
+#
+# So a supplier's total give is s1 + sum of the caps we actually extract, and our asks matter only through
+#   (1) the step we make each round (>= cap/m extracts the full cap; less wastes it; a value DROP makes it hold),
+#   (2) the gap after its reply (too big from K0 -> early final; deep -> walk risk),
+#   (3) crossing (our ask >= its next ask ends the thread at our price, before the remaining caps).
+# The planner works in the supplier's value units (our estimate: supplier_value at its implied money rate):
+#   - anchor `anchor` below its opening value;
+#   - estimate the next cap online: its last step when that was clearly smaller than m_lo x our step (capped), else a
+#     probe (`probe` x V0 before any evidence, `grow` x its last step after an uncapped mirror);
+#   - our next ask = max(extract the full predicted cap: B + c/m_lo,  hit the gap budget: A - c - target_gap),
+#     target_gap = min(gap we need to keep extracting full caps until reply n_plan, gmax[k] x A),
+#     never above A - max(tick, cross_buf x c) (no crossing), never below our last ask (no holds);
+#   - stop writing (accept) when it stops moving twice while we move, or at the relationship-optimal price.
+# Terms stay the parent agent's (best_terms, sticky, lever/clause sheets); only the main price changes, and extra
+# sheets are re-priced so none is worth more to the supplier than the main (the engine counters on the sheet worth
+# most to it and measures our step on that sheet: base's churn of trade sheets made P01 hold twice).
+# Engine evaluation: scratchpad sub-planner (evalp.py: 9 single-supplier cases x 60 perturbed personas).
+
+@dataclass
+class PlanParams:
+    anchor: float = 0.12  # first ask below its opening (value)
+    anchor_rel: float = 0.12  # relationship goals (stabilise / secure_supply)
+    anchor_raw: float = 0.22  # raw material (index-driven, big first steps: P08/P18 s1 ~8 %)
+    probe: float = 0.03  # our step after reply 1 (share of V0), before any cap evidence
+    m_lo: float = 0.75  # lowest mirror ratio we plan for (fits: 0.5 .. 1.3)
+    grow: float = 1.3  # it mirrored us in full: assume the cap is at least this x its step
+    dec: float = 0.8  # cap decay per reply (fits 0.6 / 0.8 / 1.0)
+    n_plan: int = 5  # the reply we expect its final at (fits: 4 / 5 / 6, tiny-cap ones 8)
+    gmax: tuple = (0.12, 0.08, 0.04, 0.03, 0.025, 0.02)  # max gap after reply 1, 2, 3, ... (share of its ask)
+    cross_buf: float = 0.6  # keep at least this x its predicted step between our ask and its ask
+    safety: float = 0.5  # extra gap (x predicted cap) on top of the need
+    frozen_after: int = 2  # it did not move this many times while we did: stop and accept
+    default_rate: float = 0.08  # its money rate until its own sheets reveal it
+    smooth_ticks: bool = False  # coarse price ticks: average its last two capped steps
+    rfq: bool = False  # plan RFQ threads too (default: parent's RFQ logic)
+
+
+class PlanMixin:
+    """Put first: class X(PlanMixin, Parent). Parent decides terms; the planner decides the main price."""
+
+    plan = PlanParams()
+
+    def prepare(self, case, threads):
+        super().prepare(case, threads)
+        self.case_negotiable = list(case["negotiable"])
+        # the planner decides when a thread is done: the parent's close-gap stop must never fire
+        self.p = replace(self.p, close_gap=-1.0, close_room=0.0, final_push=0.0, push_after_final=0)
+        self.planned = not (len(case["suppliers"]) > 1 and not self.plan.rfq)
+
+    # ---------- the supplier's value, our estimate ----------
+    def sup_model(self, case, sid, std):
+        st = self.threads[sid]
+        base = {"standard": closing_terms(case, st.opening, std), "ppm": self.real_ppm(case, sid, std)}
+        rate = self.revealed_rate(case, sid, base)
+        return {**base, "interest_rate": rate if rate is not None else self.plan.default_rate}
+
+    def revealed_rate(self, case, sid, base):
+        """Its money rate from two of its sheets that differ only in payment days: the rate at which both are
+        worth the same to it (supplier_value, so a late effective date's old units count; mert.implied_rate's
+        price ratio read P01 as 15 % instead of the engine's 9.5 %)."""
+        rates = []
+        for m in self.threads[sid].events:
+            if m.get("from") == "buyer":
+                continue
+            sh = [x.get("terms") or {} for x in m.get("term_sheets") or []]
+            for a in sh:
+                for b in sh:
+                    if not (a.get("unit_price") and b.get("unit_price") and a.get("payment_days") and b.get("payment_days")):
+                        continue
+                    if a["payment_days"] <= b["payment_days"] or a["unit_price"] <= b["unit_price"]:
+                        continue
+                    if not all(a.get(f) == b.get(f) for f in set(a) | set(b) if f not in ("payment_days", "unit_price")):
+                        continue
+                    lo, hi = 0.0, 0.5
+                    f = lambda r: self.sval(case, {**base, "interest_rate": r}, a) - self.sval(case, {**base, "interest_rate": r}, b)
+                    try:
+                        if f(lo) * f(hi) > 0:
+                            continue
+                        for _ in range(40):
+                            mid = (lo + hi) / 2
+                            if f(lo) * f(mid) <= 0:
+                                hi = mid
+                            else:
+                                lo = mid
+                        rates.append((lo + hi) / 2)
+                    except Exception:
+                        continue
+        rates = [r for r in rates if 0.0 < r < 0.4]
+        return sum(rates[-2:]) / len(rates[-2:]) if rates else None
+
+    def sval(self, case, sup, t):
+        try:
+            return supplier_value(case, closing_terms(case, t, sup["standard"]), sup)
+        except Exception:
+            return None
+
+    def price_at_value(self, case, sup, t, v):
+        """Price at which sheet t is worth v to the supplier (value is linear in price)."""
+        p0 = t.get("unit_price") or 1.0
+        v0, v1 = self.sval(case, sup, {**t, "unit_price": p0}), self.sval(case, sup, {**t, "unit_price": p0 + 1.0})
+        if v0 is None or v1 is None or v1 - v0 <= 1e-9:
+            return None
+        return p0 + (v - v0) / (v1 - v0)
+
+    @staticmethod
+    def tick_of(prices):
+        prices = [p for p in prices if p]
+        for t in (0.5, 0.1, 0.05):
+            if len(prices) >= 2 and all(abs(p / t - round(p / t)) < 1e-6 for p in prices):
+                return t
+        return 0.01
+
+    def same_terms(self, a, b):
+        return all(a.get(f) == b.get(f) for f in self.case_negotiable if f != "unit_price")
+
+    def history(self, case, sid, sup):
+        """(B, A, S, prices). B[j-1]: value of our message j's sheet that its reply j countered on (same non-price
+        terms; else our sheet worth most to it); A[j]: value of its reply j's first sheet (A[0] = opening);
+        S[j-1] = A[j-1] - A[j] on the SAME terms (None when its terms changed: our value model is not exact
+        across terms, P01 r2 looked like a rise)."""
+        B, A, S, theirs, prev, pending = [], [], [], [], None, None
+        for m in self.threads[sid].events:
+            sh = [x.get("terms", x) for x in m.get("term_sheets") or []]
+            sh = [t for t in sh if t.get("unit_price") is not None]
+            if not sh:
+                continue
+            if m.get("from") == "buyer":
+                pending = sh
+                continue
+            t = sh[0]
+            v = self.sval(case, sup, t)
+            if v is None:
+                continue
+            if pending:
+                match = [x for x in pending if self.same_terms(x, t)]
+                vals = [self.sval(case, sup, x) for x in (match or pending)]
+                vals = [x for x in vals if x is not None]
+                if vals:
+                    B.append(max(vals))
+                pending = None
+            if prev is not None:
+                S.append(v_prev - v if self.same_terms(prev, t) else None)
+            A.append(v)
+            theirs.append(t["unit_price"])
+            prev, v_prev = t, v
+        return B, A, S, theirs
+
+    # ---------- the plan ----------
+    def plan_value(self, case, threads, sid, sup, left):
+        """Target value of our next main sheet, or (None, why) to stop writing."""
+        P = self.plan
+        B, A, S, theirs = self.history(case, sid, sup)
+        if not A:
+            return None, "no supplier value"
+        V0 = A[0]
+        k = len(A) - 1  # replies after its opening
+        if k == 0 or not B:
+            a = P.anchor_raw if case.get("type") == "raw_material" else P.anchor
+            if case["buyer"].get("category_goal") in RELATIONSHIP_GOALS:
+                a = P.anchor_rel
+            return V0 * (1 - a), f"anchor {a:.0%} below its opening value"
+        if len(B) < k:  # a message without a sheet: align on the latest
+            k = len(B)
+        A_k, B_k = A[-1], B[-1]
+        tickv = self.tick_of(theirs) * (A_k / theirs[-1] if theirs[-1] else 1.0)
+        # observations (our step D, its step S) for replies j >= 2; S None when its terms changed
+        obs = []
+        for j in range(2, k + 1):
+            if j - 1 < len(B) and j - 1 < len(S):
+                obs.append((B[j - 1] - B[j - 2], S[j - 1]))
+        # frozen: it did not move although we did
+        frozen = 0
+        for d, s in reversed(obs):
+            if s is None or d <= 0.5 * tickv or s > 0.5 * tickv:
+                break
+            frozen += 1
+        if frozen >= P.frozen_after:
+            return None, f"it held {frozen}x while we moved: accept"
+        if A_k <= B_k + 0.5 * tickv:
+            return None, "its ask meets ours"
+        # cap estimate for the next reply
+        dec, caps, last = P.dec, [], None
+        for d, s in obs:
+            if s is None or d <= 0.5 * tickv:
+                continue
+            capped = s < 0.8 * P.m_lo * d - tickv  # clearly less than a mirror
+            last = (capped, max(s, 0.0))
+            if capped:
+                caps.append(max(s, 0.0))
+        if last is None:
+            c_hat = P.probe * V0 * P.m_lo
+        elif last[0]:
+            if len(caps) >= 2 and caps[-2] > 0 and caps[-1] > 0:
+                dec = min(1.0, max(0.5, caps[-1] / caps[-2]))
+            c_hat = last[1] * dec
+            if P.smooth_ticks and len(caps) >= 2 and tickv > 0.3 * max(caps[-1], 1e-9):
+                c_hat = (caps[-1] + caps[-2]) / 2 * dec
+        else:
+            c_hat = last[1] * P.grow
+        c_hat = max(c_hat, 0.5 * tickv)
+        # the gap we want after its next reply
+        n_plan = P.n_plan
+        rl = self.rounds_left(sid, left)
+        n_plan = min(n_plan, k + max(rl - self.p.reserve_moves, 1))
+        n_rem = max(n_plan - (k + 1), 1)
+        need = sum(c_hat * dec**i for i in range(1, n_rem + 1)) * (1 + 1 / P.m_lo) + P.safety * c_hat
+        gi = min(k, len(P.gmax) - 1)  # gmax[0] = after reply 1; the next reply is k + 1
+        g_target = min(need, P.gmax[gi] * A_k)
+        B_gap = (A_k - c_hat) - g_target
+        B_ext = B_k + c_hat / P.m_lo
+        B_new = max(B_gap, B_ext)
+        B_cross = A_k - max(tickv, min(P.cross_buf * c_hat, 0.5 * (A_k - B_k)))
+        why = f"r{k + 1}: c^ {c_hat / V0:.2%} gap {((A_k - B_k) / A_k):.2%} -> target {g_target / A_k:.2%}"
+        if B_new > B_cross:
+            B_new = B_cross
+            why += " (no-cross cap)"
+        B_new = max(B_new, B_k)
+        return B_new, why
+
+    def next_terms(self, case, threads, sid, theirs, std, supplier, left):
+        ours = super().next_terms(case, threads, sid, theirs, std, supplier, left)
+        if ours is None or not getattr(self, "planned", False) or "unit_price" not in case["negotiable"]:
+            return ours
+        st = self.threads[sid]
+        st.events = threads[sid]
+        sup = self.sup_model(case, sid, std)
+        # relationship goals: no gain below the relationship-optimal price - accept there
+        b = case["buyer"]
+        if b.get("category_goal") in RELATIONSHIP_GOALS and st.intel.full_cost and theirs.get("unit_price"):
+            real = {**sup, "full_cost": st.intel.full_cost * getattr(self.p, "rel_full", 0.98)}
+            p_rel = levers.relationship_optimal_price(case, ours, std, real, real["full_cost"] * 0.9, theirs["unit_price"])
+            if p_rel and theirs["unit_price"] <= p_rel * 1.002 and any(m.get("from") == "buyer" for m in threads[sid]):
+                st.why = f"its ask {theirs['unit_price']} at the relationship optimum {p_rel}: ready"
+                return None
+        v, why = self.plan_value(case, threads, sid, sup, left)
+        st.plan_v = None
+        if v is None:
+            st.why = "plan: " + why
+            return None
+        st.plan_v = v
+        p = self.priced(case, sid, sup, ours, v)
+        if p is None:
+            return ours
+        st.why = "plan " + why + f" -> {p:.2f}"
+        return {**ours, "unit_price": p}
+
+    def last_sent(self, sid):
+        for m in reversed(self.threads[sid].events):
+            if m.get("from") == "buyer" and m.get("term_sheets"):
+                return [x.get("terms", x) for x in m["term_sheets"]]
+        return []
+
+    def last_counter(self, sid):
+        for m in reversed(self.threads[sid].events):
+            if m.get("from") != "buyer" and m.get("term_sheets"):
+                return m["term_sheets"][0].get("terms") or {}
+        return None
+
+    def priced(self, case, sid, sup, t, v):
+        """Price of sheet t at value v; never below what we asked last time for the same terms (no hold)."""
+        p = self.price_at_value(case, sup, t, v)
+        if p is None:
+            return None
+        p = math.floor(p * 100 + 1e-6) / 100
+        before = [x["unit_price"] for x in self.last_sent(sid) if self.same_terms(x, t)]
+        if before and p < max(before) + 0.01:
+            p = round(max(before) + 0.01, 2)
+        return round(p, 2)
+
+    def sheets(self, case, sid, ours, std, supplier):
+        out = super().sheets(case, sid, ours, std, supplier)
+        st = self.threads[sid]
+        v_plan = getattr(st, "plan_v", None)
+        if not getattr(self, "planned", False) or "unit_price" not in case["negotiable"] or v_plan is None:
+            return out
+        sup = self.sup_model(case, sid, std)
+        levers_sent = [t for _, t, _ in getattr(st, "lever_notes", [])]
+        # the sheet it countered on last time carries the plan (the engine counters on our sheet worth most to it
+        # and measures our step on it); every other sheet is worth at most that much to it
+        counter = self.last_counter(sid) if any(m.get("from") == "buyer" for m in st.events) else None
+        bi = next((i for i, x in enumerate(out) if counter and self.same_terms(x, counter) and x not in levers_sent), 0)
+        if bi:
+            p = self.priced(case, sid, sup, out[bi], v_plan)
+            if p is not None and csee_must_haves_ok(case, {**out[bi], "unit_price": p}, std):
+                out[bi] = {**out[bi], "unit_price": p}
+            else:
+                bi = 0
+        v_b = self.sval(case, sup, out[bi])
+        if v_b is None:
+            return out
+        fixed = []
+        for i, s in enumerate(out):
+            if i != bi and s not in levers_sent:
+                v = self.sval(case, sup, s)
+                if v is not None and v > v_b:
+                    p = self.price_at_value(case, sup, s, v_b)
+                    if p is None:
+                        continue
+                    s = {**s, "unit_price": math.floor(p * 100) / 100}
+                    if not csee_must_haves_ok(case, s, std):
+                        continue
+            if s not in fixed:
+                fixed.append(s)
+        return fixed[:3]
+
+
+class PlannerAgent(PlanMixin, CseeAgent):
+    """Base terms + the planner (renewal, capacity, quality, bundling, unknown)."""
+
+
+class PlannerLeverAgent(PlanMixin, MertLeverAgent):
+    """mert-lever (clause / named-lever sheets) + the planner (price_increase)."""
+
+
+class PlannerRawAgent(PlanMixin, MertAgent):
+    """mert (raw material: clause/payment alternatives) + the planner."""

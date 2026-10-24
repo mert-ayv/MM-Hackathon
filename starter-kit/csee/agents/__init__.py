@@ -63,6 +63,9 @@ from .mert import (
     MertLeverRawAgent,
     MertRawAgent,
     MertSkipHedgeAgent,
+    PlannerAgent,
+    PlannerLeverAgent,
+    PlannerRawAgent,
 )
 from .router import RouterAgent
 
@@ -85,6 +88,9 @@ AGENTS = {
     "mert-anchorcap": AnchorCapAgent,
     "mert-gatedpush": GatedPushAgent,  # rejected: P18 afada094 walked after a push inside the gate
     "mert-final": FinalCandidateAgent,
+    "mert-plan": PlannerAgent,  # online move planner (engine-model caps / gap budget), base terms
+    "mert-plan-lever": PlannerLeverAgent,  # planner + mert-lever sheets (price_increase)
+    "mert-plan-raw": PlannerRawAgent,  # planner + mert raw-material sheets
     "router": RouterAgent,
 }
 
