@@ -101,3 +101,14 @@ How our agent negotiates, and how each architecture version is tracked. Code: [`
 
 **Final-mode estimate:** every run now records what it would have scored at the final's cutoffs (390/330/270 s, `csee/final_est.py`; `csee board --final`, `csee finalest`). The v13 validation cases took 49-215 s, so time was not binding in practice.
 
+
+**Robustness fixes (all variants, Sat 24 Oct ~16:45; found by the LLM final rehearsal and a fresh-eyes review, no quota used):**
+- **Price-only final offers:** a sheet that omits terms closes on the supplier's *standard* terms. Before accepting one, we ask once for "your price with our terms" (sim S03 0.29 -> 1.00, S01/S02 0.81 -> 1.00/0.99).
+- **Fixed-price cases** (`unit_price` not negotiable) crashed every first move, so the agent never negotiated. Now we negotiate the other terms only.
+- **A price must-have** (`unit_price <= X`): we never ask above it, and other terms are optimised at the cap. Before the fix, every ask broke it and the case ended in a walk-away.
+- **A supplier holding a term that breaks a must-have** (P09-like: 49 days lead time against our <= 42): we meet it at the bound (42) instead of resending our 28 days until we walk away.
+- **v14 trade sheets** priced below the supplier's cost for relationship goals are dropped (a wasted slot).
+- **Runner:**
+  - after 3 refused closes, it tries the kit's closing move, then a walk-away (an open session would sit until the wave cap);
+  - a final case that failed before closing is played again (409 -> resume).
+- **Check:** sim unchanged (base .267, v13 .285, v14 .317); sandbox v14 0.97 / 0.70; 159 tests pass.

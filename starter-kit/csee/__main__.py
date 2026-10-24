@@ -149,6 +149,8 @@ def new_run(args, runs, set_, agent=None, variant=None):
 
 
 def command(args, runs):
+    if getattr(args, "variants", None) == ["base"] and args.variant != "base":
+        args.variants = [args.variant]  # `--variant v14 bench` means v14, not the default list
     if args.cmd == "play":
         from arena_kit.play import RemoteTable
 

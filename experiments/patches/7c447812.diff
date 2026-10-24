@@ -1,0 +1,12 @@
+diff --git a/starter-kit/csee/__main__.py b/starter-kit/csee/__main__.py
+index aca4e88..86af8a1 100644
+--- a/starter-kit/csee/__main__.py
++++ b/starter-kit/csee/__main__.py
+@@ -149,6 +149,8 @@ def new_run(args, runs, set_, agent=None, variant=None):
+ 
+ 
+ def command(args, runs):
++    if getattr(args, "variants", None) == ["base"] and args.variant != "base":
++        args.variants = [args.variant]  # `--variant v14 bench` means v14, not the default list
+     if args.cmd == "play":
+         from arena_kit.play import RemoteTable
