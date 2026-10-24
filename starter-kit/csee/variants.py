@@ -156,6 +156,9 @@ VARIANTS["basea"] = {"rival_only_lower": True, "alt_quote_claim": True}
 VARIANTS["v14r"] = {**VARIANTS["v14a"], "rel_full": 0.965}
 VARIANTS["v14s"] = {**VARIANTS["v14a"], "anchor_below_open": 0.04}
 VARIANTS["v17"] = {**VARIANTS["v16"], "rel_anchor": False, "close_gap": 0.001, "close_room": 0.05}
+# the router's "a" variants with should-cost cited from 3 % above the ask (default 8 %)
+for _v in ("v14a", "v16a", "v7a", "basea"):
+    VARIANTS[_v + "c"] = {**VARIANTS[_v], "should_cost_margin": 0.03}
 
 
 
@@ -219,6 +222,13 @@ def params(name):
     if bad:
         raise SystemExit(f"variant {name!r} sets unknown params: {bad}")
     return Params(**VARIANTS[name])
+
+
+for _v in ("v14a", "v16a", "v7a", "basea"):
+    DESCRIPTIONS[_v + "c"] = (
+        f"{_v} + should-cost cited from 3 % above the ask (default 8 %): it moved the price in 9 of 9 practice "
+        "citations (P01's ask is 4.5 % above should-cost and never got it)."
+    )
 
 
 def describe(name):

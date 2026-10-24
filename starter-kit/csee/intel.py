@@ -133,7 +133,7 @@ def estimate_full_cost(case, pkg, supplier_id, country):
     return None, ""
 
 
-def build(case, pkg, supplier_id, opening_price=None, opening_text="", opening=None):
+def build(case, pkg, supplier_id, opening_price=None, opening_text="", opening=None, should_cost_margin=0.08):
     """Everything we know about one supplier in this case, before the first counter-offer."""
     intel = Intel(supplier_id, load_profile(supplier_id))
     if not intel.profile:  # no curated profile: generate one (fallback.py); curated suppliers unchanged
@@ -145,7 +145,7 @@ def build(case, pkg, supplier_id, opening_price=None, opening_text="", opening=N
     intel.full_cost, intel.full_cost_source = estimate_full_cost(case, pkg, supplier_id, intel.country)
     if intel.full_cost is None and intel.profile.get("floor_feed"):  # auto profiles only
         intel.full_cost, intel.full_cost_source = intel.profile["floor_estimate"], intel.profile["floor_source"]
-    intel.claims = claims_for(case, pkg, supplier_id, opening_price, opening_text)
+    intel.claims = claims_for(case, pkg, supplier_id, opening_price, opening_text, should_cost_margin)
     return intel
 
 
@@ -154,7 +154,7 @@ NEWS_HELPS_THEM = {"full_order_book", "big_order", "allocation", "chip_shortage"
 DRIVER_RE = re.compile(r"([A-Z][A-Z0-9-]{2,}) rose [\d.]+ ?% in twelve months")
 
 
-def claims_for(case, pkg, supplier_id, asked_price=None, opening_text=""):
+def claims_for(case, pkg, supplier_id, asked_price=None, opening_text="", should_cost_margin=0.08):
     """Verified-able arguments for a lower price, strongest first (at most 3 per message, each ID once)."""
     out = []
     parts = case.get("parts", [])
@@ -194,7 +194,8 @@ def claims_for(case, pkg, supplier_id, asked_price=None, opening_text=""):
     for part in parts:
         ref = f"cost:{part.split(':')[-1]}"
         fact = _fact(case, pkg, ref)
-        if fact and fact.get("unit_cost") and (not asked_price or asked_price > fact["unit_cost"] * 1.08):
+        # should-cost moved the price in 9 of 9 practice citations; the margin decides how far above it the ask must be
+        if fact and fact.get("unit_cost") and (not asked_price or asked_price > fact["unit_cost"] * (1 + should_cost_margin)):
             out.append(
                 Claim(
                     f"Our should-cost estimate for this part is EUR {fact['unit_cost']:.2f} per unit ({ref}).",

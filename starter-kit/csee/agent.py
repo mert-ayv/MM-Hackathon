@@ -113,6 +113,7 @@ class Params:
     anchor_leverage: float = 0.0  # >0: anchor this far below the opening outside relationship goals, no floor
     rfq_anchor_vs_leader: float = 0.0  # >0: RFQ first ask at most (1 - x) x the cheapest rival's opening price
     alt_quote_claim: bool = False  # cite the case's alternative quote, once per supplier, when it is below the ask
+    should_cost_margin: float = 0.08  # cite should-cost when the ask is this far above it (9 of 9 cites moved it)
     adopt_revealed: bool = False  # keep a term at the supplier's value when its own sheets show that is cheaper
     hold_on_internal: bool = False  # "we will come back to you on price": hold our price one round
     # v8 switches (trade every lever; read the supplier's own words)
@@ -179,7 +180,10 @@ class CseeAgent:
             first = next((m for m in threads.get(sid, []) if m.get("from") != "buyer" and m.get("term_sheets")), None)
             opening = dict(first["term_sheets"][0]["terms"]) if first else dict(terms)
             body = (first or {}).get("body") or ""
-            info = intel_mod.build(case, self.pkg, sid, opening.get("unit_price"), body, opening=first)
+            info = intel_mod.build(
+                case, self.pkg, sid, opening.get("unit_price"), body, opening=first,
+                should_cost_margin=self.p.should_cost_margin,
+            )
             st = self.threads[sid] = ThreadState(info, opening=opening)
             for m in threads.get(sid, []):  # a resumed case: continue from our earlier asks, never re-anchor
                 if m.get("from") == "buyer" and m.get("term_sheets"):
