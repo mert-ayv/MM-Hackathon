@@ -137,3 +137,23 @@ facts allow. Sign as "Hollerau Pumpenwerke GmbH, Purchasing"."""
             if c.sentence not in text:
                 text = text.replace(SIGN, "").rstrip() + "\n" + c.sentence + "\n\n" + SIGN
         return text[:8000]
+
+
+def clause_notes(body, sheets):
+    """Say which sheet carries an index clause (the template's wording leaves clauses out)."""
+    if not body or SIGN not in body or not any(s.get("index_clause") for s in sheets):
+        return body
+    notes = []
+    for i, s in enumerate(sheets):
+        if s.get("unit_price") is None:
+            continue
+        which = "Our proposal" if i == 0 else "The alternative"
+        c = s.get("index_clause")
+        notes.append(
+            f"{which} at EUR {s['unit_price']:.2f} includes an index clause on {c['series']} "
+            f"({c.get('material_share', 0):.0%} material share, {c.get('deadband_pct')}% deadband), "
+            "so the material risk is shared both ways."
+            if c
+            else f"{which} at EUR {s['unit_price']:.2f} is a fixed price without index clause."
+        )
+    return body.replace(SIGN, "\n".join(notes) + "\n\n" + SIGN)
