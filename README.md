@@ -29,7 +29,7 @@ uv sync --all-extras
 uv run arena data               # unpacks the data package into starter-kit/data/package
 ```
 
-**2. Put the keys in `starter-kit/.env`.** We have **one arena key per team**: ask Mert for it, and don't apply for a second one. The file is git-ignored, so **never commit it** and never paste keys into code, issues or chat logs.
+**2. Put the keys in `starter-kit/.env`.** Our arena team is **csee-base** and we have **one arena key for the whole team**: get it from the teammate who registered, and don't apply for a second one. The file is git-ignored, so **never commit it** and never paste keys into code, issues or chat logs.
 
 ```bash
 # starter-kit/.env
