@@ -277,3 +277,12 @@ search: `experiments/capacity/p10_search.py`.
 - Bot (72 worlds, reproduces all four real games): k9 0.679; **k9j mean 0.686, outcomes 0.679 (owner not asked /
   declines) / 0.694 (owner approves, its final rounds to 31.40) / 0.702 (its final meets our 31.30), P(>0.694)
   0.20, worst 0.679**; smaller jump (-0.20/-0.6 %) 0.682, larger (-0.60/-2 %) 0.684.
+
+### k9j2 after practice #5 (annika-k9j@07356cd, 0.686 = house agent)
+- Its R2 move grows with our R2 step: backwards -> 0, +0.48 -> 0.10, +2.00 -> 0.20 (always final at reply 2).
+  `experiments/capacity/p10_r2fit.py` fits four rules on these points (move ∝ step; ∝ step/gap; half the
+  remaining gap capped; a floor in (31.30, 31.50]) and sweeps (R1, R2).
+- Best for P(final <= 31.30) with worst case >= 0.686: **R1 12 % (28.34, open in #2), R2 jump to 31.34**
+  (just above the grid point 4 steps down): mean 0.691, P(beat 0.694) 0.12, P(31.40 tie) 0.34, worst 31.50
+  (0.686). R2 31.00-31.10 has a higher mean (0.692, P(tie) 0.70) but cannot beat the record; any R1 29.30 pair
+  cannot either; R2 >= 31.40 risks 0.679.

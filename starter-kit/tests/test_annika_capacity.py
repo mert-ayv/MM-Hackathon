@@ -337,3 +337,26 @@ def test_k9j_p09_no_unearned_lines(pkg):
     p = nxt["term_sheets"][0]["terms"]["unit_price"]
     assert p < 16.6 and p >= agent.plans[sid]["floor_rel"] - 0.01  # the jump never goes below the relationship floor
     assert nxt["term_sheets"][0]["terms"]["lead_time_days"] <= 42
+
+
+def test_k9j2_twelve_percent_anchor_and_edge_jump(pkg):
+    case, agent, threads, msg = first_move(pkg, name="annika-k9j2")
+    sid = "sup:70410"
+    assert msg["term_sheets"][0]["terms"]["unit_price"] == pytest.approx(28.34)  # 12 %: open on P10 (practice #2)
+    assert msg["refs"] == ["cost:340010", "fc:340010@2026-09", "sc:70410@2026Q3"]
+    base = {"volume_per_year": 23400, "contract_months": 36}
+    threads[sid] += [{**msg, "from": "buyer"}, reply("open", [{**base, "unit_price": 31.7, "lead_time_days": 54}], 1)]
+    jump = agent.thread_move(case, threads, sid)
+    # just above the grid point 4 steps down: an "agree" lands below the record, a rounded final on 31.30
+    assert jump["term_sheets"][0]["terms"] == {**base, "unit_price": 31.34, "lead_time_days": 54}
+    assert "ready to sign today" in jump["body"]
+
+
+def test_r2_fit_matches_the_three_real_points():
+    path = Path(__file__).parents[2] / "experiments" / "capacity" / "p10_r2fit.py"
+    spec = importlib.util.spec_from_file_location("p10_r2fit", path)
+    fit = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(fit)
+    fit.check_fit()
+    for rule, par, _ in fit.worlds(6):
+        assert fit.final(rule, par, 28.34, 31.34) <= 31.50 + 1e-9  # worst case 0.686 for k9j2's pair

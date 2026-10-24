@@ -70,6 +70,10 @@ class KParams:
     jump: bool = False  # R2: jump to min(its price - jump_abs, its price x (1 - jump_pct)) on its price grid
     jump_abs: float = 0.40
     jump_pct: float = 0.013
+    # k9j2 (fit on practice #2/#3/#5: its R2 move grows with our step, 0.48 -> 0.10, 2.00 -> 0.20): jump to just
+    # above the grid point 4 steps below its price (P10: 31.70 -> 31.34), so our step is as large as possible while
+    # any "agree at our ask" lands below the record (31.40) and a rounded final lands on 31.30
+    jump_edge: bool = False
     appreciation: bool = False  # R1: cite its green scorecard ppm as appreciation (only if green throughout)
     pay_on_terms: bool = False  # R1, words only: "we pay on terms" if our invoices are <= 2 days late on average
     lead_premium: float = 0.005  # prior: what a full supplier charges per day faster than its standard (P10 fit)
@@ -286,7 +290,12 @@ class AnnikaCapacityAgent(CseeAgent):
         st.k_jump = False
         if k.jump and n == 1 and latest(threads[sid]).get("status") == "open" and self.short_patience(case, sid):
             grid = self.price_grid(threads[sid])
-            target = round(round(min(p_s - k.jump_abs, p_s * (1 - k.jump_pct)) / grid) * grid, 2)
+            if k.jump_edge and grid >= 0.05:
+                target = round(p_s - 4 * grid + 0.4 * grid, 2)
+            elif k.jump_edge:
+                target = round(p_s * (1 - 0.0114), 2)
+            else:
+                target = round(round(min(p_s - k.jump_abs, p_s * (1 - k.jump_pct)) / grid) * grid, 2)
             floor = self.plans[sid]["floor_rel"] or 0
             if last < target < p_s - k.stay_below and target >= floor:
                 p, st.k_jump = target, True
@@ -511,7 +520,11 @@ class AnnikaCapacityAgent(CseeAgent):
                     text = writer.write(case, self, sid, events, sheets, claims, False)
                 text = re.sub(r"^\s*Subject:[^\n]*\n+", "", text or "")  # the model sometimes adds one
                 if schedule and "delivery schedule" not in (text or "").lower():
-                    text = (text or "").replace(SIGN, "").rstrip() + "\n" + SCHEDULE + "\n\n" + SIGN
+                    close = re.search(r"\n\s*(Kind|Best|With kind) regards", text or "")
+                    if close:
+                        text = text[: close.start()].rstrip() + "\n\n" + SCHEDULE + "\n" + text[close.start() :]
+                    else:
+                        text = (text or "").rstrip() + "\n\n" + SCHEDULE + "\n\n" + SIGN
                 return text
 
             msg["_write"] = write
@@ -533,7 +546,8 @@ class AnnikaCapacityAgent(CseeAgent):
             return (
                 "We make one large step to close now. Thank them for the revised offer, restate our firm commitment "
                 f"({self.commitment(case, sid)}), say we accept their lead time and terms, that we move in one step to "
-                "the stated price and that we are ready to sign today on these terms. Short, warm, decisive. No "
+                f"EUR {self.threads[sid].our_prices[-1]:.2f} per unit (our price, still below theirs: never say we "
+                "accept their price) and that we are ready to sign today on these terms. Short, warm, decisive. No "
                 "threats, no criticism of their delivery or quality, no mention of other suppliers."
             )
         return (
@@ -607,4 +621,18 @@ class AnnikaCapacity9JAgent(AnnikaCapacityAgent):
         appreciation=True,
         pay_on_terms=True,
         jump=True,
+    )
+
+
+class AnnikaCapacity9J2Agent(AnnikaCapacityAgent):
+    """k9j with the 12 % anchor (open on P10 in practice #2) and an R2 jump to just above its grid point 4 steps
+    down (31.70 -> 31.34): the largest step our worst case allows (fit: experiments/capacity/p10_r2fit.py)."""
+
+    K = KParams(
+        anchor_below_open=0.12,
+        first_claims=("should_cost", "forecast", "appreciation"),
+        appreciation=True,
+        pay_on_terms=True,
+        jump=True,
+        jump_edge=True,
     )
