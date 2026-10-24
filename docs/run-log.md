@@ -8,6 +8,10 @@ runs/<run_id>/
   <case_id>.jsonl       one JSON object per line, one file per case session (":" in IDs becomes "_")
 ```
 
+A run that plays the same case more than once (e.g. a bench playing `case:D01` three times) writes one file per
+play: `case_D01.jsonl`, then `case_D01~2.jsonl`, `case_D01~3.jsonl`, ... The events inside keep the real `case_id`;
+readers key a case by its file name, so the n-th play of a case lines up across runs.
+
 `run_id` = `YYYYMMDD-HHMMSS-<agent>` (e.g. `20261024-153012-A`). `runs/` is git-ignored.
 
 ## `run.json`
