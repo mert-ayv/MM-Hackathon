@@ -39,6 +39,10 @@ class Params:
     cash_trade_always: bool = False  # always offer a faster-payment sheet, not only for cash-short profiles
     follow_share: float = 1.1  # our step at most this share of the supplier's last step
     hold_above_floor: float = 0.0  # with a known cost floor: concede only this share while above floor*1.08
+    # v3 switches (replay lessons P01/P05/P08/P10)
+    all_sheets: bool = False  # weigh every term sheet the supplier sends, not only its first
+    clause_when_insisted: bool = False  # supplier insists on an index clause: ask for its cheapest form
+    fullcost_discount: float = 1.0  # should-cost runs high (error ~5%): scale it for the relationship term
 
 
 @dataclass
@@ -79,7 +83,9 @@ class CseeAgent:
 
     def supplier_estimate(self, case, sid, std):
         st = self.threads[sid]
-        full = (st.breakdown or {}).get("full_cost") or st.intel.full_cost
+        full = (st.breakdown or {}).get("full_cost") or (
+            st.intel.full_cost * self.p.fullcost_discount if st.intel.full_cost else None
+        )
         if not full:
             return None
         pressures = " ".join(p.get("type", "") for p in st.intel.profile.get("pressures", []))
@@ -88,6 +94,22 @@ class CseeAgent:
         # so fill every field from its opening offer and the case (supplier_value needs them all)
         standard = closing_terms(case, st.opening, std)
         return {"full_cost": full, "interest_rate": rate, "standard": standard}
+
+    def their_sheet(self, case, events, std, supplier=None):
+        """(term_sheet_id, terms) the supplier offers that is cheapest for us (must-haves kept), or with
+        all_sheets off its first sheet. Suppliers often answer with alternatives; the second can be the deal."""
+        if not self.p.all_sheets:
+            return standing(events)
+        sheets = latest(events).get("term_sheets") or []
+        best = None
+        for sh in sheets:
+            terms = sh.get("terms") or {}
+            if terms.get("unit_price") is None or not must_haves_ok(case, terms, std):
+                continue
+            c = total_cost(case, terms, std, supplier)
+            if best is None or c < best[0]:
+                best = (c, sh["term_sheet_id"], terms)
+        return (best[1], best[2]) if best else standing(events)
 
     # ---------- the cheapest opening, the alternative, the reservation ----------
     def c_of(self, case, threads, sid, supplier=None):
@@ -113,8 +135,8 @@ class CseeAgent:
         st, ev = self.threads[sid], threads[sid]
         last = latest(ev)
         status = last.get("status")
-        sheet_id, theirs = standing(ev)
         std = standard_terms(ev)
+        sheet_id, theirs = self.their_sheet(case, ev, std, self.supplier_estimate(case, sid, std))
         for att in last.get("attachments") or []:
             if "breakdown" in (att.get("name") or "").lower() and att.get("text"):
                 st.breakdown = intel_mod.parse_cost_breakdown(att["text"]) or st.breakdown
@@ -158,7 +180,11 @@ class CseeAgent:
         if p_s is None:
             return None
         fixed = self.insisted_fields(case, threads[sid]) if self.p.adopt_insisted else {}
-        base = levers.best_terms(case, {**theirs, **fixed}, std, supplier, fixed=tuple(fixed))
+        exclude = {}
+        if self.p.clause_when_insisted and self.clause_insisted(threads[sid]):
+            fixed.pop("index_clause", None)
+            exclude = {"index_clause": [None]}  # a clause it is: the cheapest one for us (widest deadband)
+        base = levers.best_terms(case, {**theirs, **fixed}, std, supplier, fixed=tuple(fixed), exclude=exclude)
         floor = self.floor_price(st)
         if not st.our_prices:  # the anchor
             p = p_s * (1 - self.p.anchor_below_open)
@@ -266,6 +292,23 @@ class CseeAgent:
         return out
 
     @staticmethod
+    def clause_insisted(events):
+        """The supplier put an index clause into its sheets twice after we asked for none."""
+        hits, ask = 0, None
+        for m in events:
+            if m.get("from") == "buyer" and m.get("term_sheets"):
+                ask = m["term_sheets"][0].get("terms", m["term_sheets"][0])
+            elif m.get("from") != "buyer" and ask is not None and ask.get("index_clause") is None:
+                sheets = [s.get("terms", {}) for s in m.get("term_sheets") or []]
+                if (
+                    sheets
+                    and all(s.get("index_clause") for s in sheets if "index_clause" in s)
+                    and any(s.get("index_clause") for s in sheets)
+                ):
+                    hits += 1
+        return hits >= 1
+
+    @staticmethod
     def insisted_fields(case, events):
         """Non-price terms the supplier answered with the same value at least twice against a
         different ask of ours: {field: its value}. Fighting those wastes rounds."""
@@ -295,13 +338,20 @@ class CseeAgent:
         c_alt = levers.alternative_cost(case)
         best = None
         for sid in live:
-            sheet_id, terms = standing(threads[sid])
             std = standard_terms(threads[sid])
-            if not sheet_id or not must_haves_ok(case, terms, std):
-                continue
-            c = total_cost(case, terms, std, self.supplier_estimate(case, sid, std))
-            if c < c_alt and (best is None or c < best[0]):
-                best = (c, sid, sheet_id)
+            supplier = self.supplier_estimate(case, sid, std)
+            if self.p.all_sheets:
+                offered = [
+                    (s["term_sheet_id"], s.get("terms") or {}) for s in latest(threads[sid]).get("term_sheets") or []
+                ]
+            else:
+                offered = [standing(threads[sid])]
+            for sheet_id, terms in offered:
+                if not sheet_id or terms.get("unit_price") is None or not must_haves_ok(case, terms, std):
+                    continue
+                c = total_cost(case, terms, std, supplier)
+                if c < c_alt and (best is None or c < best[0]):
+                    best = (c, sid, sheet_id)
         if best is None:
             return {"supplier_id": live[0], "message": {"action": {"type": "walk_away"}}}
         log.info("%s: accept %s %s at C=%.0f (alt %.0f)", case["case_id"], best[1], best[2], best[0], c_alt)

@@ -19,6 +19,19 @@ VARIANTS = {
         "hold_above_floor": 0.4,
         "anchor_below_open": 0.18,
     },
+    # replay lessons: weigh every offered sheet, cheapest clause when insisted, should-cost x0.95
+    "fix": {"all_sheets": True, "clause_when_insisted": True, "fullcost_discount": 0.95},
+    "v3": {
+        "adopt_insisted": True,
+        "rival_only_lower": True,
+        "cash_trade_always": True,
+        "follow_share": 0.5,
+        "hold_above_floor": 0.4,
+        "anchor_below_open": 0.18,
+        "all_sheets": True,
+        "clause_when_insisted": True,
+        "fullcost_discount": 0.95,
+    },
 }
 
 

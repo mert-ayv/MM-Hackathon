@@ -40,7 +40,7 @@ def _supplier_rank(field, value, case):
     return sign * value if isinstance(value, int | float) else 0
 
 
-def best_terms(case, base, std=None, supplier=None, fixed=(), tolerance=1.0):
+def best_terms(case, base, std=None, supplier=None, fixed=(), tolerance=1.0, exclude=None):
     """Coordinate descent over the negotiable non-price fields at the price in `base`: the value with
     the lowest C for us; among values within `tolerance` EUR of it, the one the supplier likes most.
     Free volume and contract length fields: our need and the horizon (more costs, less leaves need uncovered)."""
@@ -64,6 +64,8 @@ def best_terms(case, base, std=None, supplier=None, fixed=(), tolerance=1.0):
                 continue
             scored = []
             for v in options(case, field):
+                if v in (exclude or {}).get(field, []):
+                    continue
                 c = total_cost(case, {**t, field: v}, std, supplier)
                 if must_haves_ok(case, {**t, field: v}, std):
                     scored.append((c, v))
