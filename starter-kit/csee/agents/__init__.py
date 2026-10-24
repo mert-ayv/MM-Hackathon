@@ -68,7 +68,7 @@ from .mert import (
     PlannerRawAgent,
 )
 from .records import MesoBase, MesoLever, MesoMert, PlanMesoLever, PlanMesoRaw, PledgeBase
-from .router import RouterAgent
+from .router import RouterAgent, RouterPlanAgent
 
 AGENTS = {
     "base": CseeAgent,
@@ -99,6 +99,7 @@ AGENTS = {
     "mert-plan-meso-raw": PlanMesoRaw,  # planner + payment MESO + skip-hedge raw packages
     "mert-pledge": PledgeBase,  # P11 record: on-time-payment commitment when payment is fixed and we paid late
     "router": RouterAgent,
+    "router-plan": RouterPlanAgent,  # A/B candidate: the planner on every non-RFQ type
 }
 
 

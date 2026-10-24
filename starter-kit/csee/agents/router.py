@@ -50,7 +50,7 @@ class RouterAgent:
 
     def _route(self, case):
         if self.case_id != case["case_id"]:
-            route = ROUTES.get(case.get("type"), FALLBACK)
+            route = self.routes().get(case.get("type"), self.fallback())
             cls, params = resolve(route, self.params)
             self.inner, self.case_id = cls(self.pkg, self.writer, params), case["case_id"]
             for name in self.FORWARD:
@@ -58,6 +58,14 @@ class RouterAgent:
                     setattr(self.inner, name, self.__dict__[name])
             log.info("%s (%s): %s", case["case_id"], case.get("type"), route)
         return self.inner
+
+    @staticmethod
+    def routes():
+        return ROUTES
+
+    @staticmethod
+    def fallback():
+        return FALLBACK
 
     def prepare(self, case, threads):
         return self._route(case).prepare(case, threads)
@@ -81,3 +89,27 @@ class RouterAgent:
         if inner is None:
             raise AttributeError(f"{name}: no case routed yet")
         return getattr(inner, name)
+
+
+# A/B candidate for the final (Sat evening): the online move planner on every non-RFQ type. Engine: fitted personas
+# .764 vs .752, perturbed unknown suppliers .658 vs .615 with 3 walk-aways vs 36; real P01 0.975 (planner + MESO).
+PLAN_ROUTES = {
+    "price_increase": "mert-plan-meso-lever/v14a",
+    "renewal": "mert-plan/v14a",
+    "rfq": "base/v7a",
+    "raw_material": "mert-plan-meso-raw/v16a",
+    "capacity": "mert-plan/v14a",
+    "quality": "mert-plan/v14a",
+    "bundling": "mert-plan/basea",
+}
+PLAN_FALLBACK = "mert-plan/v14a"
+
+
+class RouterPlanAgent(RouterAgent):
+    @staticmethod
+    def routes():
+        return PLAN_ROUTES
+
+    @staticmethod
+    def fallback():
+        return PLAN_FALLBACK
