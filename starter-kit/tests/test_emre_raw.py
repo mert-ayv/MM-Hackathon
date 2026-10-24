@@ -54,12 +54,12 @@ def test_other_case_types_untouched(pkg, cases):
     assert first_move(EmreAgent(pkg), case) == first_move(CseeAgent(pkg), case)
 
 
-def test_raw_spreads_arguments_and_pushes_after_a_final_offer(pkg, cases):
+def test_raw_spreads_arguments_and_never_pushes_after_a_final_offer(pkg, cases):
     case = cases["case:P08"]
     sid = case["suppliers"][0]
     agent, threads = EmreAgent(pkg), {sid: [opening(case, sid)]}
     agent.prepare(case, threads)
-    assert agent.p.final_push > 0
+    assert agent.p.final_push == 0  # a push after its final offer made P18 walk away
     per_round = []
     for _ in range(3):
         per_round.append(len(agent.pick_claims(case, threads, sid)))
