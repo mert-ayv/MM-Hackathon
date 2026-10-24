@@ -76,6 +76,7 @@ class World:
     owner: float = 0.03  # total move the owner allows
     kappa: float = math.inf  # first concession at most kappa x (its ask - our value); inf: only t1 caps it
     beta: float = 0.0  # what a day beyond its standard lead time is worth to it (share of the premium)
+    final_meet: bool = False  # its final reply meets our ask when the ask is within its (desk/owner) authority
     push: tuple = (0.3, 0.6, 0.1)  # after a final offer, a price push <= 1 %: agree, hold, walk (6/12/2 of 20)
     seed: int = 0
 
@@ -185,13 +186,17 @@ class P10Bot:
         self.prev_bv = bv
         limit = w.desk * V0
         if V0 - (self.V - move) > limit + 1e-9:
-            if self.approved is None and self.n > 1:  # asks it beyond its band: the owner decides once
+            # practice #3: our 29.78 was far below its band, the desk never asked the owner -> only an ask that
+            # reaches into the owner's band makes the desk ask (D02: "more than my band allows. Approve?")
+            if self.approved is None and self.n > 1 and bv >= V0 * (1 - w.owner) - 1e-9:
                 self.approved = self.rng.random() < w.approve
                 self.events.append("owner " + ("approved" if self.approved else "declined"))
             if self.approved:
                 limit = w.owner * V0
         self.V = max(V_FLOOR, self.V - max(move, 0), V0 - limit, bv)
         self.final = self.n >= self.patience
+        if self.final and w.final_meet and bv >= V0 - limit - 1e-9:
+            self.V = bv  # within its authority: its last word meets our ask
         if bv >= self.V - 1e-9:
             return self.reply("agreed", [best])
         first = full[0]
@@ -268,15 +273,16 @@ class P10Table:
 
 # ---------- priors over the worlds ----------
 PRIORS = {
-    "t1": [(0.0145, 1), (0.0155, 1), (0.0165, 1)],
-    "G": [(0.13, 1), (0.15, 1), (0.16, 1)],
-    "n0": [(3, 1), (4, 1), (5, 1)],
-    "mirror": [(0.5, 1), (1.0, 1)],
+    "t1": [(0.0155, 1)],
+    "G": [(0.15, 1)],
+    "n0": [(2, 1)],  # practice #3: final at reply 2 with a 9 % anchor and a steady step
+    "mirror": [(0.2, 1), (0.5, 1), (1.0, 1)],  # practice #3: our 0.48 step -> its 0.10 (or the 2 % desk band)
     "decay": [(0.5, 1), (0.7, 1)],
     "approve": [(0.0, 0.4), (0.5, 0.3), (1.0, 0.3)],
     "owner": [(0.03, 1), (0.04, 1)],
-    "kappa": [(math.inf, 0.7), (0.5, 0.3)],
-    "beta": [(0.0, 0.7), (0.33, 0.3)],
+    "kappa": [(math.inf, 1)],
+    "beta": [(0.0, 1)],
+    "final_meet": [(False, 0.5), (True, 0.5)],
 }
 
 

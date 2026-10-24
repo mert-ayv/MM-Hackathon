@@ -267,3 +267,13 @@ search: `experiments/capacity/p10_search.py`.
 - Bot search (371 worlds): H2 3.75 % anchor 0.680 (p90 0.686, P(>0.694) 0); 6 % 0.684 (0.11); **9 % 0.689
   (p90 0.710, P(>0.694) 0.34)**; 2.5 % 0.675 (10 % of worlds below 0.671). No H2 setting falls below 0.671
   except 2.5 %. In the bot the supplier mirrors our steps, so a deeper (not deep) start leaves more room.
+
+### k9j after practice #3 (annika-k9@ca23d19, 0.679, team best)
+- Patience is exactly 2 replies (12 % and 9 % anchors both). Its R2 mirrored our 0.48 step with 0.10 and landed
+  on the 2 % desk band (32.20 x 0.98 = 31.56 -> 31.60); the desk never asked the owner (our ask was far below).
+- `annika-k9j`: R1 as k9 + green-scorecard appreciation (sc only, never with qn) + "we pay on terms" (invoices
+  1.93 days late on average; only said when <= 2); R2 one jump to min(its price - 0.40, its price x 0.987) on its
+  price grid (P10: 31.30), "ready to sign today", when its profile/e-mails show a desk limit or capacity squeeze.
+- Bot (72 worlds, reproduces all four real games): k9 0.679; **k9j mean 0.686, outcomes 0.679 (owner not asked /
+  declines) / 0.694 (owner approves, its final rounds to 31.40) / 0.702 (its final meets our 31.30), P(>0.694)
+  0.20, worst 0.679**; smaller jump (-0.20/-0.6 %) 0.682, larger (-0.60/-2 %) 0.684.

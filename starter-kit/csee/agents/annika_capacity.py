@@ -46,6 +46,7 @@ from dataclasses import dataclass
 
 from arena_kit.cost import RELATIONSHIP_GOALS, complete_offer, total_cost
 from arena_kit.docs import standard_terms
+from arena_kit.play import latest
 
 from .. import intel as intel_mod
 from .. import levers, variants
@@ -64,6 +65,13 @@ class KParams:
     converge_decay: float = 0.65  # ... shrinking by this factor every round (31.00 -> 31.14 -> 31.24 -> 31.30)
     min_step: float = 0.0015  # but at least this share of its price (keeps visibly converging)
     stay_below: float = 0.01  # never ask within this many EUR of its standing price
+    # k9j (after practice #3, 0.679: patience exactly 2, its R2 mirrored our 0.48 step with 0.10, landing on the
+    # 2 % desk band 31.56 -> 31.60): one large R2 step to just below the record-equivalent, "ready to sign today"
+    jump: bool = False  # R2: jump to min(its price - jump_abs, its price x (1 - jump_pct)) on its price grid
+    jump_abs: float = 0.40
+    jump_pct: float = 0.013
+    appreciation: bool = False  # R1: cite its green scorecard ppm as appreciation (only if green throughout)
+    pay_on_terms: bool = False  # R1, words only: "we pay on terms" if our invoices are <= 2 days late on average
     lead_premium: float = 0.005  # prior: what a full supplier charges per day faster than its standard (P10 fit)
     std_lead_sheet: bool = True  # also offer its own standard lead time
     first_claims: tuple = ("should_cost", "forecast", "history", "index", "notice")
@@ -275,6 +283,21 @@ class AnnikaCapacityAgent(CseeAgent):
             return None
         step = max(k.converge_share * gap * k.converge_decay ** (n - 1), k.min_step * p_s)
         p = min(last + step, p_s - k.stay_below)
+        st.k_jump = False
+        if k.jump and n == 1 and latest(threads[sid]).get("status") == "open" and self.short_patience(case, sid):
+            grid = self.price_grid(threads[sid])
+            target = round(round(min(p_s - k.jump_abs, p_s * (1 - k.jump_pct)) / grid) * grid, 2)
+            floor = self.plans[sid]["floor_rel"] or 0
+            if last < target < p_s - k.stay_below and target >= floor:
+                p, st.k_jump = target, True
+                st.why = (
+                    f"jump: {last:.2f} -> {p:.2f} in one step (its {p_s:.2f} on a {grid:.2f} grid; short patience: "
+                    "desk authority / capacity squeeze), ready to sign today"
+                )
+                st.k_terms = dict(terms)
+                return complete_offer(case, {**terms, "unit_price": p}) | {
+                    f: v for f, v in terms.items() if f == "lead_time_days"
+                }
         if p <= last:
             st.why = "converge: no room left below its price: ready"
             return None
@@ -283,6 +306,34 @@ class AnnikaCapacityAgent(CseeAgent):
         return complete_offer(case, {**terms, "unit_price": round(p, 2)}) | {
             f: v for f, v in terms.items() if f == "lead_time_days"
         }
+
+    SHORT_PATIENCE = re.compile(r"desk|authority|committee|approval ladder|allocat|capacity|fully booked", re.I)
+
+    def short_patience(self, case, sid):
+        """Its patience is likely short: a desk with limited authority or a capacity squeeze, by its profile or
+        its own e-mails (P10: 'desk up to 2 %, pricing committee above'; final offer at reply 2)."""
+        st = self.threads[sid]
+        prof = st.intel.profile or {}
+        text = " ".join(
+            [str(prof.get("persona", "")), " ".join(p.get("type", "") for p in prof.get("pressures", []))]
+            + list(prof.get("what_it_values", []))
+        )
+        return bool(self.SHORT_PATIENCE.search(text)) or "capacity" in self.signals(sid, st.events)
+
+    @staticmethod
+    def price_grid(events):
+        """The step its prices move on (P10 quotes 32.20, 31.70, 31.60: EUR 0.10)."""
+        prices = [
+            (t.get("terms") or {}).get("unit_price")
+            for m in events
+            if m.get("from") != "buyer"
+            for t in m.get("term_sheets") or []
+        ]
+        prices = [p for p in prices if p]
+        for g in (0.5, 0.1, 0.05):
+            if prices and all(abs(p / g - round(p / g)) < 1e-6 for p in prices):
+                return g
+        return 0.01
 
     def last_ask_at(self, case, sid, terms):
         """Our last ask for these terms; a sheet at another lead time converted at the premium prior."""
@@ -331,10 +382,42 @@ class AnnikaCapacityAgent(CseeAgent):
                 )
         return None
 
+    def appreciation_claim(self, case, sid):
+        """Its latest scorecard ppm as appreciation, only if every scorecard of it is green (never with qn:
+        the arena merges sc and qn into one mean-ppm check, which came back contradicted on P11)."""
+        cards = intel_mod.supplier_facts(case, self.pkg, sid, "sc:")
+        if not cards or any(f.get("colour") != "green" for f in cards.values()):
+            return None
+        ref, last = max(cards.items(), key=lambda x: x[1].get("quarter") or "")
+        if last.get("ppm") is None:
+            return None
+        return intel_mod.Claim(
+            f"Your quality has been green throughout, with {last['ppm']:.0f} ppm in the rolling twelve months "
+            f"({ref}), and we value you as a reliable partner.",
+            [ref],
+            "appreciation",
+            strength=1.0,
+        )
+
+    def pays_on_terms(self, sid):
+        """Our invoices to it are paid on average <= 2 days after the due date (words only, no ID)."""
+        try:
+            rows = self.pkg.query(
+                "SELECT AVG(julianday(paid_date) - julianday(due_date)) AS late, COUNT(*) AS n FROM invoices "
+                "WHERE supplier_id = ? AND paid_date IS NOT NULL",
+                (sid,),
+            )
+        except Exception:
+            return False
+        r = rows[0] if rows else {}
+        return bool(r.get("n")) and r.get("late") is not None and r["late"] <= 2.0
+
     def first_claims(self, case, sid):
         """Up to 3 checked arguments for the first e-mail, in the rule's order of kinds."""
         st, plan = self.threads[sid], self.plans[sid]
         pool = list(st.intel.claims)
+        if self.K.appreciation and (ap := self.appreciation_claim(case, sid)):
+            pool.append(ap)
         fc = self.forecast_claim(case)
         if fc:
             pool.append(fc)
@@ -407,7 +490,10 @@ class AnnikaCapacityAgent(CseeAgent):
         self.threads[sid].k_terms = None
         sheets = [ts["terms"] for ts in msg["term_sheets"]]
         pool = self.threads[sid].intel.claims + [self.forecast_claim(case)]
-        claims = [c for c in pool if c and set(c.ids) <= set(msg["refs"])]
+        if self.K.appreciation:
+            pool.append(self.appreciation_claim(case, sid))
+        claims = [c for c in pool if c and set(c.ids) <= set(msg["refs"]) and c.kind != "scorecard"]
+        claims = [c for i, c in enumerate(claims) if all(c.ids != d.ids for d in claims[:i])]
         claims = sorted(claims, key=lambda c: msg["refs"].index(c.ids[0]))
         if first:
             msg["body"], focus = self.first_body(case, sid, sheets, claims), self.first_focus(case, sid)
@@ -424,7 +510,7 @@ class AnnikaCapacityAgent(CseeAgent):
                 except TypeError:  # a writer without `focus`
                     text = writer.write(case, self, sid, events, sheets, claims, False)
                 text = re.sub(r"^\s*Subject:[^\n]*\n+", "", text or "")  # the model sometimes adds one
-                if schedule and "schedule" not in (text or "").lower():
+                if schedule and "delivery schedule" not in (text or "").lower():
                     text = (text or "").replace(SIGN, "").rstrip() + "\n" + SCHEDULE + "\n\n" + SIGN
                 return text
 
@@ -434,11 +520,22 @@ class AnnikaCapacityAgent(CseeAgent):
     def converge_body(self, case, sid, sheets, claims):
         lines = ["Good day,", "", "Thank you for your revised offer.", self.commitment(case, sid)]
         lines += [c.sentence for c in claims]
-        lines.append(f"We move to {describe(sheets[0])}, on your lead time.")
+        if getattr(self.threads[sid], "k_jump", False):
+            lines.append(f"To close this now, we move in one step to {describe(sheets[0])}.")
+            lines.append("We are ready to sign today on these terms.")
+        else:
+            lines.append(f"We move to {describe(sheets[0])}, on your lead time.")
         lines += ["", SIGN]
         return "\n".join(lines)
 
     def converge_focus(self, case, sid):
+        if getattr(self.threads[sid], "k_jump", False):
+            return (
+                "We make one large step to close now. Thank them for the revised offer, restate our firm commitment "
+                f"({self.commitment(case, sid)}), say we accept their lead time and terms, that we move in one step to "
+                "the stated price and that we are ready to sign today on these terms. Short, warm, decisive. No "
+                "threats, no criticism of their delivery or quality, no mention of other suppliers."
+            )
         return (
             "We are converging step by step. Thank them for the revised offer, restate our firm commitment "
             f"({self.commitment(case, sid)}), say we accept their lead time and terms and move our price to the "
@@ -463,6 +560,8 @@ class AnnikaCapacityAgent(CseeAgent):
             "We want a reliable, long-term arrangement with you.",
             self.commitment(case, sid),
         ]
+        if self.K.pay_on_terms and self.pays_on_terms(sid):
+            lines.append(PAY_ON_TERMS)
         lines += [c.sentence for c in claims]
         lines.append(f"We propose {describe(sheets[0])}.")
         for s in sheets[1:]:
@@ -473,15 +572,17 @@ class AnnikaCapacityAgent(CseeAgent):
         return "\n".join(lines)
 
     def first_focus(self, case, sid):
+        pay = f" Say: {PAY_ON_TERMS}" if self.K.pay_on_terms and self.pays_on_terms(sid) else ""
         return (
             "A capacity-constrained supplier allocates to customers with firm, long-term commitments. Stress our firm "
-            f"commitment ({self.commitment(case, sid)}), a reliable partnership and simple, plannable call-offs. "
+            f"commitment ({self.commitment(case, sid)}), a reliable partnership and simple, plannable call-offs.{pay} "
             "Offer the packages as stated; no threats, no complaints about the allocation, no urgency. "
             f"End with this request: {SCHEDULE}"
         )
 
 
 SCHEDULE = "Please send us a delivery schedule for the committed volume (monthly quantities)."
+PAY_ON_TERMS = "We pay your invoices on terms, on average within two days of the due date."
 
 
 def _max_price(sentence):
@@ -494,3 +595,16 @@ class AnnikaCapacity9Agent(AnnikaCapacityAgent):
     converging rounds mirror our steps, so a deeper (not deep) start leaves more room (mean 0.689 vs 0.680)."""
 
     K = KParams(anchor_below_open=0.09)
+
+
+class AnnikaCapacity9JAgent(AnnikaCapacityAgent):
+    """annika-k9 + green-scorecard appreciation and 'we pay on terms' in R1, and one large R2 step to just below
+    the record-equivalent ('ready to sign today') for a short-patience supplier (practice #3: patience 2)."""
+
+    K = KParams(
+        anchor_below_open=0.09,
+        first_claims=("should_cost", "forecast", "appreciation"),
+        appreciation=True,
+        pay_on_terms=True,
+        jump=True,
+    )

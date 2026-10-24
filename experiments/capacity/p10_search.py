@@ -66,15 +66,22 @@ def base(variant, **over):
 
 OLD_K = {"anchor_below_open": 0.12, "mode": "v14"}  # annika-k@d720b8c, practice #2
 
+K9 = {"anchor_below_open": 0.09}
+K9J = {
+    "anchor_below_open": 0.09,
+    "first_claims": ("should_cost", "forecast", "appreciation"),
+    "appreciation": True,
+    "pay_on_terms": True,
+    "jump": True,
+}
+
 STRATEGIES = {
     "v13 (deep ask, propose its alternative back)": base("v13"),
-    "annika-k@d720b8c (12 %, v14 rounds 2+)": k_agent("Kold", **OLD_K),
     "annika-k H2 (3.75 %, converge)": k_agent("KH2"),
-    "H2 anchor 2.5 %": k_agent("KH2a", anchor_below_open=0.025),
-    "H2 anchor 6 %": k_agent("KH2b", anchor_below_open=0.06),
-    "H2 anchor 9 %": k_agent("KH2c", anchor_below_open=0.09),
-    "H2 faster steps (share 0.35)": k_agent("KH2d", converge_share=0.35),
-    "H2 slower steps (share 0.12, decay 0.75)": k_agent("KH2e", converge_share=0.12, converge_decay=0.75),
+    "annika-k9 (9 %, converge)": k_agent("K9", **K9),
+    "annika-k9j (jump to min(-0.40, -1.3 %))": k_agent("K9J", **K9J),
+    "k9j jump -0.20 / -0.6 %": k_agent("K9Ja", **{**K9J, "jump_abs": 0.20, "jump_pct": 0.006}),
+    "k9j jump -0.60 / -2 %": k_agent("K9Jb", **{**K9J, "jump_abs": 0.60, "jump_pct": 0.02}),
 }
 
 
@@ -90,12 +97,13 @@ def fit():
     games = (
         ("v1", base("v1"), 0.5703),
         ("v13", base("v13"), 0.6709),
-        ("annika-k@d720b8c", k_agent("Kold", **OLD_K), 0.6709),
+        ("annika-k@d720b8c (practice #2)", k_agent("Kold", **OLD_K), 0.6709),
+        ("annika-k9@ca23d19 (practice #3)", k_agent("K9", **K9), 0.6790),
     )
     ws = [w for w, _ in normalised()]
     for name, fac, want in games:
         got = {}
-        for w in ws[::37]:
+        for w in ws[:: max(1, len(ws) // 20)]:
             s, t = play(fac, w)
             statuses = tuple(r[1] for r in t.trace if r[0] == "S")
             got.setdefault((round(s, 4), statuses), 0)

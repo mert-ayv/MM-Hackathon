@@ -64,9 +64,9 @@ def reply(status, sheets, n):
     }
 
 
-def first_move(pkg, writer=None):
+def first_move(pkg, writer=None, name="annika-k"):
     case = case_of("case:P10")
-    agent = agents.get("annika-k")(pkg, writer)
+    agent = agents.get(name)(pkg, writer)
     threads = {"sup:70410": [p10_opening()]}
     agent.prepare(case, threads)
     return case, agent, threads, agent.thread_move(case, threads, "sup:70410")
@@ -270,6 +270,70 @@ def test_p10_bot_reproduces_both_real_games(pkg):
         res = play_case(table, "case:P10", old(pkg))
         assert res["score"] == pytest.approx(0.6709, abs=1e-4)
         assert [r[1] for r in table.trace if r[0] == "S"] == ["open", "open", "final_offer"]
+    # practice #3 (annika-k9@ca23d19): open at 31.70, our steady step -> final 31.60 at reply 2 (0.679)
+    k9 = agents.get("annika-k9")
+    for world in (bot.World(n0=2, mirror=0.2), bot.World(n0=2, mirror=1.0, approve=1.0, final_meet=True)):
+        res = play_case(bot.P10Table(world), "case:P10", k9(pkg))
+        assert res["score"] == pytest.approx(0.6787, abs=1e-4)
+    # k9j: never below k9; with the owner's approval its final meets our 31.30 jump
+    k9j = agents.get("annika-k9j")
+    assert play_case(bot.P10Table(bot.World(n0=2, approve=0.0)), "case:P10", k9j(pkg))["score"] == pytest.approx(
+        0.6787, abs=1e-4
+    )
+    res = play_case(bot.P10Table(bot.World(n0=2, approve=1.0, final_meet=True)), "case:P10", k9j(pkg))
+    assert res["terms"]["unit_price"] == pytest.approx(31.3) and res["score"] > 0.694
     # the arena's C for the real v13 deal
     t = {"unit_price": 31.7, "lead_time_days": 54, "volume_per_year": 23400, "contract_months": 36}
     assert total_cost(case_of("case:P10"), t, bot.STD_TERMS) == pytest.approx(1527585.6)
+
+
+def test_k9j_first_email_and_jump(pkg):
+    case, agent, threads, msg = first_move(pkg, name="annika-k9j")
+    sid = "sup:70410"
+    assert msg["refs"] == ["cost:340010", "fc:340010@2026-09", "sc:70410@2026Q3"]  # 3 checked, no qn with the sc
+    assert "green throughout, with 270 ppm" in msg["body"]  # every scorecard of it is green; latest 270 ppm
+    assert "on average within two days of the due date" in msg["body"]  # invoices: 1.93 days late on average
+    assert "on-time" not in msg["body"].lower()
+    assert msg["term_sheets"][0]["terms"]["unit_price"] == pytest.approx(29.30)
+    base = {"volume_per_year": 23400, "contract_months": 36}
+    threads[sid] += [{**msg, "from": "buyer"}, reply("open", [{**base, "unit_price": 31.7, "lead_time_days": 54}], 1)]
+    jump = agent.thread_move(case, threads, sid)
+    t = jump["term_sheets"][0]["terms"]
+    assert t == {**base, "unit_price": 31.3, "lead_time_days": 54}  # min(31.70 - 0.40, 31.70 x 0.987) on its 0.10 grid
+    assert "ready to sign today" in jump["body"] and not jump["refs"]
+    # its final after the jump: accepted, no push
+    threads[sid] += [
+        {**jump, "from": "buyer"},
+        reply("final_offer", [{**base, "unit_price": 31.4, "lead_time_days": 54}], 2),
+    ]
+    assert agent.thread_move(case, threads, sid) is None
+    assert agent.close(case, threads, force=True)["message"]["action"]["type"] == "accept"
+
+
+def test_k9j_p09_no_unearned_lines(pkg):
+    case = case_of("case:P09")
+    sid = case["suppliers"][0]
+    terms = {"unit_price": 16.82, "lead_time_days": 35, "volume_per_year": 13260, "payment_days": 30}
+    op = {
+        "from": f"sales@{sid}",
+        "status": "open",
+        "body": "Our quote.",
+        "attachments": [],
+        "term_sheets": [{"term_sheet_id": "offer:x-0", "terms": terms}],
+    }
+    threads = {sid: [op]}
+    agent = agents.get("annika-k9j")(pkg)
+    agent.prepare(case, threads)
+    msg = agent.thread_move(case, threads, sid)
+    # amber scorecards and 8 days late on average: neither appreciation nor "we pay on terms"
+    assert not any(r.startswith(("sc:", "qn:")) for r in msg["refs"])
+    assert "due date" not in msg["body"]
+    first = msg["term_sheets"][0]["terms"]
+    threads[sid] += [
+        {**msg, "from": "buyer"},
+        {**op, "term_sheets": [{"term_sheet_id": "offer:x-1", "terms": {**first, "unit_price": 16.6}}]},
+    ]
+    nxt = agent.thread_move(case, threads, sid)
+    p = nxt["term_sheets"][0]["terms"]["unit_price"]
+    assert p < 16.6 and p >= agent.plans[sid]["floor_rel"] - 0.01  # the jump never goes below the relationship floor
+    assert nxt["term_sheets"][0]["terms"]["lead_time_days"] <= 42
