@@ -82,7 +82,7 @@ Pick **P02** (one round, easy to follow) or **P01** (richer story). Use the dash
 ## Slide 6: Results (3:40-4:15)
 - Practice: **0.78 mean vs 0.697** for the house agent. The final router, played in single shots, scored **0.762 and 0.772**, and every case closed with a deal.
 - Biggest gains are on the hard cases: RFQ **0.81 vs 0.56**, quality **0.79 vs 0.31**, raw material **0.59 vs 0.39**.
-- From **v1 0.481 to 0.77** in one day, through 16 logged architecture versions (ARCHITECTURE changelog).
+- From **v1 0.481 to 0.77** in one day. Every step is in the ARCHITECTURE changelog, with its evidence.
 - `[LIVE FINAL]`: points out of 500, rank, € saved and walk-aways, taken from our own logs only.
 
 ## Slide 7: How we decided, including what we rejected (4:15-4:45)
@@ -90,7 +90,7 @@ Pick **P02** (one round, easy to follow) or **P01** (richer story). Use the dash
   - Claude Code subagents fitted the bot model, ran the literature review (MESOs, tit-for-tat, Pactum/Walmart menus) and simulated 531 perturbed suppliers.
   - Every change climbed one ladder: free sandbox → fitted engine model → one logged practice session. The ledger has 386 rows: who, agent, commit, score.
 - **Rejected because we measured it:**
-  - **An LLM deciding the moves.** Claude with our pricing functions as tools never improved a move where it changed one (P07 0.728 vs 0.766, sandbox D02 0.67 vs 0.72). Our LLM strategist scored P05 0.52 vs 0.81 for the rule policy.
+  - **An LLM deciding the moves.** Claude with our pricing functions as tools never improved a move where it changed one (P07 0.728 vs 0.766, sandbox D02 0.67 vs 0.72). Our LLM strategist scored P05 0.52 and 0.72, against 0.81 for the rule policy.
   - **Pushing after a final offer.** On P02 one push of −0.8 % made the supplier walk: 0.48 → 0.
   - **Persuasion tricks and prompt injection.** The bots decide by rules, and the jury reads every replay.
 - **The point to make:** "We let the data, not the demo, decide where the LLM belongs."
