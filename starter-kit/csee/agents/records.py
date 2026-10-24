@@ -222,3 +222,12 @@ class PaymentPledgeMixin:
 
 class PledgeBase(PaymentPledgeMixin, CseeAgent):
     pass
+
+
+from csee.agents.mert import PlanMixin  # noqa: E402
+
+
+class PlanMesoLever(PlanMixin, PayMesoMixin, MertLeverAgent):
+    """The planner's value-unit pacing on top of the payment MESO: PayMeso picks the payment days the supplier
+    chose (P01: 14 d), then the planner prices that sheet at its planned value. P01 MESO run 0.938: the
+    supplier took 14 d at once but our last steps were +0.05, so it stopped at 133.9."""
