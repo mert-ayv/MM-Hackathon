@@ -66,7 +66,7 @@ def commit():
     return COMMIT
 
 
-def record(case_id, set_, result, variant, params, llm, note="", agent="base"):
+def record(case_id, set_, result, variant, params, llm, note="", agent="base", final_est=None):
     FOLDER.mkdir(exist_ok=True)
     if "arena.tacto.ai" not in os.environ.get("ARENA_URL", "https://arena.tacto.ai"):
         set_ = f"sim-{set_}"  # a local arena-sim run (e.g. the final rehearsal) never counts as the real set
@@ -90,6 +90,7 @@ def record(case_id, set_, result, variant, params, llm, note="", agent="base"):
         "c_deal": result.get("c_deal") if isinstance(result, dict) else None,
         "c_best": result.get("c_best") if isinstance(result, dict) else None,
         "error": None if isinstance(result, dict) else str(result)[:300],
+        "final_est": final_est or {},  # score under Live-Final time pressure (csee/final_est.py)
         "params": params,
         "variant_desc": _desc(variant),
         "note": note,
@@ -122,9 +123,12 @@ def label(row):
     return f"{prefix}{row['variant']}@{row['commit']}{'+llm' if row.get('llm') else ''}"
 
 
-def board(rows, house=None, set_="practice"):
+def board(rows, house=None, set_="practice", final=False):
     """Agent/variant x case: mean score (runs)."""
     rows = [r for r in rows if r.get("set") == set_ and r.get("score") is not None]
+    if final:  # the estimated Live-Final score (cutoff 390 s) instead of the practice score
+        rows = [{**r, "score": (r.get("final_est") or {}).get("final_390")} for r in rows]
+        rows = [r for r in rows if r["score"] is not None]
     house = house or {}
     cases = sorted({r["case_id"] for r in rows} | set(house if set_ == "practice" else []))
     labels = sorted({label(r) for r in rows})

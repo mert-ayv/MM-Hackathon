@@ -158,26 +158,35 @@ class EgeAgent(CseeAgent):
             return None
         decision["_arguments"] = arguments
         took = time.monotonic() - t0
-        log.info("%s %s: agent %s in %.1fs: %s", case["case_id"], sid, decision.get("action"), took,
-                 decision.get("reason"))
+        log.info(
+            "%s %s: agent %s in %.1fs: %s", case["case_id"], sid, decision.get("action"), took, decision.get("reason")
+        )
         try:
-            self.log.event("agent_move", supplier_id=sid, seconds=round(took, 1),
-                           **{k: v for k, v in decision.items() if not k.startswith("_")})
+            self.log.event(
+                "agent_move",
+                supplier_id=sid,
+                seconds=round(took, 1),
+                **{k: v for k, v in decision.items() if not k.startswith("_")},
+            )
         except Exception:
             pass
         return decision
 
     def run_turns(self, brief, tools, decision, stop, t0):
-        runner = client().with_options(timeout=MOVE_BUDGET_S).beta.messages.tool_runner(
-            model=os.environ.get("LLM_MODEL") or "claude-opus-5-5",
-            max_tokens=16000,
-            system=SYSTEM,
-            tools=tools,
-            messages=[{"role": "user", "content": brief}],
-            max_iterations=MAX_TURNS,
-            output_config={"effort": os.environ.get("LLM_EFFORT") or "low"},
-            betas=["server-side-fallback-2026-07-01"],
-            fallbacks="default",  # a declined request is re-run on a fallback model inside the same call
+        runner = (
+            client()
+            .with_options(timeout=MOVE_BUDGET_S)
+            .beta.messages.tool_runner(
+                model=os.environ.get("LLM_MODEL") or "claude-opus-5-5",
+                max_tokens=16000,
+                system=SYSTEM,
+                tools=tools,
+                messages=[{"role": "user", "content": brief}],
+                max_iterations=MAX_TURNS,
+                output_config={"effort": os.environ.get("LLM_EFFORT") or "low"},
+                betas=["server-side-fallback-2026-07-01"],
+                fallbacks="default",  # a declined request is re-run on a fallback model inside the same call
+            )
         )
         for message in runner:
             for block in message.content:
@@ -240,8 +249,13 @@ class EgeAgent(CseeAgent):
                 email_body: counter only: the e-mail, plain text, signed.
                 reason: one sentence on why, for our log.
             """
-            decision.update(action=action, term_sheets=term_sheets, argument_keys=argument_keys,
-                            email_body=email_body, reason=reason)
+            decision.update(
+                action=action,
+                term_sheets=term_sheets,
+                argument_keys=argument_keys,
+                email_body=email_body,
+                reason=reason,
+            )
             return "Recorded."
 
         return [price_package, lookup, submit_move]
@@ -333,8 +347,11 @@ class EgeAgent(CseeAgent):
         status = latest(ev).get("status")
         c_alt = levers.alternative_cost(case)
         if action == "accept":
-            if sheet_id and theirs.get("unit_price") is not None and must_haves_ok(case, theirs, std) and (
-                total_cost(case, theirs, std) < c_alt
+            if (
+                sheet_id
+                and theirs.get("unit_price") is not None
+                and must_haves_ok(case, theirs, std)
+                and (total_cost(case, theirs, std) < c_alt)
             ):
                 st.ready = True
                 return {"action": {"type": "accept", "term_sheet_id": sheet_id}}
@@ -390,8 +407,13 @@ class EgeAgent(CseeAgent):
         if not text.strip():
             return TemplateWriter().write(case, self, sid, ev, sheets, claims, False)
         allowed = {i for c in claims for i in c.ids}
-        allowed |= {s["term_sheet_id"] for e in threads.values() for m in e for s in m.get("term_sheets") or []
-                    if s.get("term_sheet_id")}
+        allowed |= {
+            s["term_sheet_id"]
+            for e in threads.values()
+            for m in e
+            for s in m.get("term_sheets") or []
+            if s.get("term_sheet_id")
+        }
         text = ID_RE.sub(lambda m: m.group(0) if m.group(0) in allowed else "", text)
         missing = [c.sentence for c in claims if c.sentence not in text]
         missing += [f"Our proposal: {describe(t)}." for t in sheets if f"{t['unit_price']:.2f}" not in text]
@@ -408,8 +430,11 @@ class EgeAgent(CseeAgent):
     def valid_offer_beats(self, case, threads, s, c_alt):
         sheet_id, terms = standing(threads[s])
         std = standard_terms(threads[s])
-        return bool(sheet_id) and terms.get("unit_price") is not None and must_haves_ok(case, terms, std) and (
-            total_cost(case, terms, std) < c_alt
+        return (
+            bool(sheet_id)
+            and terms.get("unit_price") is not None
+            and must_haves_ok(case, terms, std)
+            and (total_cost(case, terms, std) < c_alt)
         )
 
     def may_push(self, case, threads, sid):

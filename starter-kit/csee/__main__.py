@@ -31,7 +31,7 @@ from arena_kit.cli import load_env, summary
 from arena_kit.client import ArenaClient
 from arena_kit.play import hosted
 
-from . import agents, evaluate, ledger, runlog, variants
+from . import agents, evaluate, final_est, ledger, runlog, variants
 from .datapkg import shared
 from .runner import play_all, play_case, play_waves
 
@@ -107,6 +107,9 @@ def main(argv=None):
     s.add_argument("session_id")
     bd = sub.add_parser("board")
     bd.add_argument("--set", default="practice", choices=["practice", "sandbox", "final"])
+    bd.add_argument("--final", action="store_true", help="estimated Live-Final score (8-min wave) instead")
+    fe = sub.add_parser("finalest", help="FREE: practice score vs estimated Live-Final score, from run logs")
+    fe.add_argument("run_dirs", nargs="*", help="default: the 10 newest practice/sandbox runs")
     args = ap.parse_args(argv)
     logging.basicConfig(
         level=logging.INFO if args.verbose else logging.WARNING,
@@ -229,7 +232,17 @@ def command(args, runs):
                 res = play_case(RemoteTable(client), cid, factories[a, v](), run=bench_runs[a, v])
             except Exception as e:  # keep the bench going
                 res = e
-            ledger.record(cid, "sandbox", res, v, variants.describe(v), llm, args.note, agent=a)
+            ledger.record(
+                cid,
+                "sandbox",
+                res,
+                v,
+                variants.describe(v),
+                llm,
+                args.note,
+                agent=a,
+                final_est=final_est.for_case(a, v, cid),
+            )
             return a, v, cid, res
 
         with ThreadPoolExecutor(max_workers=min(args.parallel, 9)) as pool:
@@ -257,7 +270,16 @@ def command(args, runs):
         print(evaluate.show(json.loads(path.read_text())))
     elif args.cmd == "board":
         house = evaluate.house_scores(os.environ.get("ARENA_URL", "https://arena.tacto.ai"))
-        print(ledger.board(ledger.load(), house, args.set))
+        print(ledger.board(ledger.load(), house, args.set, final=args.final))
+    elif args.cmd == "finalest":
+        dirs = (
+            args.run_dirs
+            or sorted(
+                (str(d) for d in final_est.RUNS_ROOT.glob("*") if d.name.endswith(("practice", "sandbox"))),
+                key=lambda d: Path(d).stat().st_mtime,
+            )[-10:]
+        )
+        print(final_est.report(dirs))
 
 
 RESERVE = 30  # practice sessions we always keep for Sunday morning (data release, pre-flight)
@@ -277,7 +299,8 @@ def guard_quota(client, n, confirm):
 def log_row(args, case_id, set_, result):
     llm = getattr(agent_factory, "llm", False)
     params = variants.describe(args.variant)
-    ledger.record(case_id, set_, result, args.variant, params, llm, args.note, agent=args.agent)
+    est = final_est.for_case(args.agent, args.variant, case_id)
+    ledger.record(case_id, set_, result, args.variant, params, llm, args.note, agent=args.agent, final_est=est)
 
 
 if __name__ == "__main__":
