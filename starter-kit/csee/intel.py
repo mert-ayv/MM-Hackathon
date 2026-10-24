@@ -24,6 +24,7 @@ class Claim:
     kind: str  # index | should_cost | rival | scorecard | notice | forecast | news | history
     strength: float = 1.0  # how strongly it supports a lower price (for ordering)
     price: float | None = None  # the figure, for rival offers
+    tag: str = ""  # e.g. the index series, "ppm"/"otd" (for the profile's arguments_to_avoid)
 
 
 @dataclass
@@ -61,22 +62,56 @@ def series_name(pkg, series):
     return rows[0]["name"] if rows else series
 
 
-def index_change(pkg, case, series):
-    """The 12-month change of a series ending at its latest month: (pct, id_from, id_to) or None."""
-    ids = sorted(i for i in (pkg.ids(f"idx:{series}@") if pkg else []) if "@" in i)
-    ids += sorted(k for k in (case.get("facts") or {}) if k.startswith(f"idx:{series}@"))
-    ids = sorted(set(ids))
+def series_label(pkg, series):
+    """The series name without any digits (a number next to our figure could be read as the figure)."""
+    name = re.sub(r"\(.*?\)", "", series_name(pkg, series))
+    words = [w for w in re.split(r"\s+", name.replace(",", " ").replace(":", " ")) if w and not re.search(r"\d", w)]
+    label = " ".join(words).strip(" .-") or "This cost driver"
+    return label[0].upper() + label[1:]
+
+
+WINDOW_WORDS = {12: "twelve", 9: "nine", 6: "six", 4: "four", 3: "three"}
+
+
+def _month_minus(month, k):
+    y, m = map(int, month.split("-"))
+    m -= k
+    while m <= 0:
+        m += 12
+        y -= 1
+    return f"{y}-{m:02d}"
+
+
+def index_change(pkg, case, series, windows=(12,)):
+    """The most favourable (lowest) change of a series over a window ending at its latest month:
+    (pct, id_from, id_to, months) or None. Any window of <= 12 months ending within the last 12 months
+    of the data is checkable (api.md); a 3-month fall can argue where the 12-month figure rose."""
+    ids = set(i for i in (pkg.ids(f"idx:{series}@") if pkg else []) if "@" in i)
+    ids |= {k for k in (case.get("facts") or {}) if k.startswith(f"idx:{series}@")}
     if len(ids) < 2:
         return None
-    last = ids[-1]
-    y, m = map(int, last.split("@")[1].split("-"))
-    first = f"idx:{series}@{y - 1}-{m:02d}"
-    if first not in ids:
-        return None
-    a, b = _fact(case, pkg, first), _fact(case, pkg, last)
-    if not a or not b or not a.get("value"):
-        return None
-    return (float(b["value"]) / float(a["value"]) - 1) * 100, first, last
+    last = max(ids)
+    b = _fact(case, pkg, last)
+    best = None
+    for k in windows:
+        first = f"idx:{series}@{_month_minus(last.split('@')[1], k)}"
+        a = _fact(case, pkg, first) if first in ids else None
+        if not a or not b or not a.get("value"):
+            continue
+        pct = (float(b["value"]) / float(a["value"]) - 1) * 100
+        if best is None or pct < best[0]:
+            best = (pct, first, last, k)
+    return best
+
+
+def supplier_facts(case, pkg, supplier_id, prefix):
+    """{id: fact} of one type for one supplier, from the package (incl. the Sunday release) and the case's
+    own facts (hidden cases carry facts that exist only in the case)."""
+    out = {}
+    for ref, fact in list((pkg.facts if pkg else {}).items()) + list((case.get("facts") or {}).items()):
+        if ref.startswith(prefix) and isinstance(fact, dict) and fact.get("supplier") == supplier_id:
+            out[ref] = fact
+    return out
 
 
 def estimate_full_cost(case, pkg, supplier_id, country):
@@ -90,48 +125,64 @@ def estimate_full_cost(case, pkg, supplier_id, country):
             own = r.get("supplier_id") == supplier_id
             factor = 1.0 if own else COUNTRY_COST.get(country, 1.0) / COUNTRY_COST.get(r.get("cost_base") or "DE", 1.0)
             return unit * factor, f"{r['id']} ({'its own plant' if own else 'DE base x' + format(factor, '.2f')})"
+        fact = _fact(case, pkg, f"cost:{part.split(':')[-1]}")  # a hidden case may carry its own estimate
+        if fact and fact.get("unit_cost"):
+            factor = COUNTRY_COST.get(country, 1.0)
+            return fact["unit_cost"] * factor, f"cost:{part.split(':')[-1]} (case fact, DE base x{factor:.2f})"
     return None, ""
 
 
-def build(case, pkg, supplier_id, opening_price=None):
+def build(case, pkg, supplier_id, opening_price=None, opening_text=""):
     """Everything we know about one supplier in this case, before the first counter-offer."""
     intel = Intel(supplier_id, load_profile(supplier_id))
     rows = _q(pkg, "SELECT country FROM suppliers WHERE id = ?", (supplier_id,))
     intel.country = (rows[0]["country"] if rows else None) or intel.profile.get("country") or "DE"
     intel.full_cost, intel.full_cost_source = estimate_full_cost(case, pkg, supplier_id, intel.country)
-    intel.claims = claims_for(case, pkg, supplier_id, opening_price)
+    intel.claims = claims_for(case, pkg, supplier_id, opening_price, opening_text)
     return intel
 
 
-def claims_for(case, pkg, supplier_id, asked_price=None):
-    """Verified-able arguments for a lower price, strongest first. At most 3 go into one message."""
+NEWS_HELPS_US = {"free_capacity", "short_time_work", "new_plant", "looking_for_customers", "short_time"}
+NEWS_HELPS_THEM = {"full_order_book", "big_order", "allocation", "chip_shortage", "noise", "renamed"}
+DRIVER_RE = re.compile(r"([A-Z][A-Z0-9-]{2,}) rose [\d.]+ ?% in twelve months")
+
+
+def claims_for(case, pkg, supplier_id, asked_price=None, opening_text=""):
+    """Verified-able arguments for a lower price, strongest first (at most 3 per message, each ID once)."""
     out = []
     parts = case.get("parts", [])
-    # 1. cost drivers that did not rise as much as the supplier claims (or fell)
+    ctype = case.get("type")
+    # 1. cost drivers that fell, over the most favourable window (3-12 months); the series the supplier
+    #    itself blames in its opening e-mail count too (unseen parts have no cost_drivers rows)
     drivers = []
     for part in parts:
         drivers += _q(pkg, "SELECT series_id, weight FROM cost_drivers WHERE part_id = ?", (part,))
+    named = DRIVER_RE.findall(opening_text or "")
+    drivers += [{"series_id": sname, "weight": 0.3} for sname in named]
+    for ref in case.get("refs", []):
+        if ref.startswith("idx:"):
+            drivers.append({"series_id": ref[4:].split("@")[0], "weight": 0.2})
     seen = set()
     for d in sorted(drivers, key=lambda d: -(d.get("weight") or 0)):
-        s = d["series_id"]
-        if s in seen:
+        sname = d["series_id"]
+        if sname in seen:
             continue
-        seen.add(s)
-        ch = index_change(pkg, case, s)
-        if not ch:
+        seen.add(sname)
+        ch = index_change(pkg, case, sname, windows=(12, 9, 6, 4, 3))
+        if not ch or ch[0] >= -0.5:  # only a clear fall argues for us; a rise "confirms their case"
             continue
-        pct, a, b = ch
+        pct, a, b, k = ch
         weight = d.get("weight") or 0
-        if pct <= 0.0:  # only falling drivers argue for us; a rise "confirms their case" (Fable review)
-            name = series_name(pkg, s)
-            out.append(
-                Claim(
-                    f"{name} changed {pct:+.1f}% over the last twelve months ({a}, {b}).",
-                    [a, b],
-                    "index",
-                    strength=weight * (3.0 - pct),
-                )
+        bonus = 1.5 if sname in named else 1.0  # rebutting the driver it blamed lands best
+        out.append(
+            Claim(
+                f"{series_label(pkg, sname)} changed {pct:+.1f}% over the last {WINDOW_WORDS[k]} months ({a}, {b}).",
+                [a, b],
+                "index",
+                strength=bonus * (weight + 0.2) * (1.0 - pct),
+                tag=sname,
             )
+        )
     # 2. our should-cost estimate, when the ask is clearly above it
     for part in parts:
         ref = f"cost:{part.split(':')[-1]}"
@@ -145,52 +196,94 @@ def claims_for(case, pkg, supplier_id, asked_price=None):
                     strength=2.0,
                 )
             )
-    # 3. a short notice period: the letter against the contract
+    # 3. a short notice period: any letter of this supplier giving notice, against its contract
+    letters = supplier_facts(case, pkg, supplier_id, "doc:")
     trig = case.get("trigger_doc")
-    letter = _fact(case, pkg, trig) if trig else None
-    if letter and letter.get("days") is not None:
-        ctrs = [c for c in _q(pkg, "SELECT id, notice_days FROM contracts WHERE supplier_id = ?", (supplier_id,))]
-        for c in ctrs:
-            fact = _fact(case, pkg, c["id"])
-            if fact and fact.get("days") and letter["days"] < fact["days"]:
+    if trig and _fact(case, pkg, trig):
+        letters[trig] = _fact(case, pkg, trig)
+    contracts = {
+        r: f for r, f in supplier_facts(case, pkg, supplier_id, "ctr:").items() if "#" not in r and f.get("days")
+    }
+    given = sorted(
+        ((r, f) for r, f in letters.items() if f.get("days") is not None),
+        key=lambda x: (x[0] != trig, x[1].get("date") or ""),
+    )
+    if given and contracts:
+        ref, letter = given[0] if given[0][0] == trig else given[-1]
+        cref, cfact = next(iter(contracts.items()))
+        if letter["days"] < cfact["days"]:
+            out.append(
+                Claim(
+                    f"Your letter gives {letter['days']} days' notice ({ref}), while our agreement requires "
+                    f"{cfact['days']} days ({cref}).",
+                    [ref, cref],
+                    "notice",
+                    strength=3.0,
+                )
+            )
+    # 4. quality: lead with the defect rate in quality cases, delivery otherwise (distinct sc rows)
+    cards = sorted(supplier_facts(case, pkg, supplier_id, "sc:").items(), key=lambda x: x[1].get("quarter") or "")
+    if cards:
+        last_ref, last = cards[-1]
+        prev_ref, prev = cards[-2] if len(cards) > 1 else (None, None)
+        red = last.get("colour") in ("red", "amber")
+        if (ctype == "quality" or red) and (last.get("ppm") or 0) >= 500:
+            out.append(
+                Claim(
+                    f"Your complaint rate was {last['ppm']:.0f} ppm in the rolling twelve months ({last_ref}).",
+                    [last_ref],
+                    "scorecard",
+                    strength=3.5 if ctype == "quality" else 1.6,
+                    tag="ppm",
+                )
+            )
+            otd_ref, otd = (prev_ref, prev) if prev else (None, None)
+        else:
+            otd_ref, otd = last_ref, last
+        if otd and (otd.get("colour") in ("red", "amber") or (otd.get("otd_pct") or 100) < 90):
+            out.append(
+                Claim(
+                    f"Your on-time delivery was {otd['otd_pct']:.1f}% in the rolling twelve months ({otd_ref}).",
+                    [otd_ref],
+                    "scorecard",
+                    strength=1.5 if otd.get("colour") == "red" else 0.8,
+                    tag="otd",
+                )
+            )
+    # 5. our demand grows: volume is what idle suppliers want (not in allocation/capacity squeezes)
+    if ctype in ("renewal", "bundling", "rfq", "price_increase", "raw_material"):
+        for part in parts:
+            fcs = sorted(
+                (
+                    (r, f)
+                    for r, f in list((pkg.facts if pkg else {}).items()) + list((case.get("facts") or {}).items())
+                    if r.startswith(f"fc:{part.split(':')[-1]}@") and isinstance(f, dict)
+                ),
+                key=lambda x: x[0],
+            )
+            if fcs and (fcs[-1][1].get("change_pct") or 0) >= 3:
+                ref, fc = fcs[-1]
                 out.append(
                     Claim(
-                        f"Your letter gives {letter['days']} days' notice ({trig}), while our agreement requires "
-                        f"{fact['days']} days ({c['id']}).",
-                        [trig, c["id"]],
-                        "notice",
-                        strength=3.0,
+                        f"Our demand forecast for this part grows {fc['change_pct']:+.1f}% ({ref}).",
+                        [ref],
+                        "forecast",
+                        strength=1.2,
                     )
                 )
-    # 4. quality: a weak rolling scorecard
-    rows = _q(
-        pkg,
-        "SELECT id, otd_pct, ppm, colour FROM scorecards WHERE supplier_id = ? ORDER BY quarter DESC LIMIT 1",
-        (supplier_id,),
-    )
-    if rows and (rows[0]["colour"] in ("red", "amber") or (rows[0]["otd_pct"] or 100) < 90):
-        r = rows[0]
-        out.append(
-            Claim(
-                f"Your on-time delivery was {r['otd_pct']:.1f}% in the rolling twelve months ({r['id']}).",
-                [r["id"]],
-                "scorecard",
-                strength=1.5 if r["colour"] == "red" else 0.8,
-            )
-        )
-    # 5. news about this supplier looking for work
-    news = _q(pkg, "SELECT id, topic, headline FROM news WHERE supplier_id = ? ORDER BY date DESC", (supplier_id,))
-    for ref in pkg.ids("news:") if pkg else []:  # the Sunday release lives in CSV/facts, not in SQLite
-        fact = pkg.lookup(ref) or {}
-        if fact.get("supplier") == supplier_id and ref not in {n["id"] for n in news}:
-            news.append({"id": ref, "topic": fact.get("topic") or "", "headline": fact.get("headline") or ""})
-    for n in news:
-        if re.search(
-            r"customer|order|capacity|utili|short.?time|kurzarbeit|work",
-            (n["headline"] or "") + (n["topic"] or ""),
-            re.I,
+                break
+    # 6. news that this supplier needs work (never news that helps it: full order books, allocation)
+    news = supplier_facts(case, pkg, supplier_id, "news:")
+    rows = {n["id"]: n for n in _q(pkg, "SELECT id, topic, headline FROM news WHERE supplier_id = ?", (supplier_id,))}
+    for ref in sorted(news, reverse=True):
+        n = {**news[ref], **rows.get(ref, {})}
+        topic, head = (n.get("topic") or "").lower(), n.get("headline") or ""
+        if topic in NEWS_HELPS_THEM:
+            continue
+        if topic in NEWS_HELPS_US or re.search(
+            r"new customers|short-time|idle|spare capacity|second shift", head, re.I
         ):
-            out.append(Claim(f"We read that {n['headline'].rstrip('.')} ({n['id']}).", [n["id"]], "news", strength=0.6))
+            out.append(Claim(f"We read that {head.rstrip('.')} ({ref}).", [ref], "news", strength=0.6))
             break
     return sorted(out, key=lambda c: -c.strength)
 

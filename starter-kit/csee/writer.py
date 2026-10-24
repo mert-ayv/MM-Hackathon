@@ -115,6 +115,14 @@ facts allow. Sign as "Hollerau Pumpenwerke GmbH, Purchasing"."""
             return m.group(0) if m.group(0) in allowed else ""
 
         text = ID_RE.sub(scrub, text)
+        # claim IDs belong only to the verbatim claim sentences: the model may repeat an ID next to a
+        # paraphrased figure, which would read as a wrong figure ("contradicted")
+        keep = {f"\x00{i}\x00": c.sentence for i, c in enumerate(claims)}
+        for k, sentence in keep.items():
+            text = text.replace(sentence, k)
+        text = ID_RE.sub("", text)
+        for k, sentence in keep.items():
+            text = text.replace(k, sentence)
         for c in claims:  # the checked sentences must survive word for word
             if c.sentence not in text:
                 text = text.replace(SIGN, "").rstrip() + "\n" + c.sentence + "\n\n" + SIGN

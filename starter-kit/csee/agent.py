@@ -23,6 +23,31 @@ from .writer import SIGN, TemplateWriter, describe
 log = logging.getLogger("csee")
 
 READY_STATUSES = {"agreed", "final_offer"}
+AVOID_WORDS = {
+    "should_cost": ("should-cost", "should cost", "cost:"),
+    "rival": ("quote", "second source", "competitor", "rival"),
+    "forecast": ("forecast", "fc:"),
+    "notice": ("notice",),
+    "news": ("news:",),
+}
+
+
+def avoided(claim, avoid_text):
+    """The profile says this argument backfires with this supplier (kind-specific keywords; for indices
+    the series itself or its theme, never the word "index" alone - it is in 13 of 46 profiles)."""
+    if not avoid_text:
+        return False
+    if claim.kind == "index":
+        tag = claim.tag.lower()
+        theme = {"ppi-d": "electric", "cu": "copper", "wb-cu": "copper", "as-": "alloy", "ppi-c24": "steel"}
+        words = [tag] + [w for k, w in theme.items() if tag.startswith(k)]
+        return any(w and w in avoid_text for w in words)
+    if claim.kind == "scorecard":
+        words = ("ppm", "complaint", "quality") if claim.tag == "ppm" else ("otd", "on-time", "delivery record")
+        return any(w in avoid_text for w in words)
+    return any(w in avoid_text for w in AVOID_WORDS.get(claim.kind, ()))
+
+
 # the person at the desk is asking for approval: 16 of 19 such replies were followed by a further step
 INTERNAL = re.compile(
     r"clarify (this )?internally|come back to you on price|check (this )?internally|"
@@ -102,7 +127,7 @@ class CseeAgent:
             _, terms = standing(threads[sid]) if threads.get(sid) else (None, {})
             first = next((m for m in threads.get(sid, []) if m.get("from") != "buyer" and m.get("term_sheets")), None)
             opening = dict(first["term_sheets"][0]["terms"]) if first else dict(terms)
-            info = intel_mod.build(case, self.pkg, sid, opening.get("unit_price"))
+            info = intel_mod.build(case, self.pkg, sid, opening.get("unit_price"), (first or {}).get("body") or "")
             st = self.threads[sid] = ThreadState(info, opening=opening)
             for m in threads.get(sid, []):  # a resumed case: continue from our earlier asks, never re-anchor
                 if m.get("from") == "buyer" and m.get("term_sheets"):
@@ -508,18 +533,21 @@ class CseeAgent:
                 if rivals:
                     st.cited_rival = rivals[0].price
             claims = rivals + claims
-        avoid = " ".join(a.get("argument", "") for a in st.intel.profile.get("arguments_to_avoid", [])).lower()
+        avoid = " ".join(
+            f"{a.get('argument', '')} {a.get('why', '')}" for a in st.intel.profile.get("arguments_to_avoid", [])
+        ).lower()
         out = []
         for c in claims:
             key = tuple(c.ids) if c.kind != "rival" else (sid, *c.ids)
             if key in self.used_ids or any(i in self.used_ids for i in c.ids if c.kind != "rival"):
                 continue
-            if c.kind in avoid:
+            if avoided(c, avoid):
                 continue
             out.append(c)
             self.used_ids.add(key)
             self.used_ids.update(i for i in c.ids if c.kind != "rival")
-            if len(out) >= self.p.max_claims:
+            first = not any(m.get("from") == "buyer" for m in threads[sid])
+            if len(out) >= (self.p.max_claims + 1 if first else self.p.max_claims):
                 break
         return out
 
