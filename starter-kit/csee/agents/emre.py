@@ -14,7 +14,7 @@ For `type == "raw_material"`, on top of base (same opening offer, concessions, a
 - **Payment for price:** when the supplier's own sheets show faster payment is worth more to it than money
   costs us (P18: EUR 5.60 at 30 days vs 5.70 at 90 = about 11 % a year, we pay 8 %), offer its shorter
   term at a price between the two rates, so both gain. Untested on real suppliers.
-- **A small push after the final offer** (base's `final_push`, 0.5 %, once).
+- **No push after the final offer** (practice: 2 of 5 pushes walked, each case -> 0.0).
 - **Index falls pass the profile's "avoid" filter.** Its warnings are about twelve-month rises ("steel
   prices are flat" while the index rose 12 % a year), but base's filter drops every argument on that
   index by topic, also a true, checked fall over recent months (P08: "it holds and we took it into
@@ -31,20 +31,18 @@ second window of an index already cited came back "duplicate").
     uv run python -m csee --agent emre sim --cases case:P08 case:P16 case:P18   free, offline
 """
 
-import dataclasses
 import logging
 
 from arena_kit.cost import complete_offer, must_haves_ok, total_cost
 
 from .. import levers
-from ..intel import _q
 from ..agent import CseeAgent
+from ..intel import _q
 from ..writer import SIGN
 
 log = logging.getLogger("csee")
 
 RAW = "raw_material"
-FINAL_PUSH = 0.005  # after its final offer, ask once this share below it (sandbox D01 agreed to 0.5 %)
 CLAIMS_PER_MESSAGE = 1  # checked arguments per e-mail, the first one included
 PAY_MARGIN = 1.2  # trade payment only if its rate beats ours by this factor (a clear mutual gain)
 
@@ -103,7 +101,6 @@ class EmreAgent(CseeAgent):
         self.raw = is_raw(case)
         if not self.raw:
             return
-        self.p = dataclasses.replace(self.p, final_push=FINAL_PUSH)
         self.revealed = {}
         self.status_quo = {sid: current_clause(self.pkg, sid) for sid in self.threads}
         for st in self.threads.values():

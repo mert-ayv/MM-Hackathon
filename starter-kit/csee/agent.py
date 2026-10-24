@@ -82,6 +82,13 @@ INTERNAL = re.compile(
     re.I,
 )
 
+# the supplier says it will not move (P02 ege/v9: "we hold our Angebot" twice, we stayed low, it walked)
+WALK_SIGNAL = re.compile(
+    r"hold (our|the|this) (offer|angebot|price|quote)|absolute limit|"
+    r"cannot (go|move|offer|reduce) (any )?(further|lower|more)|last word|withdraw",
+    re.I,
+)
+
 
 @dataclass
 class Params:
@@ -105,6 +112,8 @@ class Params:
     all_sheets: bool = True  # weigh every term sheet the supplier sends, not only its first
     clause_when_insisted: bool = True  # supplier insists on an index clause: ask for its cheapest form
     fullcost_discount: float = 0.95  # should-cost runs high (error ~5%): scale it for the relationship term
+    #   (the arena's relationship charge back-calculates to should-cost x 0.977-0.990 in all 11 charged practice
+    #   deals, P01/P02/P03: 0.98 matches it ~3x better - variants v19/v20)
     # v4 switches (D01 patience lesson, P05 floor bug, RFQ)
     floor_guard: bool = False  # ignore a floor estimate at or above ~97% of its own price (outside relationship goals)
     rfq_beat_leader: bool = False  # RFQ: non-leaders must beat the leader by rfq_margin; never pay above the leader
@@ -115,6 +124,7 @@ class Params:
     alt_quote_claim: bool = False  # cite the case's alternative quote, once per supplier, when it is below the ask
     adopt_revealed: bool = False  # keep a term at the supplier's value when its own sheets show that is cheaper
     hold_on_internal: bool = False  # "we will come back to you on price": hold our price one round
+    walk_guard: bool = False  # it says it holds ("hold our offer", "absolute limit") and did not move: close now
     # v8 switches (trade every lever; read the supplier's own words)
     generic_trades: bool = False  # trade sheets over every negotiable term, cheapest concession for us first
     push_after_final: int = 0  # rounds we still push after its final_offer (0 = accept the final offer)
@@ -423,6 +433,10 @@ class CseeAgent:
         if status == "final_offer" and st.pushed < self.p.push_after_final and left > self.p.reserve_moves and sheet_id:
             st.pushed += 1  # replays: 0 walk-aways in ~630 supplier moves; test whether a final offer still moves
             status = "open"
+        if self.p.walk_guard and status == "open" and self.holding(ev):
+            st.ready = True  # writing low again walks it (P02 ege/v9): the coordinator closes on the best sheet
+            self.note_decision(ev, sid, "wait", "walk risk: it holds and did not move", t0)
+            return None
         if status in READY_STATUSES or left <= self.p.reserve_moves or not sheet_id:
             st.ready = True
             why = (
@@ -466,6 +480,19 @@ class CseeAgent:
         """How far below its final offer to push once (0: accept). A hook so a subclass can size it per thread
         without changing self.p, which threads share while deciding outside the runner's lock."""
         return self.p.final_push
+
+    @staticmethod
+    def holding(events):
+        """Its latest reply says it will not move (WALK_SIGNAL) and its price did not move since its last one."""
+        replies = [m for m in events if m.get("from") != "buyer" and m.get("term_sheets")]
+        if len(replies) < 2 or not WALK_SIGNAL.search(replies[-1].get("body") or ""):
+            return False
+
+        def price(m):
+            return (m["term_sheets"][0].get("terms") or {}).get("unit_price")
+
+        now, before = price(replies[-1]), price(replies[-2])
+        return now is not None and before is not None and now >= before
 
     def is_leader(self, case, threads, sid):
         """This thread holds our cheapest standing deal (always true with one supplier)."""
