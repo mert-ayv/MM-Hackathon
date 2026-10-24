@@ -1,0 +1,2 @@
+# the repo root ignores every runs/ folder (agent logs); the fixture runs are committed
+!runs/

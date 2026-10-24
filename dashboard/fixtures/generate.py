@@ -752,7 +752,7 @@ def p20_threads(agent):
              "subject": subj, "body": mail("Dear Mr Wimbacher,", "we accept EUR 172.40 if you can give us 90 days net.", SIGN),
              "reply": {"status": "final_offer", "terms": T(172.4, 60, 24, "DAP"),
                        "body": mail("Dear Ms Huber,", "90 days we cannot do - EUR 172.40 DAP, 60 days, 24 months is our best offer.", "Herzliche Grüße\nAnton Wimbacher")}},
-            {"kind": "accept", "reason": "Accept Wimbacher 172.40 DAP / 60 d / 24 months: lowest C in the RFQ by €27k, green scorecard, final offer."},
+            {"kind": "accept", "reason": "Accept Wimbacher 172.40 DAP / 60 d / 24 months: lowest C among the live offers (Velkenreith €68k dearer), green scorecard, final offer. Kalwisz is gone - in hindsight its 166.50 FCA was €17k cheaper."},
         ]
         v["rounds"] = [
             {"kind": "send", "choose": 0, "claim_pool": [CL_SC120], "target": T(172.0, 60, 24, "DAP"), "walk_away_c": None,

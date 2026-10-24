@@ -1,0 +1,14 @@
+{
+  "run_id": "20261024-151744-C",
+  "agent": "C",
+  "agent_version": "b71c0de",
+  "set": "practice",
+  "started_at": "2026-10-24T15:17:44.000+02:00",
+  "ended_at": "2026-10-24T15:18:49.872+02:00",
+  "cases": [
+    "case:P01",
+    "case:P20",
+    "case:P13"
+  ],
+  "notes": "Approach C: agentic LLM with cost tools."
+}
