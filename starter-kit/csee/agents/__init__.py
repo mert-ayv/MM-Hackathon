@@ -103,7 +103,6 @@ from .mert_dossier import (
     SkipHedgeDossier,
 )
 from .router import RouterAgent, RouterClaimsAgent, RouterPlanAgent
-from .toolagent import ToolAgent
 
 AGENTS = {
     "base": CseeAgent,
@@ -163,7 +162,6 @@ AGENTS = {
     "mert-plan-meso-raw-tick": PlanMesoRawTickClaims,  # + tick rule
     "mert-plan-meso": PlanMesoBase,  # planner + payment MESO on base terms (renewal / capacity / bundling candidate)
     "router": RouterAgent,
-    "router-tools": ToolAgent,  # experiment: LLM with our functions as tools on top of the router (not for the final)
     "router-plan": RouterPlanAgent,  # A/B candidate: the planner on every non-RFQ type
     "router-c": RouterClaimsAgent,  # Sunday A/B candidate: ROUTES with every slot on its c-variant (claim_evidence)
 }
