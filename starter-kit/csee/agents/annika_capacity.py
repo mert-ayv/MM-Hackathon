@@ -22,15 +22,21 @@ The rules, over the case file (no supplier names):
 2. Lead time: one sheet at the supplier's own standard lead time (its opening), one at our need; the one
    cheaper for us at its expected pricing (premium prior 0.5 %/day vs our late cost) goes first. Both
    carry the same value to it, so neither reads as a softer ask.
-3. Price: anchor 12 % below its opening at our need lead time, never below the relationship floor
-   (should-cost x 0.98 / (1 - sustainable margin)); the standard-lead sheet at the value-equivalent price.
+3. Price (H2, after practice #2): a moderate anchor, 3.75 % below its opening at its standard lead time
+   (inside the owner range, below its ~2 % desk band), never below the relationship floor (should-cost x 0.98 /
+   (1 - sustainable margin)); our need-lead sheet at the value-equivalent price. v13's 17 % value ask drew a
+   final offer at reply 1, annika-k's 12 % an open reply.
 4. Arguments (first e-mail, up to 3 checked): should-cost (when its opening is clearly above the
    sustainable price), our forecast growth with a firm commitment, our order history at today's price
    (when it asks more), a falling cost driver, a short notice. No delivery or quality attacks on a sole
    source in the first e-mail. Ask for a delivery schedule, not a cost breakdown (refused on policy).
 5. Closing: price every sheet it sends, take the cheapest valid one (proposing an alternative back word for
    word); no push after a final offer; never walk without a cheaper alternative.
-Later rounds (a supplier with more patience) play base v14 with the coverage terms locked.
+6. Rounds 2+ (H2 "converge"): one sheet on its own non-price terms (the sheet cheapest for us), coverage locked,
+   our price a little closer every round (20 % of the gap, shrinking 0.65x, at least 0.15 % of its price),
+   always strictly below its standing price, never a retreat (practice #2: our R2 at 42 d and a lower value
+   plus an on-time-delivery claim drew "My call: hold" -> final). Only unused non-attacking arguments.
+   `KParams(mode="v14")` restores base v14 logic for rounds 2+.
 
     uv run python -m csee --agent annika-k sim --cases case:P09 case:P10     free, offline
 """
@@ -49,7 +55,15 @@ from ..writer import SIGN, describe
 
 @dataclass(frozen=True)
 class KParams:
-    anchor_below_open: float = 0.12  # first ask at our need lead time, below its opening
+    # H2 (practice #2, 223df3b28256069f): a 12 % value ask got an OPEN first reply (v13's 17 % got a final
+    # offer), and our R2 retreat (42 d at a lower value + an on-time-delivery attack) drew "My call: hold" ->
+    # final. So: a moderate anchor inside the owner range, then small steady steps on its own terms.
+    anchor_below_open: float = 0.0375  # first ask at its standard lead time, below its opening
+    mode: str = "converge"  # rounds 2+: "converge" (H2) or "v14" (base logic, coverage locked)
+    converge_share: float = 0.2  # first step: this share of the gap to its standing price ...
+    converge_decay: float = 0.65  # ... shrinking by this factor every round (31.00 -> 31.14 -> 31.24 -> 31.30)
+    min_step: float = 0.0015  # but at least this share of its price (keeps visibly converging)
+    stay_below: float = 0.01  # never ask within this many EUR of its standing price
     lead_premium: float = 0.005  # prior: what a full supplier charges per day faster than its standard (P10 fit)
     std_lead_sheet: bool = True  # also offer its own standard lead time
     first_claims: tuple = ("should_cost", "forecast", "history", "index", "notice")
@@ -172,8 +186,10 @@ class AnnikaCapacityAgent(CseeAgent):
             # our need at the same value to it: its prior premium per day faster than its standard on top
             premium = k.lead_premium * gap * p_open
             p_need = p_std + premium
-            # never more than today's price for our own lead time, never above its opening (P09: 16.90 > 16.02)
-            p_need = min(p_need, max(p_std, b.get("current_unit_price") or p_need), p_open * 0.995)
+            # value parity with the standard-lead sheet; with a deep anchor also never above today's price
+            # for our own lead time (P09: 16.90 > 16.02), with a moderate (H2) anchor value parity wins
+            if k.anchor_below_open >= 0.08:
+                p_need = min(p_need, max(p_std, b.get("current_unit_price") or p_need), p_open * 0.995)
             if cap is not None:
                 p_need = min(p_need, cap)
             need_sheet = complete_offer(case, {**main, "lead_time_days": ours_lt, "unit_price": round(p_need, 2)})
@@ -215,6 +231,14 @@ class AnnikaCapacityAgent(CseeAgent):
         return sheets, "; ".join(why)
 
     def next_terms(self, case, threads, sid, theirs, std, supplier, left):
+        if (
+            self.is_capacity(case)
+            and self.plans.get(sid)
+            and self.K.mode == "converge"
+            and "unit_price" in case["negotiable"]
+            and self.threads[sid].our_prices
+        ):
+            return self.converge(case, threads, sid, theirs, std, left)
         ours = super().next_terms(case, threads, sid, theirs, std, supplier, left)
         if not self.is_capacity(case) or not self.plans.get(sid) or ours is None:
             return ours
@@ -233,12 +257,58 @@ class AnnikaCapacityAgent(CseeAgent):
                 ours[f] = v
         return ours
 
+    def converge(self, case, threads, sid, theirs, std, left):
+        """H2, rounds 2+: its own non-price terms (the sheet cheapest for us), coverage locked, our price a little
+        closer each round and always below its standing price; nothing more to gain -> ready (accept)."""
+        st, k = self.threads[sid], self.K
+        p_s = theirs.get("unit_price")
+        if p_s is None:
+            st.why = "converge: its sheet has no price"
+            return None
+        terms = {f: theirs[f] for f in case["negotiable"] if f in theirs and f != "unit_price"}
+        terms.update(self.plans[sid]["fixed"])  # coverage: chosen to keep the must-haves
+        last = self.last_ask_at(case, sid, terms)
+        n = len(st.our_prices)  # our e-mails so far (>= 1)
+        gap = p_s - last
+        if gap <= k.stay_below or self.rounds_left(sid, left) <= 1:
+            st.why = f"converge: its {p_s:.2f} is within reach of our {last:.2f} (or no rounds left): ready"
+            return None
+        step = max(k.converge_share * gap * k.converge_decay ** (n - 1), k.min_step * p_s)
+        p = min(last + step, p_s - k.stay_below)
+        if p <= last:
+            st.why = "converge: no room left below its price: ready"
+            return None
+        st.why = f"converge: {last:.2f} -> {p:.2f} (gap {gap:.2f} to its {p_s:.2f}, round {n + 1}), its terms kept"
+        st.k_terms = dict(terms)
+        return complete_offer(case, {**terms, "unit_price": round(p, 2)}) | {
+            f: v for f, v in terms.items() if f == "lead_time_days"
+        }
+
+    def last_ask_at(self, case, sid, terms):
+        """Our last ask for these terms; a sheet at another lead time converted at the premium prior."""
+        st = self.threads[sid]
+        sent = getattr(st, "k_sent", None) or []
+        lt = terms.get("lead_time_days")
+        for s in sent:
+            if s.get("lead_time_days") == lt:
+                return s["unit_price"]
+        if sent and lt is not None and sent[0].get("lead_time_days") is not None:
+            p_open = self.plans[sid]["p_open"] or sent[0]["unit_price"]
+            return sent[0]["unit_price"] + self.K.lead_premium * (sent[0]["lead_time_days"] - lt) * p_open
+        return st.our_prices[-1]
+
     def sheets(self, case, sid, ours, std, supplier):
         st = self.threads[sid]
         first = getattr(st, "k_first", None)
         if self.is_capacity(case) and first and not st.our_prices:
             st.k_first = None
-            return [{k: s[k] for k in case["negotiable"] if k in s} for s in first]
+            out = [{k: s[k] for k in case["negotiable"] if k in s} for s in first]
+            st.k_sent = out
+            return out
+        if self.is_capacity(case) and self.plans.get(sid) and self.K.mode == "converge":
+            out = [{k: ours[k] for k in case["negotiable"] if k in ours}]
+            st.k_sent = out  # one sheet on its own terms: nothing to flip, nothing to re-price
+            return out
         out = super().sheets(case, sid, ours, std, supplier)
         if self.is_capacity(case) and self.plans.get(sid):
             fixed = self.plans[sid]["fixed"]
@@ -279,7 +349,11 @@ class AnnikaCapacityAgent(CseeAgent):
                 cands = [
                     c
                     for c in cands
-                    if c.tag == "po" and _max_price(c.sentence) and _max_price(c.sentence) < 0.98 * p_open
+                    if c.tag == "po"
+                    and _max_price(c.sentence)
+                    and _max_price(c.sentence) < 0.98 * p_open
+                    # our own ask above the prices we cite would contradict the argument (H2 anchor 30.99 > 29.89)
+                    and p_open * (1 - self.K.anchor_below_open) <= _max_price(c.sentence)
                 ]
             if cands:
                 out.append(max(cands, key=lambda c: c.strength))
@@ -293,8 +367,10 @@ class AnnikaCapacityAgent(CseeAgent):
             and "unit_price" in case["negotiable"]
             and not any(m.get("from") == "buyer" for m in threads[sid])
         )
-        if not first:
+        later = not first and self.is_capacity(case) and self.plans.get(sid) and self.K.mode == "converge"
+        if not first and not later:
             return super().pick_claims(case, threads, sid)
+        limit = 3 if first else 1  # rounds 2+: an unused non-attacking argument at most, never delivery/quality
         st = self.threads[sid]
         avoid = " ".join(
             f"{a.get('argument', '')} {a.get('why', '')}" for a in st.intel.profile.get("arguments_to_avoid", [])
@@ -308,7 +384,7 @@ class AnnikaCapacityAgent(CseeAgent):
                     continue
                 out.append(c)
                 self.used_ids.update(c.ids)
-                if len(out) >= 3:
+                if len(out) >= limit:
                     break
         return out
 
@@ -316,32 +392,59 @@ class AnnikaCapacityAgent(CseeAgent):
     def thread_move(self, case, threads, sid):
         first = self.first_move(case, sid) and not any(m.get("from") == "buyer" for m in threads.get(sid, []))
         msg = super().thread_move(case, threads, sid)
-        if not (msg and first and self.is_capacity(case)):
+        converging = (
+            not first
+            and self.is_capacity(case)
+            and self.plans.get(sid)
+            and self.K.mode == "converge"
+            and "unit_price" in case["negotiable"]
+            and getattr(self.threads[sid], "k_terms", None) is not None
+        )
+        if not (msg and self.is_capacity(case) and (first or converging)):
             return msg
+        if converging and "accept your alternative" in msg["body"]:
+            return msg  # base's propose-back of its own sheet: keep its proven wording
+        self.threads[sid].k_terms = None
         sheets = [ts["terms"] for ts in msg["term_sheets"]]
-        claims = [
-            c
-            for c in self.threads[sid].intel.claims + [self.forecast_claim(case)]
-            if c and set(c.ids) <= set(msg["refs"])
-        ]
+        pool = self.threads[sid].intel.claims + [self.forecast_claim(case)]
+        claims = [c for c in pool if c and set(c.ids) <= set(msg["refs"])]
         claims = sorted(claims, key=lambda c: msg["refs"].index(c.ids[0]))
-        msg["body"] = self.first_body(case, sid, sheets, claims)
+        if first:
+            msg["body"], focus = self.first_body(case, sid, sheets, claims), self.first_focus(case, sid)
+        else:
+            msg["body"], focus = self.converge_body(case, sid, sheets, claims), self.converge_focus(case, sid)
         if "_write" in msg:
             events = list(threads[sid])
-            focus = self.first_focus(case, sid)
             writer = self.writer
+            schedule = first and self.K.ask_schedule
 
             def write():
                 try:
                     text = writer.write(case, self, sid, events, sheets, claims, False, focus=focus)
                 except TypeError:  # a writer without `focus`
                     text = writer.write(case, self, sid, events, sheets, claims, False)
-                if self.K.ask_schedule and "schedule" not in (text or "").lower():
+                text = re.sub(r"^\s*Subject:[^\n]*\n+", "", text or "")  # the model sometimes adds one
+                if schedule and "schedule" not in (text or "").lower():
                     text = (text or "").replace(SIGN, "").rstrip() + "\n" + SCHEDULE + "\n\n" + SIGN
                 return text
 
             msg["_write"] = write
         return msg
+
+    def converge_body(self, case, sid, sheets, claims):
+        lines = ["Good day,", "", "Thank you for your revised offer.", self.commitment(case, sid)]
+        lines += [c.sentence for c in claims]
+        lines.append(f"We move to {describe(sheets[0])}, on your lead time.")
+        lines += ["", SIGN]
+        return "\n".join(lines)
+
+    def converge_focus(self, case, sid):
+        return (
+            "We are converging step by step. Thank them for the revised offer, restate our firm commitment "
+            f"({self.commitment(case, sid)}), say we accept their lead time and terms and move our price to the "
+            "stated figure as a step towards them. Short, warm and constructive. No threats, no criticism of their "
+            "delivery or quality, no urgency, no mention of other suppliers."
+        )
 
     def commitment(self, case, sid):
         fixed = self.plans[sid]["fixed"]
@@ -384,3 +487,10 @@ SCHEDULE = "Please send us a delivery schedule for the committed volume (monthly
 def _max_price(sentence):
     prices = [float(x) for x in re.findall(r"EUR (\d+(?:\.\d+)?)", sentence)]
     return max(prices) if prices else None
+
+
+class AnnikaCapacity9Agent(AnnikaCapacityAgent):
+    """annika-k with a 9 % anchor (still under the 12 % that drew an open reply on P10): on the replay bot the
+    converging rounds mirror our steps, so a deeper (not deep) start leaves more room (mean 0.689 vs 0.680)."""
+
+    K = KParams(anchor_below_open=0.09)

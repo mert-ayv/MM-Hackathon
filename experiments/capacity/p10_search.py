@@ -64,15 +64,17 @@ def base(variant, **over):
     return lambda: CseeAgent(PKG, None, replace(variants.params(variant), **over))
 
 
+OLD_K = {"anchor_below_open": 0.12, "mode": "v14"}  # annika-k@d720b8c, practice #2
+
 STRATEGIES = {
-    "v1 (base, accept standing)": base("v1"),
-    "v13 (propose its alternative back)": base("v13"),
-    "v14 (router today)": base("v14"),
-    "annika-k: std-lead sheet + {cost, fc, po}": k_agent("K1"),
-    "annika-k claims {cost, fc} only": k_agent("K2", first_claims=("should_cost", "forecast")),
-    "annika-k without std-lead sheet": k_agent("K3", std_lead_sheet=False),
-    "annika-k deep anchor (value 17-18% below)": k_agent("K4", anchor_below_open=0.18),
-    "annika-k + true 1% push after final": lambda: PushK(PKG, None, variants.params("v14")),
+    "v13 (deep ask, propose its alternative back)": base("v13"),
+    "annika-k@d720b8c (12 %, v14 rounds 2+)": k_agent("Kold", **OLD_K),
+    "annika-k H2 (3.75 %, converge)": k_agent("KH2"),
+    "H2 anchor 2.5 %": k_agent("KH2a", anchor_below_open=0.025),
+    "H2 anchor 6 %": k_agent("KH2b", anchor_below_open=0.06),
+    "H2 anchor 9 %": k_agent("KH2c", anchor_below_open=0.09),
+    "H2 faster steps (share 0.35)": k_agent("KH2d", converge_share=0.35),
+    "H2 slower steps (share 0.12, decay 0.75)": k_agent("KH2e", converge_share=0.12, converge_decay=0.75),
 }
 
 
@@ -83,19 +85,33 @@ def play(factory, world):
 
 
 def fit():
-    """The two real games, reproduced: v1 0.570 and v13 0.671 in every world (their message is fixed)."""
-    for name, fac, want in (("v1", base("v1"), 0.5703), ("v13", base("v13"), 0.6709)):
-        got = {round(play(fac, w)[0], 4) for w, _ in normalised()[::97]}
-        print(f"{name}: real {want}, bot {sorted(got)}")
-    s, t = play(base("v13"), World())
+    """The three real games, reproduced in every world: v1 0.570 and v13 0.671 (final at reply 1), and
+    annika-k@d720b8c 0.671 (open at reply 1, hold -> final at reply 2)."""
+    games = (
+        ("v1", base("v1"), 0.5703),
+        ("v13", base("v13"), 0.6709),
+        ("annika-k@d720b8c", k_agent("Kold", **OLD_K), 0.6709),
+    )
+    ws = [w for w, _ in normalised()]
+    for name, fac, want in games:
+        got = {}
+        for w in ws[::37]:
+            s, t = play(fac, w)
+            statuses = tuple(r[1] for r in t.trace if r[0] == "S")
+            got.setdefault((round(s, 4), statuses), 0)
+            got[(round(s, 4), statuses)] += 1
+        print(f"{name}: real {want}; bot {got}")
+    s, t = play(k_agent("Kold", **OLD_K), World())
     for row in t.trace:
         print("   ", row)
+    print("   ", t.bot.events)
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--fit", action="store_true")
-    ap.add_argument("--quick", action="store_true", help="every 7th world")
+    ap.add_argument("--quick", action="store_true", help="every --step-th world")
+    ap.add_argument("--step", type=int, default=7)
     ap.add_argument("--only", nargs="*")
     a = ap.parse_args()
     if a.fit:
@@ -103,7 +119,7 @@ def main():
         return
     ws = normalised()
     if a.quick:
-        ws = ws[::7]
+        ws = ws[:: a.step]
         z = sum(w for _, w in ws)
         ws = [(x, w / z) for x, w in ws]
     print(f"{len(ws)} worlds")
@@ -113,7 +129,7 @@ def main():
         scores = []
         for world, w in ws:
             # pushes are random: average a few seeds
-            seeds = range(3) if "push" in name else range(1)
+            seeds = range(3) if (world.approve not in (0.0, 1.0) or "push" in name) else range(1)
             for sd in seeds:
                 s, _ = play(fac, replace(world, seed=sd))
                 scores.append((s, w / len(seeds)))

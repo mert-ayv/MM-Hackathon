@@ -257,3 +257,13 @@ search: `experiments/capacity/p10_search.py`.
   exactly): v13/v14 0.671; **annika-k mean 0.681 (p10/50/90 0.671/0.679/0.702, P(>0.694) 0.11, never below
   0.671)**; claims {should-cost, forecast} only 0.678; deep anchor 0.678; annika-k + a true 1 % push 0.485
   (P(0) 0.30). The upside is real but small; the downside of the new first e-mail is ~0.
+
+### H2 after practice #2 (`223df3b28256069f`, annika-k@d720b8c, 0.671)
+- A 12 % value ask at its standard lead time drew an **open** reply at 31.70 (v13's 17 % ask: final at once).
+  Our R2 (v14 logic) retreated in value (42 d at 28.89 = 27.25 at 54 d) and cited on-time delivery:
+  "My call: hold" -> final 31.70. Forecast and order history were verified but "do not change our calculation".
+- annika-k now converges on its own terms in rounds 2+ (one sheet, coverage locked, small rising steps, never a
+  retreat, no delivery/quality arguments). The bot reproduces all three real games, incl. the R2 hold.
+- Bot search (371 worlds): H2 3.75 % anchor 0.680 (p90 0.686, P(>0.694) 0); 6 % 0.684 (0.11); **9 % 0.689
+  (p90 0.710, P(>0.694) 0.34)**; 2.5 % 0.675 (10 % of worlds below 0.671). No H2 setting falls below 0.671
+  except 2.5 %. In the bot the supplier mirrors our steps, so a deeper (not deep) start leaves more room.

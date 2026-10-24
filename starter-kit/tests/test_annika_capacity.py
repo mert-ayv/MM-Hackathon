@@ -85,15 +85,53 @@ def test_p10_first_email(pkg):
     assert all(s["volume_per_year"] == 23400 and s["contract_months"] == 36 for s in sheets)
     # its own standard lead time first (its premium 1.9 EUR/u > our late cost 0.6 EUR/u), our need second
     assert [s["lead_time_days"] for s in sheets] == [54, 42]
-    assert sheets[0]["unit_price"] == pytest.approx(28.34)  # 12 % below its opening, above the relationship floor
-    assert sheets[0]["unit_price"] < sheets[1]["unit_price"] <= case["buyer"]["current_unit_price"]
-    # should-cost (it took it into account), forecast, order history; no delivery attack on a sole source
-    kinds = {r.split(":")[0] for r in msg["refs"]}
-    assert kinds == {"cost", "fc", "po"}
-    assert "fc:340010@2026-09" in msg["refs"]
+    # H2: a moderate anchor, 3.75 % below its opening; the 42 d sheet at the same value to it (+0.5 %/day)
+    assert sheets[0]["unit_price"] == pytest.approx(30.99)
+    assert sheets[1]["unit_price"] == pytest.approx(30.99 + 0.005 * 12 * 32.2, abs=0.01)
+    # should-cost (it took it into account) and forecast; no order history above which we ask; no attacks
+    assert msg["refs"] == ["cost:340010", "fc:340010@2026-09"]
     assert SCHEDULE in msg["body"] and "breakdown" not in msg["body"].lower()
     assert "23,400 pieces a year for 36 months" in msg["body"]
     assert all(set(s) == set(case["negotiable"]) for s in sheets)
+
+
+def converge_until(pkg, prices, status="open"):
+    """Play R1, then answer every ask with `prices` (its standing price at 54 d); returns the sent asks."""
+    case, agent, threads, msg = first_move(pkg)
+    sid, base = "sup:70410", {"volume_per_year": 23400, "contract_months": 36}
+    asks, n = [msg["term_sheets"][0]["terms"]["unit_price"]], 0
+    for n, p in enumerate(prices, 1):
+        last = n == len(prices)
+        threads[sid] += [
+            {**msg, "from": "buyer"},
+            reply(status if last else "open", [{**base, "unit_price": p, "lead_time_days": 54}], n),
+        ]
+        msg = agent.thread_move(case, threads, sid)
+        if msg is None:
+            break
+        asks.append(msg)
+    return case, agent, threads, asks
+
+
+def test_p10_converges_slowly_on_its_terms(pkg):
+    case, agent, threads, asks = converge_until(pkg, [31.7, 31.7, 31.7, 31.7])
+    msgs = asks[1:]
+    prices = [asks[0]] + [m["term_sheets"][0]["terms"]["unit_price"] for m in msgs]
+    assert prices == sorted(prices) and len(set(prices)) == len(prices)  # strictly converging, never retreating
+    assert prices[1] == pytest.approx(31.13) and prices[-1] < 31.7
+    for m in msgs:
+        assert len(m["term_sheets"]) == 1
+        t = m["term_sheets"][0]["terms"]
+        assert t["lead_time_days"] == 54 and t["volume_per_year"] == 23400 and t["contract_months"] == 36
+        assert not any(r.startswith(("sc:", "qn:")) for r in m["refs"])  # no delivery/quality attack
+        assert "on-time" not in m["body"].lower()
+
+
+def test_p10_converge_then_accept_final_no_push(pkg):
+    case, agent, threads, asks = converge_until(pkg, [31.7, 31.6], status="final_offer")
+    assert agent.thread_move(case, threads, "sup:70410") is None
+    decision = agent.close(case, threads, force=True)
+    assert decision["message"]["action"]["type"] == "accept"
 
 
 def test_p10_final_offer_alternative_proposed_back_then_accepted(pkg):
@@ -171,7 +209,8 @@ def test_p09_must_have_and_avoided_arguments(pkg):
     msg = agent.thread_move(case, threads, sid)
     for s in msg["term_sheets"]:
         assert s["terms"]["lead_time_days"] <= 42 and s["terms"]["volume_per_year"] == 15600
-        assert s["terms"]["unit_price"] <= case["buyer"]["current_unit_price"]
+    std_sheet = next(s["terms"] for s in msg["term_sheets"] if s["terms"]["lead_time_days"] == 42)
+    assert std_sheet["unit_price"] == pytest.approx(16.82 * (1 - 0.0375), abs=0.01)  # H2 anchor at its (capped) lead
     # thin margin and a rising index: its profile says should-cost and index arguments backfire
     assert not any(r.startswith(("cost:", "idx:")) for r in msg["refs"])
     assert any(r.startswith("fc:") for r in msg["refs"])
@@ -211,10 +250,26 @@ def test_p10_bot_reproduces_both_real_games(pkg):
     spec.loader.exec_module(bot)
     from csee.runner import play_case
 
+    worlds = (
+        bot.World(),
+        bot.World(G=0.13, n0=3, approve=1.0, owner=0.04),
+        bot.World(mirror=0.5, kappa=0.5, beta=0.33),
+    )
     for variant, want in (("v1", 0.5703), ("v13", 0.6709)):
-        for world in (bot.World(), bot.World(lam=1.0, fc=False, desk=True), bot.World(lam=0.0, beta=1.0)):
+        for world in worlds:
             res = play_case(bot.P10Table(world), "case:P10", CseeAgent(pkg, None, variants.params(variant)))
             assert res["score"] == pytest.approx(want, abs=1e-4), (variant, world)
+    # practice #2 (annika-k@d720b8c): open at reply 1, our retreat + delivery claim -> hold -> final 31.70
+    from dataclasses import replace
+
+    from csee.agents.annika_capacity import KParams
+
+    old = type("Kold", (AnnikaCapacityAgent,), {"K": replace(KParams(), anchor_below_open=0.12, mode="v14")})
+    for world in worlds:
+        table = bot.P10Table(world)
+        res = play_case(table, "case:P10", old(pkg))
+        assert res["score"] == pytest.approx(0.6709, abs=1e-4)
+        assert [r[1] for r in table.trace if r[0] == "S"] == ["open", "open", "final_offer"]
     # the arena's C for the real v13 deal
     t = {"unit_price": 31.7, "lead_time_days": 54, "volume_per_year": 23400, "contract_months": 36}
     assert total_cost(case_of("case:P10"), t, bot.STD_TERMS) == pytest.approx(1527585.6)

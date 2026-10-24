@@ -9,6 +9,11 @@ Calibration (two real games, identical numbers: v1 cc958e848dfe4e81 0.570, v13 7
 
 The parts no replay pins down are World parameters with priors from the cross-case evidence
 (309 practice + sandbox sessions, see the report in the commit message / docs/playbooks/capacity.md):
+Practice #2 (annika-k@d720b8c, 223df3b28256069f, 0.671): a 12 % ask at 54 d -> OPEN at 31.70; our R2 retreat
+  (42 d at a lower value) + an on-time-delivery claim -> "My call: hold" -> final 31.70.
+H2 parameters (World): t1, G (patience cut by first-ask depth), n0, mirror/decay (later steps), desk (2 %),
+approve/owner (the owner's further step, D02 back office), kappa (a shallow first ask's concession), beta.
+Older notes:
   t1        total first concession, rounding to 31.70: 1.45-1.65 % of the opening
   lam       share of t1 that came from the accepted should-cost argument (0..1)
   w_fc      an accepted forecast argument's weight relative to should-cost's
@@ -61,16 +66,17 @@ Tooling (EUR) 0.00
 
 @dataclass(frozen=True)
 class World:
-    t1: float = 0.0155
-    lam: float = 0.5
-    w_fc: float = 0.5
-    fc: bool = True
-    po: bool = False
-    m: float = 1.0
-    desk: bool = False
-    patience: str = "floor"
-    beta: float = 0.0
-    push: tuple = (0.3, 0.6, 0.1)  # agree, hold, walk
+    t1: float = 0.0155  # its first concession (fit: rounds to 31.70 in all three real games)
+    G: float = 0.15  # first-ask value gap below its opening above which its patience is 1 (12 % open, 17 % final)
+    n0: int = 4  # its patience otherwise (median over the suppliers: 4 replies)
+    mirror: float = 1.0  # from reply 2: it mirrors this share of our value step ...
+    decay: float = 0.7  # ... up to t1 x V0 x decay^(k-1)
+    desk: float = 0.02  # the desk moves at most this much in total (M1 meeting note: committee above 2 %)
+    approve: float = 0.5  # P(the owner approves a further step) once we converge steadily (D02 back office)
+    owner: float = 0.03  # total move the owner allows
+    kappa: float = math.inf  # first concession at most kappa x (its ask - our value); inf: only t1 caps it
+    beta: float = 0.0  # what a day beyond its standard lead time is worth to it (share of the premium)
+    push: tuple = (0.3, 0.6, 0.1)  # after a final offer, a price push <= 1 %: agree, hold, walk (6/12/2 of 20)
     seed: int = 0
 
 
@@ -111,9 +117,9 @@ class P10Bot:
     def __init__(self, world):
         self.w, self.rng = world, random.Random(world.seed)
         self.V, self.n, self.final, self.round = V0, 0, False, 0
-        self.used, self.offered, self.standing_id = set(), {}, None
-        self.patience = 1 if world.patience == "floor" else int(world.patience[-1])
-        self.cut = False
+        self.offered, self.standing_id = {}, None
+        self.patience, self.prev_bv, self.approved = world.n0, None, None
+        self.events = []  # what it did, for the report
 
     # its value of a sheet: the price at its standard lead time that pays the same
     def value(self, t):
@@ -128,75 +134,71 @@ class P10Bot:
             return rnd(self.V * (1 + PREMIUM * (STD_LT - lt)))
         return rnd(self.V / (1 + self.w.beta * PREMIUM * (lt - STD_LT)))
 
-    def bonus(self, msg):
-        """Its extra step for arguments it takes into account and has not seen before."""
-        w = self.w
-        took = []
-        for k in sorted(kinds(msg) - self.used):
-            self.used.add(k)
-            if k == "should_cost":
-                took.append(1.0)
-            elif k == "forecast" and w.fc:
-                took.append(w.w_fc)
-            elif k == "history" and w.po:
-                took.append(1.0)
-        took.sort(reverse=True)
-        c = w.lam * w.t1 * V0
-        return sum(c * x * (w.m**i) for i, x in enumerate(took))
-
     def opening(self):
         return self.reply(
             "open", [{"unit_price": V0, "lead_time_days": STD_LT, "volume_per_year": 19890, "contract_months": 12}]
         )
 
+    def walk(self):
+        return {
+            "from": f"sales@{SID}",
+            "status": "walked_away",
+            "body": "We end here.",
+            "term_sheets": [],
+            "attachments": [],
+        }
+
     def respond(self, msg):
+        w = self.w
         sheets = [s.get("terms", s) for s in msg.get("term_sheets") or []]
         if not sheets:
             return self.reply("final_offer" if self.final else "open", [self.offered[self.standing_id]])
         full = [cf(s) for s in sheets]
-        # one of its own sheets back word for word, or anything worth its ask: agreed
         best = max(full, key=self.value)
-        if any(f in self.offered.values() for f in full) or self.value(best) >= self.V - 1e-9:
+        bv = self.value(best)
+        # one of its own sheets back word for word, or anything worth its ask: agreed
+        if any(f in self.offered.values() for f in full) or bv >= self.V - 1e-9:
             pick = next((f for f in full if f in self.offered.values()), best)
             return self.reply("agreed", [pick])
         if self.final:
             same = [f for f in full if any(o == {**f, "unit_price": o["unit_price"]} for o in self.offered.values())]
             if same:  # a price push on its own terms
-                a, h, _ = self.w.push
+                a, h, _ = w.push
                 r = self.rng.random()
                 if r < a:
                     return self.reply("agreed", [same[0]])
-                if r < a + h:
-                    return self.reply("final_offer", [self.offered[self.standing_id]])
-                return {
-                    "from": f"sales@{SID}",
-                    "status": "walked_away",
-                    "body": "We end here.",
-                    "term_sheets": [],
-                    "attachments": [],
-                }
-            return self.reply(
-                "final_offer",
-                [{**full[0], "unit_price": self.price_at(full[0]["lead_time_days"])}]
-                + [o for k, o in self.offered.items() if k == self.standing_id],
-            )
+                return self.reply("final_offer", [self.offered[self.standing_id]]) if r < a + h else self.walk()
+            return self.reply("final_offer", [{**full[0], "unit_price": self.price_at(full[0]["lead_time_days"])}])
         self.n += 1
-        if self.n == 1 and self.w.patience != "floor":
-            gap = 1 - self.value(best) / V0
-            if gap > 0.15:
-                self.patience, self.cut = 1, True
-        w = self.w
-        base = (1 - w.lam) * w.t1 * V0 * (0.7 ** (self.n - 1))
-        move = base + self.bonus(msg)
-        total_cap = 0.02 * V0 if w.desk else math.inf
-        self.V = max(V_FLOOR, self.V - move, V0 - total_cap)
+        if self.n == 1:
+            if 1 - bv / V0 > w.G:
+                self.patience = 1  # a deep first ask (v13: 17 %) -> final at once
+            move = min(w.t1 * V0, w.kappa * max(self.V - bv, 0))
+        else:
+            attack = kinds(msg) & {"otd", "quality"}
+            retreat = bv < self.prev_bv - 1e-6
+            if attack or retreat:  # practice #2 R2: "My call: hold" -> final offer, no step
+                self.events.append("hold: " + ("attack" if attack else "retreat"))
+                self.prev_bv, self.final = bv, True
+                return self.reply("final_offer", [self.offered[self.standing_id]])
+            move = min(w.t1 * V0 * w.decay ** (self.n - 1), w.mirror * (bv - self.prev_bv))
+        self.prev_bv = bv
+        limit = w.desk * V0
+        if V0 - (self.V - move) > limit + 1e-9:
+            if self.approved is None and self.n > 1:  # asks it beyond its band: the owner decides once
+                self.approved = self.rng.random() < w.approve
+                self.events.append("owner " + ("approved" if self.approved else "declined"))
+            if self.approved:
+                limit = w.owner * V0
+        self.V = max(V_FLOOR, self.V - max(move, 0), V0 - limit, bv)
         self.final = self.n >= self.patience
-        if self.value(best) >= self.V - 1e-9:
+        if bv >= self.V - 1e-9:
             return self.reply("agreed", [best])
-        out = [{**f, "unit_price": self.price_at(f["lead_time_days"])} for f in full[:2]]
-        if not any(o["lead_time_days"] >= STD_LT for o in out):
-            out.append({**out[0], "lead_time_days": STD_LT, "unit_price": self.price_at(STD_LT)})
-        return self.reply("final_offer" if self.final else "open", out[:3])
+        first = full[0]
+        out = [{**first, "unit_price": self.price_at(first["lead_time_days"])}]
+        if first["lead_time_days"] < STD_LT:
+            out.append({**first, "lead_time_days": STD_LT, "unit_price": self.price_at(STD_LT)})
+        return self.reply("final_offer" if self.final else "open", out)
 
     def reply(self, status, sheets):
         self.round += 1
@@ -267,14 +269,14 @@ class P10Table:
 # ---------- priors over the worlds ----------
 PRIORS = {
     "t1": [(0.0145, 1), (0.0155, 1), (0.0165, 1)],
-    "lam": [(0.0, 1), (0.33, 1), (0.67, 1), (1.0, 1)],
-    "w_fc": [(0.25, 1), (0.5, 1), (1.0, 1)],
-    "fc": [(True, 0.7), (False, 0.3)],
-    "po": [(True, 0.2), (False, 0.8)],
-    "m": [(1.0, 1), (0.6, 1)],
-    "desk": [(False, 0.7), (True, 0.3)],
-    "patience": [("floor", 0.8), ("open2", 0.1), ("open3", 0.1)],
-    "beta": [(0.0, 0.6), (0.33, 0.3), (1.0, 0.1)],
+    "G": [(0.13, 1), (0.15, 1), (0.16, 1)],
+    "n0": [(3, 1), (4, 1), (5, 1)],
+    "mirror": [(0.5, 1), (1.0, 1)],
+    "decay": [(0.5, 1), (0.7, 1)],
+    "approve": [(0.0, 0.4), (0.5, 0.3), (1.0, 0.3)],
+    "owner": [(0.03, 1), (0.04, 1)],
+    "kappa": [(math.inf, 0.7), (0.5, 0.3)],
+    "beta": [(0.0, 0.7), (0.33, 0.3)],
 }
 
 
