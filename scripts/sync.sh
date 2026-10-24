@@ -8,6 +8,13 @@ ROOT="$(git -C "$(dirname "$0")" rev-parse --show-toplevel 2>/dev/null)" || exit
 cd "$ROOT" || exit 0
 say() { printf '{"systemMessage": "sync: %s"}\n' "$1"; }
 
+# Code freeze Sun 25 Oct 13:00 CET (= 12:00 UTC; clocks went back overnight): from 11:55 UTC nothing is
+# committed or pushed automatically - Tacto checks the top 5 for pushes after the freeze. SYNC_FORCE=1 overrides.
+if [ "$(date -u +%Y%m%d%H%M)" -ge 202610251155 ] && [ "${SYNC_FORCE:-0}" != "1" ]; then
+  [ "${1:-}" = "pull" ] || say "code freeze: auto-sync is off (SYNC_FORCE=1 to override)"
+  exit 0
+fi
+
 branch="$(git rev-parse --abbrev-ref HEAD)"
 if [ "$branch" != "main" ]; then
   say "on branch $branch, not main - auto-sync is off here (push it yourself)"

@@ -75,7 +75,7 @@ uv run python -m csee run                     # all 10 hosted practice cases in 
 uv run python -m csee run --set sandbox       # free: D01, D02
 uv run python -m csee eval                    # pull every finished session into runs/, table vs house agent
 uv run python -m csee show <session_id>       # one negotiation move by move, with the supplier's reasons
-uv run python -m csee final                   # THE LIVE FINAL (start before 13:30, leave running)
+uv run python -m csee --agent router -v final 2>&1 | tee -a logs/final.log   # THE LIVE FINAL - see docs/RUNBOOK.md
 ```
 
 Add `--no-llm` to use template e-mails. Without an LLM key it uses templates anyway. Add `--agent <name>` (before the command) to play one of the team agents in `csee/agents/` instead of `base`, e.g. `uv run python -m csee --agent ege sim`.

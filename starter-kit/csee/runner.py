@@ -76,7 +76,12 @@ def _play_case(table, case_id, agent, deadline, clog):
         for m in events:
             fetch_documents(table, m)
     agent.log = clog
-    agent.prepare(case, threads)
+    try:
+        agent.prepare(case, threads)
+        prepared = True
+    except Exception:  # never leave a session open: no negotiation, but a safe close (kit's closing move)
+        log.exception("%s: prepare failed - closing safely", case_id)
+        prepared = False
     if clog.enabled:
         _quiet(log_opened, clog, case, threads, agent)
     lock, ended, closing, result = threading.Lock(), threading.Event(), threading.Event(), {}
@@ -152,9 +157,12 @@ def _play_case(table, case_id, agent, deadline, clog):
         except Exception as e:  # one broken thread must not stop the case
             log.exception("%s %s: worker failed", case_id, sid)
             _quiet(clog.event, "error", supplier_id=sid, status=None, detail=repr(e))
-            agent.threads[sid].ready = True
+            try:
+                agent.threads[sid].ready = True
+            except Exception:
+                pass
 
-    sids = live_threads(threads)
+    sids = live_threads(threads) if prepared else []
     workers = {sid: threading.Thread(target=safe, args=(sid,), daemon=True) for sid in sids}
     for w in workers.values():
         w.start()
@@ -230,8 +238,15 @@ def _play_case(table, case_id, agent, deadline, clog):
             except Exception:
                 log.exception("%s: re-reading the threads failed", case_id)
                 break
+        except Exception as e:  # a dropped connection: the same decision again (the client reuses its move id)
+            log.warning("%s: close transport error %r, attempt %d", case_id, e, attempt + 1)
+            time.sleep(1.0)
     if out is None:
-        out = table.result()
+        try:
+            out = table.result()
+        except Exception:
+            log.exception("%s: reading the result failed", case_id)
+            out = {"deal": False, "end_reason": "unknown"}
     out = {**out, "session_id": table.session_id}
     if clog.enabled:
         _quiet(log_result, clog, table, case, threads, out, msg["action"], sid)
