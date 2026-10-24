@@ -220,13 +220,17 @@ class Concede:
             p_b = st.our_prices[-1]
             gap = p_s - p_b
             their_step = (st.their_prices[-2] - st.their_prices[-1]) if len(st.their_prices) >= 2 else gap
-            late = self.rounds_left(sid, left) <= 3
+            # late: near our round limit, or from its late_after_replies-th reply - real suppliers turn final at
+            # reply 3-5 (626 moves), and P02's walked at reply 4 while we followed its 1-EUR steps 2.6 % below
+            replies = sum(1 for m in threads[sid] if m.get("from") != "buyer" and m.get("term_sheets"))
+            late = self.rounds_left(sid, left) <= 3 or replies >= self.p.late_after_replies
             share = self.p.concede_late if late else self.p.concede_early
             step = share * gap
             if their_step <= 0:  # they did not move: we barely move
                 step = min(step, 0.1 * gap)
             else:
-                step = min(step, max(their_step * self.p.follow_share, 0.05 * gap))
+                floor_share = self.p.late_min_share if late else 0.05
+                step = min(step, max(their_step * self.p.follow_share, floor_share * gap))
             p = p_b + max(step, 0)
             st.why = (
                 f"concede {max(step, 0):.2f} of gap {gap:.2f} ({'late' if late else 'early'}, their step "

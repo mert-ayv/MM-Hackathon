@@ -71,6 +71,8 @@ class Params:
     concede_early: float = 0.25  # share of the remaining gap we give per round, early
     concede_late: float = 0.5  # ... in the last rounds
     follow_share: float = 1.1  # our step at most this share of the supplier's last step
+    late_after_replies: int = 3  # from its 3rd reply on we are late (concede_late), not only near the round limit
+    late_min_share: float = 0.25  # late: our step may exceed follow_share x its step, up to this share of the gap
     close_gap: float = 0.004  # their C within this share of ours: take it
     close_room: float = 0.1  # >0: thread is done only when the C gap <= this share of the room (opening C - anchor C)
     trade_gain: float = 0.006  # a trade sheet must save us at least this share of C
