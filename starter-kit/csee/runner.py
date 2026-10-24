@@ -30,11 +30,11 @@ from arena_kit.play import (
     RemoteTable,
     closing_move,
     fetch_documents,
-    live_threads,
     quota_used_up,
 )
 
 from . import levers, runlog
+from .agent import live_threads
 
 log = logging.getLogger("csee")
 

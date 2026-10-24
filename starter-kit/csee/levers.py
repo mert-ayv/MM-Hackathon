@@ -40,7 +40,12 @@ def _supplier_rank(field, value, case):
     return sign * value if isinstance(value, int | float) else 0
 
 
-def best_terms(case, base, std=None, supplier=None, fixed=(), tolerance=1.0, exclude=None):
+VALUE_NEUTRAL_FIELDS = ("chargeback_eur_per_complaint", "ppm_commitment")  # payment: own priced trade sheets
+
+
+def best_terms(
+    case, base, std=None, supplier=None, fixed=(), tolerance=1.0, exclude=None, value_of=None, cap_contract=False
+):
     """Coordinate descent over the negotiable non-price fields at the price in `base`: the value with
     the lowest C for us; among values within `tolerance` EUR of it, the one the supplier likes most.
     Free volume and contract length fields: our need and the horizon (more costs, less leaves need uncovered)."""
@@ -63,11 +68,19 @@ def best_terms(case, base, std=None, supplier=None, fixed=(), tolerance=1.0, exc
             if field == "unit_price" or field in fixed or not options(case, field):
                 continue
             scored = []
+            here = value_of(t) if value_of and field in VALUE_NEUTRAL_FIELDS and t.get("unit_price") else None
             for v in options(case, field):
                 if v in (exclude or {}).get(field, []):
                     continue
-                c = total_cost(case, {**t, field: v}, std, supplier)
-                if must_haves_ok(case, {**t, field: v}, std):
+                if cap_contract and field == "contract_months" and v > round(12 * b["horizon_years"]):
+                    continue  # longer than we need: the supplier then insists on an index clause (P08, P18)
+                cand = {**t, field: v}
+                if here is not None:
+                    # the supplier prices what a term costs IT (a chargeback at its real defect rate, faster
+                    # payment at its cost of money): compare options at the price that keeps its value equal
+                    cand["unit_price"] = round(t["unit_price"] + (here - value_of(cand)), 4)
+                c = total_cost(case, cand, std, supplier)
+                if must_haves_ok(case, cand, std):
                     scored.append((c, v))
             if not scored:
                 continue

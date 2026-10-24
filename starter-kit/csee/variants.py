@@ -106,6 +106,18 @@ VARIANTS = {
         "sticky_terms": True,
         "final_push": 0.005,
     },
+    "v12": {
+        "adopt_insisted": True,
+        "rival_only_lower": True,
+        "cash_trade_always": True,
+        "anchor_leverage": 0.22,
+        "rfq_anchor_vs_leader": 0.08,
+        "adopt_revealed": True,
+        "sticky_terms": True,
+        "sticky_fields": ("ppm_commitment", "chargeback_eur_per_complaint"),
+        "value_neutral_terms": True,
+        "contract_at_horizon": True,
+    },
 }
 
 
@@ -130,6 +142,9 @@ DESCRIPTIONS = {
     "v10": "v9 + push once more after the supplier's final offer (0 walk-aways in ~630 real supplier moves).",
     "v11": "v9 + after a final offer one small push (0.5 % below it, same terms), only with the leading bidder "
     "(sandbox: D01 agreed 49.80 -> 49.55; a far-off push made DEMO-C1 walk away).",
+    "v12": "v9 fixed by the coverage review: sticky only for quality terms (v9 locked in must-have-breaking "
+    "volume/lead time, P01 dates); chargeback/ppm/payment chosen at the price that keeps the supplier's value "
+    "equal (it pays chargebacks at its real ppm); no contract beyond the horizon when a rising index clause looms.",
     "v4": "base tactics (12% anchor, steady concessions keep the supplier conceding: D01) + v2's adopt-held-terms, "
     "lower-rival-only, cash sheet + floor guard (P05 anchored 0.5% below the opening) + RFQ: beat the leader.",
 }

@@ -13,9 +13,10 @@ import threading
 import time
 from dataclasses import dataclass, field
 
-from arena_kit.cost import RELATIONSHIP_GOALS, closing_terms, complete_offer, must_haves_ok, total_cost
+from arena_kit.cost import RELATIONSHIP_GOALS, closing_terms, complete_offer, must_haves_ok, supplier_value, total_cost
 from arena_kit.docs import standard_terms
-from arena_kit.play import ENDED, latest, live_threads, moves_left, standing
+from arena_kit.play import ENDED, latest, moves_left, standing
+from arena_kit.play import live_threads as _kit_live_threads
 
 from . import intel as intel_mod
 from . import levers, runlog
@@ -24,6 +25,13 @@ from .writer import SIGN, TemplateWriter, describe
 log = logging.getLogger("csee")
 
 READY_STATUSES = {"agreed", "final_offer"}
+
+
+def live_threads(threads):
+    """The kit's live_threads, safe for a thread without any supplier message yet (it would raise)."""
+    return _kit_live_threads({s: ev for s, ev in threads.items() if any(m.get("from") != "buyer" for m in ev)})
+
+
 AVOID_WORDS = {
     "should_cost": ("should-cost", "should cost", "cost:"),
     "rival": ("quote", "second source", "competitor", "rival"),
@@ -94,7 +102,11 @@ class Params:
     #                          a far-off push made DEMO-C1 walk away) - and only with the bidder holding the best deal
     time_aware: bool = True  # Live Final: pace concessions to the rounds that fit before the wave's cap
     sticky_terms: bool = False  # after our first ask, keep the non-price terms of its cheapest sheet (P11)
-    text_signals: bool = False  # infer cash/capacity/volume pressure from the supplier's e-mails, not only profiles
+    text_signals: bool = False
+    # v12 switches (coverage review)
+    sticky_fields: tuple = ()  # with sticky_terms: only these fields stick (empty = all non-price fields)
+    value_neutral_terms: bool = False  # pick chargeback/ppm/payment at the price that keeps its value equal
+    contract_at_horizon: bool = False  # no contract beyond the horizon when an index clause is in play and rising  # infer cash/capacity/volume pressure from the supplier's e-mails, not only profiles
 
 
 @dataclass
@@ -188,6 +200,36 @@ class CseeAgent:
         standard = closing_terms(case, st.opening, std)
         return {"full_cost": full, "interest_rate": rate, "standard": standard}
 
+    def value_fn(self, case, sid, std):
+        """What a sheet is worth to the supplier per unit (cash), incl. chargebacks at its REAL defect rate:
+        max(its opening commitment, its latest scorecard ppm)."""
+        st = self.threads[sid]
+        ppm = st.opening.get("ppm_commitment") or 0
+        cards = intel_mod.supplier_facts(case, self.pkg, sid, "sc:")
+        if cards:
+            ppm = max(ppm, max(cards.items(), key=lambda x: x[1].get("quarter") or "")[1].get("ppm") or 0)
+        est = self.supplier_estimate(case, sid, std) or {
+            "full_cost": 1.0,
+            "interest_rate": 0.08,
+            "standard": closing_terms(case, st.opening, std),
+        }
+        sup = {**est, "ppm": ppm}
+
+        def value(terms):
+            try:
+                return supplier_value(case, terms, sup)
+            except Exception:
+                return 0.0
+
+        return value
+
+    def clause_rising(self, case):
+        b = case["buyer"]
+        clauses = [c for c in case.get("term_options", {}).get("index_clause") or [] if c]
+        return "index_clause" in case["negotiable"] and any(
+            (b.get("index_paths") or {}).get(c["series"], 0) > 0 for c in clauses
+        )
+
     def leader_cost(self, case, threads, exclude=None):
         """The lowest C any other live supplier offers right now (inf if none)."""
         best = math.inf
@@ -273,7 +315,8 @@ class CseeAgent:
             and (closing or self.nothing_to_win(case, threads, sid, theirs, std, left))
         ):
             st.alt_requested = sheet_id
-            terms = complete_offer(case, theirs)
+            snapped = complete_offer(case, theirs)
+            terms = {f: theirs.get(f, snapped.get(f)) for f in case["negotiable"]}  # its exact values, unsnapped
             self.note_decision(ev, sid, "send", f"propose its alternative {sheet_id} back word for word", t0)
             return {
                 "subject": f"Re: {case['title']}"[:300],
@@ -339,7 +382,7 @@ class CseeAgent:
         msg = {
             "subject": f"Re: {case['title']}"[:300],
             "body": draft,
-            "term_sheets": [{"terms": s} for s in sheets],
+            "term_sheets": [{"terms": {k: v for k, v in s.items() if k in case["negotiable"]}} for s in sheets],
             "refs": [i for c in claims for i in c.ids][:20],
         }
         if not isinstance(self.writer, TemplateWriter):
@@ -430,7 +473,7 @@ class CseeAgent:
     def next_terms(self, case, threads, sid, theirs, std, supplier, left):
         st = self.threads[sid]
         b = case["buyer"]
-        p_s = theirs.get("unit_price")
+        p_s = theirs.get("unit_price") or closing_terms(case, theirs, std).get("unit_price")
         if p_s is None:
             st.why = "their sheet has no price"
             return None
@@ -439,14 +482,28 @@ class CseeAgent:
             # once it has priced a set of terms, flipping them lets it re-price (P11: we flipped quality terms
             # three times and accepted the dearest set it had offered): keep its cheapest-for-us sheet's terms,
             # negotiate the price, trade other terms only in alternative sheets
-            fixed.update({f: theirs[f] for f in case["negotiable"] if f != "unit_price" and f in theirs})
+            sticky = self.p.sticky_fields or tuple(f for f in case["negotiable"] if f != "unit_price")
+            fixed.update({f: theirs[f] for f in sticky if f in case["negotiable"] and f in theirs})
         if self.p.adopt_revealed:
             fixed.update(self.revealed_fields(case, threads[sid], theirs))
+        # never adopt a supplier value that breaks one of our must-haves (P10: volume 19,890 < 22,230)
+        fixed = {k: v for k, v in fixed.items() if must_haves_ok(case, {**complete_offer(case, theirs), k: v}, std)}
         exclude = {}
         if self.p.clause_when_insisted and self.clause_insisted(threads[sid]):
             fixed.pop("index_clause", None)
             exclude = {"index_clause": [None]}  # a clause it is: the cheapest one for us (widest deadband)
-        base = levers.best_terms(case, {**theirs, **fixed}, std, supplier, fixed=tuple(fixed), exclude=exclude)
+        value_of = self.value_fn(case, sid, std) if self.p.value_neutral_terms else None
+        cap = self.p.contract_at_horizon and self.clause_rising(case)
+        base = levers.best_terms(
+            case,
+            {**theirs, **fixed},
+            std,
+            supplier,
+            fixed=tuple(fixed),
+            exclude=exclude,
+            value_of=value_of,
+            cap_contract=cap,
+        )
         floor = self.floor_price(st)
         rel_goal = b.get("category_goal") in RELATIONSHIP_GOALS
         if not st.our_prices and self.p.anchor_leverage and not rel_goal:
@@ -505,7 +562,14 @@ class CseeAgent:
         # "cheaper"): choose them at the price we ask, not at the supplier's (Fable review #3)
         expected = round(p + 0.5 * max(p_s - p, 0), 2)  # where the deal will likely land
         base = levers.best_terms(
-            case, {**base, **fixed, "unit_price": expected}, std, supplier, fixed=tuple(fixed), exclude=exclude
+            case,
+            {**base, **fixed, "unit_price": expected},
+            std,
+            supplier,
+            fixed=tuple(fixed),
+            exclude=exclude,
+            value_of=value_of,
+            cap_contract=cap,
         )
         ours = {**base, "unit_price": round(p, 2)}
         if self.p.rfq_beat_leader and len(case["suppliers"]) > 1:
@@ -708,7 +772,9 @@ class CseeAgent:
             else:
                 offered = [standing(threads[sid])]
             for sheet_id, terms in offered:
-                if not sheet_id or terms.get("unit_price") is None or not must_haves_ok(case, terms, std):
+                if not sheet_id or closing_terms(case, terms, std).get("unit_price") is None:
+                    continue
+                if not must_haves_ok(case, terms, std):
                     continue
                 c = total_cost(case, terms, std, supplier)
                 if c < c_alt and (best is None or c < best[0]):
