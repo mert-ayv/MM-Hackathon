@@ -195,7 +195,15 @@ class CseeAgent:
         # Only the FIRST sheet of a reply is standing and acceptable (422 "not a standing offer" otherwise).
         # Its alternative is better for us: propose it back word for word; the supplier then agrees to it.
         first_id = (latest(ev).get("term_sheets") or [{}])[0].get("term_sheet_id")
-        if sheet_id and first_id and sheet_id != first_id and left >= 1 and st.alt_requested != sheet_id:
+        closing = status in READY_STATUSES or left <= self.p.reserve_moves + 1
+        if (
+            sheet_id
+            and first_id
+            and sheet_id != first_id
+            and left >= 1
+            and st.alt_requested != sheet_id
+            and (closing or self.nothing_to_win(case, threads, sid, theirs, std, left))
+        ):
             st.alt_requested = sheet_id
             terms = complete_offer(case, theirs)
             return {
@@ -230,6 +238,15 @@ class CseeAgent:
             events = list(ev)
             msg["_write"] = lambda: self.writer.write(case, self, sid, events, sheets, claims, ask_breakdown)
         return msg
+
+    def nothing_to_win(self, case, threads, sid, theirs, std, left):
+        """next_terms would stop here (its sheet is as cheap as ours): the moment to close this thread."""
+        supplier = self.supplier_estimate(case, sid, std)
+        saved = (list(self.threads[sid].our_prices), list(self.threads[sid].their_prices))
+        try:
+            return self.next_terms(case, threads, sid, theirs, std, supplier, left) is None
+        finally:
+            self.threads[sid].our_prices, self.threads[sid].their_prices = saved
 
     def floor_price(self, st):
         full = (st.breakdown or {}).get("full_cost") or st.intel.full_cost
@@ -299,8 +316,9 @@ class CseeAgent:
             p = p_b + max(step, 0)
         # the best terms depend on the price (e.g. above the fallback price a short contract looks
         # "cheaper"): choose them at the price we ask, not at the supplier's (Fable review #3)
+        expected = round(p + 0.5 * max(p_s - p, 0), 2)  # where the deal will likely land
         base = levers.best_terms(
-            case, {**base, **fixed, "unit_price": round(p, 2)}, std, supplier, fixed=tuple(fixed), exclude=exclude
+            case, {**base, **fixed, "unit_price": expected}, std, supplier, fixed=tuple(fixed), exclude=exclude
         )
         ours = {**base, "unit_price": round(p, 2)}
         if self.p.rfq_beat_leader and len(case["suppliers"]) > 1:
