@@ -179,7 +179,9 @@ def command(args, runs):
             log_row(args, cid, args.set, res)
             print(cid, json.dumps(summary(res)) if isinstance(res, dict) else f"ERROR {res}")
     elif args.cmd == "final":
-        client = ArenaClient()
+        # a venue Wi-Fi blip: 6 retries (~30 s of backoff) instead of 3 before a thread's worker dies; idempotent
+        # via the client's X-Move-Id, so a retried move is never played twice (pre-mortem Sat night, risk 7)
+        client = ArenaClient(retries=6)
         factory = agent_factory(not args.no_llm, args.variant, args.agent)
         out = play_waves(client, factory, args.waves, min(args.parallel, 10), run=new_run(args, runs, "final"))
         for cid, res in out.items():

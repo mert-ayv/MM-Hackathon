@@ -8,59 +8,73 @@ All times are **CET, the new time** (clocks go back overnight: 03:00 → 02:00).
 
 ## Before 08:00 (Saturday night)
 
-- [ ] Final machine set up: repo cloned, `cd starter-kit && uv sync --all-extras`, `.env` copied over (never committed), `uv run arena me` answers with csee-base.
-- [ ] `tmux` installed. On a laptop: power supply plugged in.
-- [ ] Decide what the router plays (`starter-kit/csee/agents/router.py` ROUTES) from the board (`python -m csee board`) and the experiment log in [ARCHITECTURE.md](ARCHITECTURE.md).
+- [x] Final machine: Mert's MacBook (repo, `.env`, uv environment, tests green on Sat night).
+- [x] Router decided: `starter-kit/csee/agents/router.py` ROUTES (A/B dress rehearsal + robustness sweep; see [ARCHITECTURE.md](ARCHITECTURE.md)). No route changes after 11:30 without dress-rehearsal evidence.
+- [ ] `tmux` is not installed: `brew install tmux`, or use `screen` (installed).
 
-## 08:00–11:30: data release and last improvements
+## Minute-by-minute checklist, 07:45-14:30
 
-- [ ] **08:05** `cd starter-kit && uv run arena data`, then check that the release was found (it must not print `None`):
-  `uv run python -c "from arena_kit.data import DataPackage as D; p=D('data/package'); print(p.release, len(p.ids('news:')))"`
-- [ ] Same on the final machine (or copy `data/release-sunday` over).
-- [ ] `uv run python -m csee.dossier`: lists what the release adds per supplier (new hedges, price letters, cash asks, news). The agent re-derives these at runtime from the merged package; check that nothing looks wrong (e.g. a hedge on the wrong series).
-- [ ] Optional: extend the supplier profiles with the release's letters and news: `scripts/sunday_release.sh` (Annika's profile builder; see `docs/SUNDAY_RELEASE.md`; needs `ANTHROPIC_API_KEY`). It only **stages** changes. Before `apply`:
-  - **Read every newly added `arguments_to_avoid` entry by hand.** The agent drops an argument whose kind keywords appear there (`should-cost`, `cost:`, `quote`, `competitor`, `otd`, `delivery record`, `ppm`, `forecast`, `notice`, `news:`, or an index series and its theme: electric, copper, alloy, steel). One careless entry can silently switch off our strongest argument for that supplier.
-  - Check the "Removed" section (removal matching is loose).
-  - After `apply`: `uv run python -m csee.fallback archetypes`, then `uv run pytest -q tests/test_fallback.py tests/test_csee_smoke.py`, then commit.
-- [ ] **11:30 feature freeze.** After that, bug fixes only.
+Built from a pre-mortem on Sat night ("it is 16:00 and we did not win - why?"). The top risks, in order:
+1. The runner is not really playing at 13:30.
+2. The machine sleeps, loses power or loses the network.
+3. Open sessions or the rate budget are contended (stale or teammates' sessions, a second runner).
+4. Submission or freeze mechanics (repo private, wrong hash, a push after 13:00).
+5. The release is not loaded or breaks the agent.
+6. Resume semantics after a crash.
+7. Network blips.
+8. LLM writer degraded.
+9. A hidden case breaks a route.
+10. The pitch.
 
-## 11:30–12:55: pre-flight and submission
-
-- [ ] Pre-flight **on the final machine, with the final setup** (this one uses 1 practice session):
-  `uv run python -m csee --agent router -v play case:P04 --confirm`
-- [ ] Free mechanics check: `uv run python -m csee --agent router bench --repeat 1` (sandbox).
-- [ ] With the LLM writer on: confirm that the e-mails get written and that `writer … template used` warnings stay rare (rate limits for about 30 parallel calls).
-- [ ] README "Our approach" section filled in; 1-min demo and technical videos uploaded.
-- [ ] **12:45 Make the repo public** so the jury can open it (the history was checked: no keys). Then `git tag final && git push origin final`.
-- [ ] **12:55 Submit on Hack & More:** repo link, the **full commit hash** of `final`, the approach description.
-
-## 13:00: code freeze
-
-- [ ] From 11:55 UTC (12:55 CET), `scripts/sync.sh` stops committing and pushing by itself. **Nobody pushes until the results are out.** Slides live outside the repo.
-- [ ] Stop **all** practice, sandbox, bench and dashboard runs and close Claude Code sessions in the repo: they share our key's 10 open sessions and 10 calls/s.
-- [ ] Check that no practice session is still open (`GET /v1/sessions?set=practice`, all `ended`).
-
-## 13:15: start the final runner (and leave it running)
-
-On the final machine, in `tmux`, from a checkout of exactly the submitted commit:
-
+- [ ] **07:45** Phones show CET. Final machine: power in, lid open, battery charging. `brew install tmux` (or use `screen`). `sudo pmset -a sleep 0 displaysleep 0 disablesleep 1`. Hotspot tested once.
+- [ ] **08:00** `curl -s https://arena.tacto.ai/v1/data` until `release-sunday` carries a `url`.
+- [ ] **08:05** `cd starter-kit && uv run arena data`, then the DataPackage one-liner (section 1.5): release path not None; facts > 10356, news > 39, docs > 208. Else `ARENA_RELEASE=/abs/path` in `.env`.
+- [ ] **08:10** `uv run python -m csee.dossier` sanity check. One person reads memo + news, posts "what changes for the agent" by 08:30.
+- [ ] **08:15** Free regression with the release: `uv run pytest -q tests/test_csee_smoke.py -k router`; `uv run python -m csee --agent router --no-llm sim --seeds 1`; `uv run python -m csee --agent router bench --repeat 1`.
+- [ ] **08:20-09:00** Optional profiles: `scripts/sunday_release.sh` (stages only) -> two reviewers read every `arguments_to_avoid` and every removal -> apply -> `csee.fallback archetypes` -> `pytest tests/test_fallback.py tests/test_csee_smoke.py` -> commit. In doubt, skip.
+- [ ] **09:00-11:30** Improvements only with evidence; router smoke green before every Stop-hook push; keep >= 30 practice sessions in reserve.
+- [ ] **11:30 FEATURE FREEZE.** Bug fixes only. Full suite: `uv run pytest -q tests` (~6 min). Anthropic console: credits + limits.
+- [ ] **11:35** Standby laptop: `git pull`, `.env` via AirDrop, `uv sync --all-extras`, `uv run arena data`, `uv run arena me` OK. Nothing started.
+- [ ] **11:45** Hack & More: demo + technical video and architecture notes uploaded; approach text (README "Our approach") ready to paste. Slides done, speaker + timer assigned.
+- [ ] **12:00** Pre-flight on the final machine and venue network (1 session): `uv run python -m csee --agent router -v play case:P04 --confirm`. Check: sane score, LLM e-mails written, no `template used` / `decision took` warnings, replay opens. Decide the network for the final (portal/drops -> hotspot).
+- [ ] **12:15** Mechanics rehearsal (free): terminal 1 `uv run arena-sim serve --final-rehearsal --data data/package`; terminal 2 `ARENA_URL=http://127.0.0.1:8000 uv run arena register csee sim`, then `ARENA_URL=http://127.0.0.1:8000 ARENA_API_KEY=<sim key> uv run python -m csee --agent router -v final --waves 2 --no-runlog` -> "wave 2 closed", no Traceback. Stop the sim afterwards.
+- [ ] **12:30** Close every Claude Code session in every clone. `git pull && git status --porcelain` empty; `git log -1 origin/main` == local HEAD.
+- [ ] **12:35** Repo public: `gh repo edit mert-ayv/MM-Hackathon --visibility public --accept-visibility-change-consequences`; logged-out `curl -s -o /dev/null -w '%{http_code}\n' https://github.com/mert-ayv/MM-Hackathon` -> 200.
+- [ ] **12:40** `git tag final && git push origin final && git rev-parse final && git ls-remote --tags origin final` (same hash). Post the hash. From now nobody commits or pushes.
+- [ ] **12:45** Submit on Hack & More: repo link, FULL hash of `final`, approach text. Screenshot the confirmation.
+- [ ] **12:55** Hook freeze active. Every laptop: `git status` shows nothing to push.
+- [ ] **13:00 CODE FREEZE.** Every laptop: `pgrep -fl "csee|arena|import_sessions"` -> kill. Run the stale-session snippet (section 1.3) -> `open now: 0`.
+- [ ] **13:05** Final machine: `git fetch && git status --porcelain && git checkout final && git rev-parse HEAD` (== submitted). `cd starter-kit && uv sync --all-extras && uv run --no-sync python -c "import anthropic, csee.agents; print('ok')" && uv run arena me`.
+- [ ] **13:10** `screen -S final` (or tmux). Window 1: `caffeinate -dims`. Window 2, from `starter-kit/`:
 ```bash
-git fetch && git checkout final            # the tagged, submitted commit (detached: auto-sync stays off)
-cd starter-kit && mkdir -p logs
+mkdir -p logs; LOG=logs/final-$(date +%H%M).log
 while :; do
-  uv run python -m csee --agent router -v final 2>&1 | tee -a logs/final.log
-  grep -q "wave 5 closed" logs/final.log && break
-  sleep 3                                   # crashed? restart: it picks up its running sessions (409 → resume)
+  PYTHONUNBUFFERED=1 uv run --no-sync python -m csee --agent router -v final 2>&1 | tee -a "$LOG"
+  grep -q "wave 5 closed" "$LOG" && break
+  sleep 3
 done
 ```
+- [ ] **13:15** Runner started; no output is normal until wave 1 (403 is silent). Window 3: `tail -f "$LOG" | grep -E "wave|closing|error|failed|Traceback|template used|decision took"`.
+- [ ] **13:20** Standby laptop at `final`, ready, NOT started.
+- [ ] **13:25** Heartbeat from a second terminal: `uv run arena me` (active). Phone hotspot on, phone on power. Hands off the keyboard from 13:29.
+- [ ] **13:30-14:30 hands off.** Only `tail -f`. Expect `wave 1: starting` within ~10 s of the host; if nothing by 13:32: `uv run arena me`, network, then let the loop restart. Restart only a dead process; standby only for a dead MacBook. Nobody touches the key, `csee board/eval`, `arena board`, the dashboard, or git.
+- [ ] **14:30** Humans: results, pick the replay, go to the Tacto office; pitch 15:10. Restore `pmset` afterwards.
 
-On a laptop, also run `caffeinate -dims` in a second tmux window.
-
-## 13:30–14:30: hands off
-
-- **No human in the loop.** Restarting a crashed runner is allowed; choosing cases or writing messages is not.
-- **Our agent must not read** `/v1/events`, `/screen`, `/leaderboard` or `/results`. Don't invoke the `leaderboard` skill or `csee board` during the final. People may watch the venue screen.
-- Watch only `logs/final.log`: `tail -f logs/final.log | grep -E "wave|closing|error|failed"`.
+**Stale-session snippet** (13:00, no quota; walking away from an open practice/sandbox session leaves our best score untouched):
+```bash
+cd starter-kit && uv run python - <<'EOF'
+from arena_kit.cli import load_env; load_env()
+from arena_kit.client import ArenaClient
+c = ArenaClient()
+for set_ in ("practice", "sandbox"):
+    for s in c.sessions(set_):
+        if s.get("status") != "ended":
+            st = c.session(s["session_id"]); sid = next(iter(st["threads"]))
+            r = c.send_message(s["session_id"], sid, {"action": {"type": "walk_away"}})
+            print("closed", set_, s["case_id"], s["session_id"], r.get("end_reason"))
+print("open now:", sum(x.get("status") != "ended" for t in ("practice", "sandbox") for x in c.sessions(t)))
+EOF
+```
 
 ## After the final
 
