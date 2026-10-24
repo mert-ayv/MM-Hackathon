@@ -2,7 +2,7 @@
 
 The arena's session list does not know our variants, so every run writes its own record to
 `experiments/<date>-<author>.jsonl` at the repo root (one file per person: no merge conflicts).
-Commit and push it; `python -m unified board` compares every variant across the whole team.
+Commit and push it; `python -m csee board` compares every agent across the whole team.
 """
 
 import getpass
@@ -10,7 +10,6 @@ import hashlib
 import json
 import os
 import socket
-import statistics
 import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
@@ -58,15 +57,25 @@ def _snapshot():
     return f"{head}+{digest}", str(patch.relative_to(ROOT)), on_origin
 
 
-# taken once, when the run starts: edits made while it runs do not belong to it
-COMMIT, PATCH, ON_ORIGIN = _snapshot()
+_SNAP = None
+
+
+def snapshot():
+    """(tag, patch, on origin), taken once when a logged command starts (play/run/final): edits made while it
+    runs do not belong to it. Not on import, so the simulator never writes patch files."""
+    global _SNAP
+    if _SNAP is None:
+        _SNAP = _snapshot()
+    return _SNAP
 
 
 def commit():
-    return COMMIT
+    """The commit a logged run uses (its snapshot), else just HEAD (the simulator)."""
+    return _SNAP[0] if _SNAP else (_git("rev-parse", "--short", "HEAD") or "nogit")
 
 
-def record(case_id, set_, result, variant, params, llm, note="", agent="base", final_est=None):
+def record(case_id, set_, result, variant, params, llm, note="", agent="base"):
+    tag, patch, on_origin = snapshot()
     FOLDER.mkdir(exist_ok=True)
     if "arena.tacto.ai" not in os.environ.get("ARENA_URL", "https://arena.tacto.ai"):
         set_ = f"sim-{set_}"  # a local arena-sim run (e.g. the final rehearsal) never counts as the real set
@@ -76,9 +85,9 @@ def record(case_id, set_, result, variant, params, llm, note="", agent="base", f
         "author": author(),
         "agent": agent,  # "unified" for this package
         "variant": variant,
-        "commit": commit(),
-        "patch": PATCH,  # uncommitted agent edits this run used (None = exactly the commit)
-        "on_origin": ON_ORIGIN,  # the commit was already on origin/main (others can check it out)
+        "commit": tag,
+        "patch": patch,  # uncommitted agent edits this run used (None = exactly the commit)
+        "on_origin": on_origin,  # the commit was already on origin/main (others can check it out)
         "host": socket.gethostname(),
         "llm": llm,
         "set": set_,
@@ -90,7 +99,7 @@ def record(case_id, set_, result, variant, params, llm, note="", agent="base", f
         "c_deal": result.get("c_deal") if isinstance(result, dict) else None,
         "c_best": result.get("c_best") if isinstance(result, dict) else None,
         "error": None if isinstance(result, dict) else str(result)[:300],
-        "final_est": final_est or {},  # score under Live-Final time pressure (unified/final_est.py)
+        "final_est": {},  # csee's board reads it; unified has no final estimate
         "params": params,
         "variant_desc": _desc(variant),
         "note": note,
@@ -111,52 +120,3 @@ DESCRIPTION = (
 def _desc(variant):
     return DESCRIPTION
 
-
-def load():
-    rows = []
-    for p in sorted(FOLDER.glob("*.jsonl")):
-        for line in p.read_text().splitlines():
-            if line.strip():
-                rows.append(json.loads(line))
-    return rows
-
-
-def label(row):
-    """[agent/]variant@commit[+llm]; the base agent keeps the bare variant label rows had before the split."""
-    agent = row.get("agent") or "base"
-    prefix = "" if agent == "base" else f"{agent}/"
-    return f"{prefix}{row['variant']}@{row['commit']}{'+llm' if row.get('llm') else ''}"
-
-
-def board(rows, house=None, set_="practice", final=False):
-    """Agent/variant x case: mean score (runs)."""
-    rows = [r for r in rows if r.get("set") == set_ and r.get("score") is not None]
-    if final:  # the estimated Live-Final score (cutoff 390 s) instead of the practice score
-        rows = [{**r, "score": (r.get("final_est") or {}).get("final_390")} for r in rows]
-        rows = [r for r in rows if r["score"] is not None]
-    house = house or {}
-    cases = sorted({r["case_id"] for r in rows} | set(house if set_ == "practice" else []))
-    labels = sorted({label(r) for r in rows})
-    head = "| Agent/variant | Mean | " + " | ".join(c.replace("case:", "") for c in cases) + " |"
-    out = [head, "|" + "---|" * (len(cases) + 2)]
-    if house:
-        hs = [house.get(c) for c in cases]
-        out.append(
-            "| *house agent* | "
-            + f"{statistics.mean([h for h in hs if h is not None]):.3f} | "
-            + " | ".join(f"{h:.2f}" if h is not None else "-" for h in hs)
-            + " |"
-        )
-    for name in labels:
-        mine = [r for r in rows if label(r) == name]
-        cells, means = [], []
-        for c in cases:
-            s = [r["score"] for r in mine if r["case_id"] == c]
-            if s:
-                means.append(statistics.mean(s))
-                cells.append(f"{statistics.mean(s):.2f}" + (f" ({len(s)})" if len(s) > 1 else ""))
-            else:
-                cells.append("-")
-        mean = f"{statistics.mean(means):.3f}" if means else "-"
-        out.append(f"| {name} | {mean} | " + " | ".join(cells) + " |")
-    return "\n".join(out)
