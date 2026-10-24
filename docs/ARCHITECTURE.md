@@ -55,7 +55,8 @@ How our agent negotiates, and how each architecture version is tracked. Code: [`
 
 | Where | What |
 | --- | --- |
-| `experiments/<date>-<author>.jsonl` | Every run: `variant`, `variant_desc` (in words), `commit`, full `params`, score, session. |
+| `experiments/<date>-<author>.jsonl` | Every run: who (`author`, `host`), `variant`, `variant_desc` (in words), `commit`, `patch`, `on_origin`, full `params`, score, session. |
+| `experiments/patches/<hash>.diff` | Uncommitted agent edits a run used. The row's commit reads `<commit>+<hash>`. Reproduce with `git checkout <commit> && git apply experiments/patches/<hash>.diff`. |
 | `starter-kit/csee/variants.py` | The behaviour switches of each variant, plus `DESCRIPTIONS`. |
 | git history | The exact code of any run: `git show <commit>:starter-kit/csee/agent.py`. |
 | This file, changelog below | What changed between architecture versions and why (the evidence). |
