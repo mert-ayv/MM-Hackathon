@@ -8,6 +8,7 @@ whole case when to accept which standing sheet, or to walk away.
 
 import logging
 import re
+import time
 import math
 from dataclasses import dataclass, field
 
@@ -62,6 +63,7 @@ class Params:
     hold_on_internal: bool = False  # "we will come back to you on price": hold our price one round
     # v8 switches (trade every lever; read the supplier's own words)
     generic_trades: bool = False  # trade sheets over every negotiable term, cheapest concession for us first
+    time_aware: bool = True  # Live Final: pace concessions to the rounds that fit before the wave's cap
     sticky_terms: bool = False  # after our first ask, keep the non-price terms of its cheapest sheet (P11)
     text_signals: bool = False  # infer cash/capacity/volume pressure from the supplier's e-mails, not only profiles
 
@@ -76,6 +78,7 @@ class ThreadState:
     cited_rival: float | None = None  # the rival price we last cited to this supplier
     alt_requested: str | None = None  # an alternative sheet of theirs we proposed back
     events: list = field(default_factory=list)  # the thread so far (for the supplier's own signals)
+    round_s: list = field(default_factory=list)  # seconds per round (our move + its reply), for the wave cap
     asked_breakdown: bool = False
     ready: bool = False  # nothing more to gain by writing: wait for the coordinator
 
@@ -86,6 +89,7 @@ class CseeAgent:
 
         self.writer = writer or TemplateWriter()
         self.case_id, self.threads, self.used_ids = None, {}, set()
+        self.cap_at = None  # set by the runner in the Live Final: when the safety close happens (time.time())
 
     # ---------- preparation ----------
     def prepare(self, case, threads):
@@ -272,6 +276,17 @@ class CseeAgent:
         finally:
             self.threads[sid].our_prices, self.threads[sid].their_prices = saved
 
+    def rounds_left(self, sid, left):
+        """Messages we can still send in this thread: the round limit, or in the Live Final how many rounds
+        fit before the runner's safety close (8-minute waves, replies up to a minute: ~5-7 rounds, not 10)."""
+        cap = self.cap_at() if self.p.time_aware and self.cap_at else None
+        if not cap:
+            return left
+        times = self.threads[sid].round_s
+        per_round = max(sum(times[-3:]) / len(times[-3:]) if times else 45.0, 15.0)
+        fit = int(max(cap - time.time(), 0) // per_round)
+        return min(left, fit)
+
     def floor_price(self, st):
         full = (st.breakdown or {}).get("full_cost") or st.intel.full_cost
         return full * (1 + self.p.floor_margin) if full else None
@@ -331,7 +346,7 @@ class CseeAgent:
             p_b = st.our_prices[-1]
             gap = p_s - p_b
             their_step = (st.their_prices[-2] - st.their_prices[-1]) if len(st.their_prices) >= 2 else gap
-            late = left <= 3
+            late = self.rounds_left(sid, left) <= 3
             share = self.p.concede_late if late else self.p.concede_early
             step = share * gap
             if their_step <= 0:  # they did not move: we barely move

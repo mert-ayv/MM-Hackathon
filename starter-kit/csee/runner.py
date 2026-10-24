@@ -33,6 +33,8 @@ def play_case(table, case_id, agent, deadline=None):
         for m in events:
             fetch_documents(table, m)
     agent.prepare(case, threads)
+    # the wave's cap, for a time-aware concession pace (practice and sandbox: none)
+    agent.cap_at = (lambda: (deadline() if callable(deadline) else deadline) - CLOSE_BEFORE_CAP_S) if deadline else None
     lock, ended, result = threading.Lock(), threading.Event(), {}
 
     def near_cap():
@@ -69,6 +71,7 @@ def play_case(table, case_id, agent, deadline=None):
             fetch_documents(table, reply)
             with lock:
                 threads[sid] += [{**msg, "from": "buyer"}, reply]
+                agent.threads[sid].round_s.append(time.monotonic() - t0)  # our move + its reply
             log.info(
                 "%s %s %s %s", case_id, sid, reply.get("status"), (reply.get("term_sheets") or [{}])[0].get("terms")
             )
