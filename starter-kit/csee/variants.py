@@ -154,8 +154,6 @@ VARIANTS["v16a"] = {**VARIANTS["v16"], "alt_quote_claim": True}
 VARIANTS["v7a"] = {**VARIANTS["v7"], "alt_quote_claim": True}
 VARIANTS["basea"] = {"rival_only_lower": True, "alt_quote_claim": True}
 VARIANTS["v17"] = {**VARIANTS["v16"], "rel_anchor": False, "close_gap": 0.001, "close_room": 0.05}
-VARIANTS["v19"] = {**VARIANTS["v14"], "fullcost_discount": 0.98, "walk_guard": True}
-VARIANTS["v20"] = {**VARIANTS["v16"], "fullcost_discount": 0.98, "walk_guard": True}
 
 
 
@@ -185,10 +183,6 @@ DESCRIPTIONS = {
     "equal (it pays chargebacks at its real ppm); no contract beyond the horizon when a rising index clause looms.",
     "v13": "v9 with sticky terms only where keeping the supplier's value costs us <= 0.8 % of C (D01 payment "
     "sticks; P01's early date does not) + v12's value-neutral quality terms and contract cap.",
-    "v19": "v14 + supplier cost x 0.98 for the relationship term (the arena's charge back-calculates to "
-    "should-cost x 0.977-0.990 in 11 practice deals; 0.95 let unified squeeze P02 to 0.39) + walk guard: it says "
-    "it holds and did not move -> close (P02 ege/v9 walked after two 'we hold').",
-    "v20": "v16 + the same cost x 0.98 and walk guard as v19 (for the mert/v16 raw-material slot).",
     "v18": "v14 with base's 12 % anchor instead of 22 % (engine model: P11 stays open to reply 6, 44.5 vs 45.0; "
     "deep asks > ~8-10 % below the floor make suppliers go final 1-2 replies earlier).",
     "v17": "v16 with v13's anchor for relationship goals (P02: 369 kept the supplier open at reply 4, 358 drew "
