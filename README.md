@@ -19,17 +19,47 @@ Tacto's materials live alongside our code: [challenge deck notes](docs/tacto-cha
 
 You need Python 3.12, [uv](https://docs.astral.sh/uv/) and git.
 
+**1. Clone and install**
+
 ```bash
 git clone https://github.com/mert-ayv/MM-Hackathon.git
 cd MM-Hackathon/starter-kit
-cp .env.example .env            # fill in ARENA_API_KEY and ANTHROPIC_API_KEY. Never commit .env
+cp .env.example .env
 uv sync --all-extras
 uv run arena data               # unpacks the data package into starter-kit/data/package
-uv run arena me                 # checks the key: team and practice quota
-uv run arena play case:P01 -v   # naive agent, one practice case
 ```
 
-Environment variables (in `starter-kit/.env`): `ARENA_URL`, `ARENA_API_KEY`, `ARENA_DATA`, `LLM_PROVIDER`, `LLM_MODEL`, `LLM_EFFORT`, `ANTHROPIC_API_KEY`.
+**2. Put the keys in `starter-kit/.env`.** We have **one arena key per team**: ask Mert for it, and don't apply for a second one. The file is git-ignored, so **never commit it** and never paste keys into code, issues or chat logs.
+
+```bash
+# starter-kit/.env
+ARENA_URL=https://arena.tacto.ai
+ARENA_API_KEY=<our team key>
+ARENA_DATA=data/package
+
+LLM_PROVIDER=anthropic
+LLM_MODEL=claude-opus-5-5
+LLM_EFFORT=low
+ANTHROPIC_API_KEY=<your Anthropic key>
+```
+
+**3. Check it works** (run from `starter-kit/`)
+
+```bash
+uv run arena me                         # our team + practice quota left: the key works
+uv run arena play case:P01 -v           # naive agent plays one practice case → score + replay link
+uv run arena play case:P01 --agent llm -v   # the LLM agent (needs ANTHROPIC_API_KEY)
+```
+
+`arena play` prints the deal, `c_deal` vs `c_open` / `c_best`, the score and a **replay link**. Open the link: it shows every e-mail and the supplier's reasons.
+
+No key yet? The local simulator needs none:
+
+```bash
+uv run arena-sim serve --no-clock --data data/package          # terminal 1
+ARENA_URL=http://127.0.0.1:8000 uv run arena register "Me" sim  # terminal 2 → prints a sim key
+ARENA_URL=http://127.0.0.1:8000 ARENA_API_KEY=<sim key> uv run arena play case:S01 -v
+```
 
 **Quota:** 200 practice sessions per team per rolling 24h, **shared by all four of us**. Use the local simulator (`uv run arena-sim serve --no-clock`) and the free sandbox (`case:D01`, `case:D02`) for plumbing.
 
