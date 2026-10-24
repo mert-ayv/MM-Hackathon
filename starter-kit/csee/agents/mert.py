@@ -1000,3 +1000,24 @@ class MertLeverAgent(LeverMixin, CseeAgent):
 
 class MertLeverRawAgent(LeverMixin, MertAgent):
     """mert/v16 raw material + the same answers (its clause packages stay; lever sheets never touch the main sheet)."""
+
+
+class MertSkipHedgeAgent(MertAgent):
+    """mert/v16 with one change: an index argument on a series the supplier has hedged (its own letter: "covered
+    at fixed prices until March 2027") goes last. P08: round 1 cited AS-14404 in every run and got "not our
+    reality"; the unhedged PPI-C2431 fall got "took it into account" and the big step, one round later."""
+
+    def prepare(self, case, threads):
+        super().prepare(case, threads)
+        if not self.raw:
+            return
+        series = material_series(case)
+        for sid, st in self.threads.items():
+            if hedge_of(self.pkg, sid) is None:
+                continue
+            # Emre's claims carry no tag: read the series from the cited ID (idx:AS-14404@2026-06)
+            hedged = [
+                c for c in st.intel.claims
+                if c.kind == "index" and any(i.startswith("idx:") and i[4:].split("@")[0] in series for i in c.ids)
+            ]
+            st.intel.claims = [c for c in st.intel.claims if c not in hedged] + hedged
