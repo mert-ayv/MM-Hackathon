@@ -149,14 +149,19 @@ VARIANTS = {
 VARIANTS["v15"] = {**VARIANTS["v14"], "final_push": 0.008}
 VARIANTS["v16"] = {**VARIANTS["v14"], "history_claims": True}
 VARIANTS["v18"] = {**VARIANTS["v14"], "anchor_leverage": 0.12}
-VARIANTS["v14a"] = {"claim_evidence": True, **VARIANTS["v14"], "alt_quote_claim": True}
-VARIANTS["v16a"] = {"claim_evidence": True, **VARIANTS["v16"], "alt_quote_claim": True}
-VARIANTS["v7a"] = {"claim_evidence": True, **VARIANTS["v7"], "alt_quote_claim": True}
-VARIANTS["basea"] = {"claim_evidence": True, "rival_only_lower": True, "alt_quote_claim": True}
-VARIANTS["v7c"] = {"claim_evidence": True, **VARIANTS["v7a"], "concede_early": 0.35}  # hold study: front-load concessions (sandbox A/B)
-VARIANTS["v14c"] = {"claim_evidence": True, **VARIANTS["v14a"], "concede_early": 0.35}
+VARIANTS["v14a"] = {**VARIANTS["v14"], "alt_quote_claim": True}
+VARIANTS["v16a"] = {**VARIANTS["v16"], "alt_quote_claim": True}
+VARIANTS["v7a"] = {**VARIANTS["v7"], "alt_quote_claim": True}
+VARIANTS["basea"] = {"rival_only_lower": True, "alt_quote_claim": True}
+# "c" variants = the confirmed routed variant + claim_evidence (evidence-ordered claims, docs/notes/soft-anchor-study.md).
+# Not routed: A/B against the confirmed router on practice first (same hour, switch only above the +0.06 noise).
+VARIANTS["v14c"] = {**VARIANTS["v14a"], "claim_evidence": True}
+VARIANTS["v16c"] = {**VARIANTS["v16a"], "claim_evidence": True}
+VARIANTS["v7c"] = {**VARIANTS["v7a"], "claim_evidence": True}
+VARIANTS["basec"] = {**VARIANTS["basea"], "claim_evidence": True}
 VARIANTS["v14r"] = {**VARIANTS["v14a"], "rel_full": 0.965}
-VARIANTS["v14s"] = {"claim_evidence": True, **VARIANTS["v14a"], "anchor_below_open": 0.04}
+VARIANTS["v14s"] = {**VARIANTS["v14a"], "anchor_below_open": 0.04}
+VARIANTS["v14sc"] = {**VARIANTS["v14s"], "claim_evidence": True}
 VARIANTS["v17"] = {**VARIANTS["v16"], "rel_anchor": False, "close_gap": 0.001, "close_room": 0.05}
 
 
@@ -196,6 +201,8 @@ DESCRIPTIONS = {
     "hold no figures for, cited without one (D01/D02 had no arguments at all).",
     "v15": "v14 + after a final offer one push 0.8 % below it, leading bidder only (sandbox logs: 10 of 11 "
     "pushes <= 2 % improved the deal, none walked; 9.6 % and 15.7 % pushes walked).",
+    "v14c": "v14a + claim_evidence: no order-history or earlier-quarter delivery claims; index/forecast/should-cost/notice first, "
+    "delivery record last (296 practice replies: po moved 0/26, delivery 14/37, index 41/44). v16c/v7c/basec/v14sc likewise.",
     "v14r": "v14a with the real full cost at should-cost x 0.965 instead of 0.98 (P02: the bot accepted our "
     "relationship-optimal clause sheet at reply 1 in every run; C_best is 27 % of the room below it).",
     "v14s": "v14a with a 4 % anchor instead of 12 % (P10: a 12 %-below ask draws a final offer at reply 1 from a "

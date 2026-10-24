@@ -118,3 +118,20 @@ class RouterPlanAgent(RouterAgent):
     @staticmethod
     def fallback():
         return PLAN_FALLBACK
+
+
+# Sunday-morning A/B candidate: the confirmed router with every slot on its "c" variant (claim_evidence: evidence-ordered
+# claims, no order-history / earlier-quarter delivery citations; docs/notes/soft-anchor-study.md). Same agents as ROUTES.
+C_VARIANT = {"v14a": "v14c", "v16a": "v16c", "v7a": "v7c", "basea": "basec", "v14s": "v14sc"}
+C_ROUTES = {t: f"{a.partition('/')[0]}/{C_VARIANT.get(a.partition('/')[2], a.partition('/')[2])}" for t, a in ROUTES.items()}
+C_FALLBACK = f"{FALLBACK.partition('/')[0]}/{C_VARIANT.get(FALLBACK.partition('/')[2], FALLBACK.partition('/')[2])}"
+
+
+class RouterClaimsAgent(RouterAgent):
+    @staticmethod
+    def routes():
+        return C_ROUTES
+
+    @staticmethod
+    def fallback():
+        return C_FALLBACK

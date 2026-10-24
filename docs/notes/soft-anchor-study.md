@@ -70,3 +70,13 @@ front-loading for the base slots.
 **Instant agreements.** Five "agreed" at our first message, all P02 (the clause sheet). Other agreed-at-reply-2+
 cases landed our ask 2-6 % below the supplier's previous price (P05, P10, P18 soft arms): the supplier would have
 moved at least that far anyway, so those asks were at or above its next step.
+
+**Round confound check** (2b's objection: order history is a round-2+ argument, where suppliers hold anyway).
+Within the same reply number the ranking holds: round 1 delivery record 16/37 (43 %) vs index 36/39 (92 %),
+should-cost 11/11, forecast 23/26, quality record 9/11; round 2 index 8/8 vs price history 0/9; round 3 price
+history 0/12. The wording is the bot's own per-claim verdict, not whether it moved in that reply.
+
+**Status (Sat 23:10):** `claim_evidence` lives only in the c-variants (v14c, v16c, v7c, basec, v14sc); ROUTES stay
+on the confirmed variants (0.772). Plan: Sunday morning, same hour, confirmed router vs a router on the
+c-variants; switch only above the +0.06 noise. The concede_early 0.35 sandbox A/B was inconclusive
+(D01 +0.05/+0.01, D02 -0.04/+0.02) and was dropped.

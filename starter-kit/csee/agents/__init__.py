@@ -102,7 +102,7 @@ from .mert_dossier import (
     PlanMesoRawSoftClaims,
     SkipHedgeDossier,
 )
-from .router import RouterAgent, RouterPlanAgent
+from .router import RouterAgent, RouterClaimsAgent, RouterPlanAgent
 
 AGENTS = {
     "base": CseeAgent,
@@ -163,6 +163,7 @@ AGENTS = {
     "mert-plan-meso": PlanMesoBase,  # planner + payment MESO on base terms (renewal / capacity / bundling candidate)
     "router": RouterAgent,
     "router-plan": RouterPlanAgent,  # A/B candidate: the planner on every non-RFQ type
+    "router-c": RouterClaimsAgent,  # Sunday A/B candidate: ROUTES with every slot on its c-variant (claim_evidence)
 }
 
 
