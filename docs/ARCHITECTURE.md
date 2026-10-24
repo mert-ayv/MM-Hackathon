@@ -207,3 +207,28 @@ necessary to establish performance; existing runs predate this implementation.
 - **P01: mert-plan-meso-lever/v14a scored 0.975**, a new best (engine predicted 0.962). It is the planner's value-unit pacing on top of the payment choice; the supplier took the 14-day sheet at once and stepped 136.1 -> 132.7. This is the first real confirmation of the planner. Router: price_increase -> mert-plan-meso-lever/v14a.
 - **P01 MESO alone: 0.938** (stopped at 133.9 after +0.05 steps).
 - **P11: the on-time-payment pledge failed twice** (v14a 0.71, v18 0.71). The bot noticed it ("We appreciate your commitment...") but held 45.50.
+
+**A/B dress rehearsal (Sat 20:43): current router vs router-plan, all 10 practice cases, AI writer, 20 sessions**
+
+| Case | router | router-plan |
+|---|---|---|
+| P01 | **0.988** (best) | 0.970 |
+| P02 | 0.733 | 0.733 |
+| P03 | 0.923 | 0.923 |
+| P04 | 0.86 | 0.86 |
+| P05 | 0.81 | 0.748 (same agent: variance) |
+| P07 | **0.766** (best) | 0.734 |
+| P08 | 0.711 | 0.744 |
+| P10 | 0.57 | **0.671** |
+| P11 | 0.71 | 0.626 |
+| P18 | 0.552 | 0.552 |
+
+- **Outcomes:** no walk-aways and no errors in either router. Board mean 0.777.
+- **Planner fix:** it stopped and accepted after the supplier held twice (P11 accepted a hold at 46.00, while waiting got 45.50 as its final). That rule is now off (`frozen_after` 99); the engine shows no loss on P03/P04/P11.
+- **Final router (hybrid of the per-type winners):**
+  - mert-plan for renewal and capacity;
+  - mert-plan-meso-raw for raw material;
+  - mert-plan-meso-lever for price increase;
+  - base/v14a for quality;
+  - base/basea for bundling;
+  - base/v7a for RFQ.

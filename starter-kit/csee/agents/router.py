@@ -20,12 +20,12 @@ ROUTES = {
     # practice results below carry over unchanged.
     # practice evidence, Sat 24 Oct (experiments/ ledger); v15's push after a final offer made P02 walk (0.48 -> 0)
     "price_increase": "mert-plan-meso-lever/v14a",  # P01 0.975 (planner + 14-day MESO; engine 0.962), P02 engine = mert-lever 0.733 (copper clause kept). NEVER mert-lever* on raw material
-    "renewal": "base/v14a",  # P03 v13 0.92 (= house; v14 = v13 off relationship goals); P04 base 0.86 untested
+    "renewal": "mert-plan/v14a",  # A/B Sat 20:43: P03 0.923 / P04 0.86 in both routers; planner far fewer walk-aways on perturbed suppliers
     "rfq": "base/v7a",  # P05 v7 0.81 vs base 0.35, ege/v9 0.52
-    "raw_material": "mert-skiphedge/v16a",  # P08 0.754 (best; unhedged index argument in round 1), P18 = mert/v16 (no hedge) 0.552
-    "capacity": "base/v14a",  # P10 v13 0.67 vs base 0.57
-    "quality": "base/v14a",  # P11 v13 0.71 and v15 0.71 vs base 0.23
-    "bundling": "base/basea",  # P07 base 0.72; the v13 line's deep anchor drew a final offer at reply 2 (v15 0.70 with a push)
+    "raw_material": "mert-plan-meso-raw/v16a",  # A/B: P08 0.744 vs skip-hedge 0.711 (its runs avg 0.72, best 0.754); P18 0.552 both; engine >=
+    "capacity": "mert-plan/v14a",  # A/B: P10 0.671 (planner) vs 0.57 (base/v14a)
+    "quality": "base/v14a",  # A/B: P11 0.71 vs planner 0.626 (planner accepted a hold at 46.00; rule since disabled, untested)
+    "bundling": "base/basea",  # A/B: P07 0.766 (best) vs planner 0.734
 }
 FALLBACK = "base/v14a"  # a type the final brings that ROUTES does not list
 

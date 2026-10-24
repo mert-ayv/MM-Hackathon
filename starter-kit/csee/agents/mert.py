@@ -1060,7 +1060,7 @@ class PlanParams:
     gmax: tuple = (0.12, 0.08, 0.04, 0.03, 0.025, 0.02)  # max gap after reply 1, 2, 3, ... (share of its ask)
     cross_buf: float = 0.6  # keep at least this x its predicted step between our ask and its ask
     safety: float = 0.5  # extra gap (x predicted cap) on top of the need
-    frozen_after: int = 2  # it did not move this many times while we did: stop and accept
+    frozen_after: int = 99  # was 2 (stop and accept after it held twice while we moved): P11 held 46.00 twice, we accepted; waiting got 45.50 as its final (0.626 vs 0.71)
     default_rate: float = 0.08  # its money rate until its own sheets reveal it
     smooth_ticks: bool = False  # coarse price ticks: average its last two capped steps
     rfq: bool = False  # plan RFQ threads too (default: parent's RFQ logic)
