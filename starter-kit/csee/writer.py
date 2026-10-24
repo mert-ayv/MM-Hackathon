@@ -37,7 +37,7 @@ FIELD_WORDS = {
 
 def describe(sheet, base=None):
     """One sheet in words; with `base`, only what differs from it."""
-    parts = [f"EUR {sheet['unit_price']:.2f} per unit"]
+    parts = [f"EUR {sheet['unit_price']:.2f} per unit"] if sheet.get("unit_price") is not None else []
     for k, v in sheet.items():
         if k == "unit_price" or v is None or k == "index_clause":
             continue

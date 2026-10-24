@@ -5,7 +5,7 @@ cost function (`arena_kit.cost`) - no model involved.
 
 import math
 
-from arena_kit.cost import RELATIONSHIP_GOALS, closing_terms, complete_offer, must_haves_ok, total_cost
+from arena_kit.cost import OPS, RELATIONSHIP_GOALS, closing_terms, complete_offer, must_haves_ok, total_cost
 
 # Which way each term pleases the supplier (+1: higher is better for it). Used to break ties: among
 # values that cost us the same, we give the supplier the one it likes.
@@ -43,6 +43,23 @@ def _supplier_rank(field, value, case):
 VALUE_NEUTRAL_FIELDS = ("chargeback_eur_per_complaint", "ppm_commitment")  # payment: own priced trade sheets
 
 
+def price_cap(case):
+    """The highest unit price our must-haves allow (None without a price must-have)."""
+    caps = [m["value"] for m in case["buyer"].get("must_haves", []) if m["field"] == "unit_price" and m["op"] in ("<=", "<")]
+    return min(caps) if caps else None
+
+
+def nearest_ok(case, field, value):
+    """The allowed value of `field` closest to `value` that keeps our must-haves on that field (P09: it holds
+    49 days against our <= 42: offer 42, not our 28 again), else None."""
+    rules = [m for m in case["buyer"].get("must_haves", []) if m["field"] == field]
+    if not rules or not isinstance(value, int | float):
+        return None
+    opts = options(case, field) or [m["value"] for m in rules]
+    ok = [o for o in opts if isinstance(o, int | float) and all(OPS[m["op"]](o, m["value"]) for m in rules)]
+    return min(ok, key=lambda o: (abs(o - value), o)) if ok else None
+
+
 def best_terms(
     case, base, std=None, supplier=None, fixed=(), tolerance=1.0, exclude=None, value_of=None, cap_contract=False
 ):
@@ -51,6 +68,7 @@ def best_terms(
     Free volume and contract length fields: our need and the horizon (more costs, less leaves need uncovered)."""
     b = case["buyer"]
     t = complete_offer(case, base)
+    cap = price_cap(case)
     if (
         "volume_per_year" in case["negotiable"]
         and not options(case, "volume_per_year")
@@ -80,7 +98,9 @@ def best_terms(
                     # payment at its cost of money): compare options at the price that keeps its value equal
                     cand["unit_price"] = round(t["unit_price"] + (here - value_of(cand)), 4)
                 c = total_cost(case, cand, std, supplier)
-                if must_haves_ok(case, cand, std):
+                # a price above our price must-have is still being negotiated down: judge the other terms at the cap
+                mh = {**cand, "unit_price": min(cand["unit_price"], cap)} if cap and cand.get("unit_price") else cand
+                if must_haves_ok(case, mh, std):
                     scored.append((c, v))
             if not scored:
                 continue

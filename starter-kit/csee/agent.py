@@ -414,7 +414,7 @@ class CseeAgent:
             self.note_decision(ev, sid, "wait", st.why or "next_terms: nothing to win by writing", t0)
             return None
         sheets = self.sheets(case, sid, ours, std, supplier)
-        st.our_prices.append(sheets[0]["unit_price"])
+        st.our_prices.append(ours["unit_price"])  # sheets carry no price when the price is fixed
         claims = self.pick_claims(case, threads, sid)
         ask_breakdown = not st.asked_breakdown and not st.breakdown
         st.asked_breakdown = st.asked_breakdown or ask_breakdown
@@ -545,8 +545,14 @@ class CseeAgent:
                 # gave 90 days at the same price to another agent. Faster payment only for a supplier short of cash
                 revealed.pop("payment_days")
             fixed.update(revealed)
-        # never adopt a supplier value that breaks one of our must-haves (P10: volume 19,890 < 22,230)
-        fixed = {k: v for k, v in fixed.items() if must_haves_ok(case, {**complete_offer(case, theirs), k: v}, std)}
+        # never adopt a supplier value that breaks one of our must-haves (P10: volume 19,890 < 22,230); meet it
+        # at the bound instead (P09: it holds 49 days against our <= 42 - offer 42, not our 28 eight times)
+        held = fixed
+        fixed = {k: v for k, v in held.items() if must_haves_ok(case, {**complete_offer(case, theirs), k: v}, std)}
+        for k in set(held) - set(fixed):
+            near = levers.nearest_ok(case, k, held[k])
+            if near is not None:
+                fixed[k] = near
         exclude = {}
         if self.p.clause_when_insisted and self.clause_insisted(threads[sid]):
             fixed.pop("index_clause", None)
@@ -631,6 +637,12 @@ class CseeAgent:
                 f"{their_step:.2f})"
                 + (", holding above floor" if self.p.hold_above_floor and floor and p_b > floor * 1.08 else "")
             )
+        if "unit_price" not in case["negotiable"]:
+            p = p_s  # a fixed price: we negotiate the other terms only
+        cap_p = levers.price_cap(case)
+        if cap_p is not None and p > cap_p:
+            p = cap_p  # never ask above our own price must-have (every later ask would break it)
+            st.why += f"; capped at our must-have {cap_p:.2f}"
         # the best terms depend on the price (e.g. above the fallback price a short contract looks
         # "cheaper"): choose them at the price we ask, not at the supplier's (Fable review #3)
         expected = round(p + 0.5 * max(p_s - p, 0), 2)  # where the deal will likely land
@@ -672,10 +684,13 @@ class CseeAgent:
         return ours
 
     def sheets(self, case, sid, ours, std, supplier):
+        """Our main sheet, plus up to two trades: a term the supplier values for a lower price."""
+        full = supplier
         if self.p.trade_no_rel:
             supplier = None  # with the relationship term C is not monotone in price: price_for returned 0 (P01)
-        """Our main sheet, plus up to two trades: a term the supplier values for a lower price."""
         out = [complete_offer(case, ours)]
+        if "unit_price" not in case["negotiable"]:
+            return out  # a trade is a term for a lower price: nothing to trade with a fixed price
         c_main = total_cost(case, out[0], std, supplier)
         target = c_main * (1 - self.p.trade_gain)
         profile = self.threads[sid].intel.profile
@@ -713,6 +728,8 @@ class CseeAgent:
             if not must_haves_ok(case, t, std):
                 continue
             t["unit_price"] = levers.price_for(case, t, target, std, supplier)
+            if self.p.trade_no_rel and full and total_cost(case, t, std, full) > total_cost(case, out[0], std, full):
+                continue  # below its cost: dearer for us with the relationship charge (P17: 29.38 vs cost 35.38)
             if t["unit_price"] > 0 and t not in out and t["unit_price"] < out[0]["unit_price"] * 1.2:
                 out.append(t)
         return out

@@ -1,0 +1,184 @@
+diff --git a/starter-kit/csee/agent.py b/starter-kit/csee/agent.py
+index e54117e..5581776 100644
+--- a/starter-kit/csee/agent.py
++++ b/starter-kit/csee/agent.py
+@@ -414,7 +414,7 @@ class CseeAgent:
+             self.note_decision(ev, sid, "wait", st.why or "next_terms: nothing to win by writing", t0)
+             return None
+         sheets = self.sheets(case, sid, ours, std, supplier)
+-        st.our_prices.append(sheets[0]["unit_price"])
++        st.our_prices.append(ours["unit_price"])  # sheets carry no price when the price is fixed
+         claims = self.pick_claims(case, threads, sid)
+         ask_breakdown = not st.asked_breakdown and not st.breakdown
+         st.asked_breakdown = st.asked_breakdown or ask_breakdown
+@@ -545,8 +545,14 @@ class CseeAgent:
+                 # gave 90 days at the same price to another agent. Faster payment only for a supplier short of cash
+                 revealed.pop("payment_days")
+             fixed.update(revealed)
+-        # never adopt a supplier value that breaks one of our must-haves (P10: volume 19,890 < 22,230)
+-        fixed = {k: v for k, v in fixed.items() if must_haves_ok(case, {**complete_offer(case, theirs), k: v}, std)}
++        # never adopt a supplier value that breaks one of our must-haves (P10: volume 19,890 < 22,230); meet it
++        # at the bound instead (P09: it holds 49 days against our <= 42 - offer 42, not our 28 eight times)
++        held = fixed
++        fixed = {k: v for k, v in held.items() if must_haves_ok(case, {**complete_offer(case, theirs), k: v}, std)}
++        for k in set(held) - set(fixed):
++            near = levers.nearest_ok(case, k, held[k])
++            if near is not None:
++                fixed[k] = near
+         exclude = {}
+         if self.p.clause_when_insisted and self.clause_insisted(threads[sid]):
+             fixed.pop("index_clause", None)
+@@ -631,6 +637,12 @@ class CseeAgent:
+                 f"{their_step:.2f})"
+                 + (", holding above floor" if self.p.hold_above_floor and floor and p_b > floor * 1.08 else "")
+             )
++        if "unit_price" not in case["negotiable"]:
++            p = p_s  # a fixed price: we negotiate the other terms only
++        cap_p = levers.price_cap(case)
++        if cap_p is not None and p > cap_p:
++            p = cap_p  # never ask above our own price must-have (every later ask would break it)
++            st.why += f"; capped at our must-have {cap_p:.2f}"
+         # the best terms depend on the price (e.g. above the fallback price a short contract looks
+         # "cheaper"): choose them at the price we ask, not at the supplier's (Fable review #3)
+         expected = round(p + 0.5 * max(p_s - p, 0), 2)  # where the deal will likely land
+@@ -672,10 +684,13 @@ class CseeAgent:
+         return ours
+ 
+     def sheets(self, case, sid, ours, std, supplier):
++        """Our main sheet, plus up to two trades: a term the supplier values for a lower price."""
++        full = supplier
+         if self.p.trade_no_rel:
+             supplier = None  # with the relationship term C is not monotone in price: price_for returned 0 (P01)
+-        """Our main sheet, plus up to two trades: a term the supplier values for a lower price."""
+         out = [complete_offer(case, ours)]
++        if "unit_price" not in case["negotiable"]:
++            return out  # a trade is a term for a lower price: nothing to trade with a fixed price
+         c_main = total_cost(case, out[0], std, supplier)
+         target = c_main * (1 - self.p.trade_gain)
+         profile = self.threads[sid].intel.profile
+@@ -713,6 +728,8 @@ class CseeAgent:
+             if not must_haves_ok(case, t, std):
+                 continue
+             t["unit_price"] = levers.price_for(case, t, target, std, supplier)
++            if self.p.trade_no_rel and full and total_cost(case, t, std, full) > total_cost(case, out[0], std, full):
++                continue  # below its cost: dearer for us with the relationship charge (P17: 29.38 vs cost 35.38)
+             if t["unit_price"] > 0 and t not in out and t["unit_price"] < out[0]["unit_price"] * 1.2:
+                 out.append(t)
+         return out
+diff --git a/starter-kit/csee/levers.py b/starter-kit/csee/levers.py
+index 8a9e842..71efa93 100644
+--- a/starter-kit/csee/levers.py
++++ b/starter-kit/csee/levers.py
+@@ -5,7 +5,7 @@ cost function (`arena_kit.cost`) - no model involved.
+ 
+ import math
+ 
+-from arena_kit.cost import RELATIONSHIP_GOALS, closing_terms, complete_offer, must_haves_ok, total_cost
++from arena_kit.cost import OPS, RELATIONSHIP_GOALS, closing_terms, complete_offer, must_haves_ok, total_cost
+ 
+ # Which way each term pleases the supplier (+1: higher is better for it). Used to break ties: among
+ # values that cost us the same, we give the supplier the one it likes.
+@@ -43,6 +43,23 @@ def _supplier_rank(field, value, case):
+ VALUE_NEUTRAL_FIELDS = ("chargeback_eur_per_complaint", "ppm_commitment")  # payment: own priced trade sheets
+ 
+ 
++def price_cap(case):
++    """The highest unit price our must-haves allow (None without a price must-have)."""
++    caps = [m["value"] for m in case["buyer"].get("must_haves", []) if m["field"] == "unit_price" and m["op"] in ("<=", "<")]
++    return min(caps) if caps else None
++
++
++def nearest_ok(case, field, value):
++    """The allowed value of `field` closest to `value` that keeps our must-haves on that field (P09: it holds
++    49 days against our <= 42: offer 42, not our 28 again), else None."""
++    rules = [m for m in case["buyer"].get("must_haves", []) if m["field"] == field]
++    if not rules or not isinstance(value, int | float):
++        return None
++    opts = options(case, field) or [m["value"] for m in rules]
++    ok = [o for o in opts if isinstance(o, int | float) and all(OPS[m["op"]](o, m["value"]) for m in rules)]
++    return min(ok, key=lambda o: (abs(o - value), o)) if ok else None
++
++
+ def best_terms(
+     case, base, std=None, supplier=None, fixed=(), tolerance=1.0, exclude=None, value_of=None, cap_contract=False
+ ):
+@@ -51,6 +68,7 @@ def best_terms(
+     Free volume and contract length fields: our need and the horizon (more costs, less leaves need uncovered)."""
+     b = case["buyer"]
+     t = complete_offer(case, base)
++    cap = price_cap(case)
+     if (
+         "volume_per_year" in case["negotiable"]
+         and not options(case, "volume_per_year")
+@@ -80,7 +98,9 @@ def best_terms(
+                     # payment at its cost of money): compare options at the price that keeps its value equal
+                     cand["unit_price"] = round(t["unit_price"] + (here - value_of(cand)), 4)
+                 c = total_cost(case, cand, std, supplier)
+-                if must_haves_ok(case, cand, std):
++                # a price above our price must-have is still being negotiated down: judge the other terms at the cap
++                mh = {**cand, "unit_price": min(cand["unit_price"], cap)} if cap and cand.get("unit_price") else cand
++                if must_haves_ok(case, mh, std):
+                     scored.append((c, v))
+             if not scored:
+                 continue
+diff --git a/starter-kit/csee/runner.py b/starter-kit/csee/runner.py
+index fd4d3aa..3cda95b 100644
+--- a/starter-kit/csee/runner.py
++++ b/starter-kit/csee/runner.py
+@@ -241,6 +241,20 @@ def _play_case(table, case_id, agent, deadline, clog):
+         except Exception as e:  # a dropped connection: the same decision again (the client reuses its move id)
+             log.warning("%s: close transport error %r, attempt %d", case_id, e, attempt + 1)
+             time.sleep(1.0)
++    if out is None and hasattr(table, "client"):
++        # still open after the retries (an open session scores like a walk-away at the wave cap): the kit's
++        # closing move, then a plain walk-away
++        for last in ("kit closing_move", "walk_away"):
++            try:
++                if table.client.session(table.session_id).get("status") == "ended":
++                    break
++                d = closing_move(case, threads) if last == "kit closing_move" else {
++                    "supplier_id": sid, "message": {"action": {"type": "walk_away"}}}
++                log.warning("%s: last resort %s", case_id, last)
++                out = table.close(d["supplier_id"], d["message"])
++                break
++            except Exception as e:
++                log.warning("%s: last resort %s failed: %r", case_id, last, e)
+     if out is None:
+         try:
+             out = table.result()
+@@ -421,7 +435,7 @@ def play_all(client, case_ids, new_agent, parallel=8, run=None):
+ 
+ def play_waves(client, new_agent, waves=5, parallel=10, poll=3.0, run=None):
+     """The Live Final, as the kit's `play_waves`, with the parallel-thread `play_case`."""
+-    started, closed, caps = {}, set(), {}
++    started, closed, caps, retries = {}, set(), {}, {}
+ 
+     def one(case, deadline):
+         try:
+@@ -449,6 +463,13 @@ def play_waves(client, new_agent, waves=5, parallel=10, poll=3.0, run=None):
+                     continue
+                 if case.get("seconds_left") is not None:
+                     caps[case["wave"]] = time.time() + case["seconds_left"]
++                f = started.get(case["case_id"])
++                if f and f.done() and isinstance(f.result(), Exception) and retries.get(case["case_id"], 0) < 2:
++                    # it failed before closing (open or attachments after the client's retries): play it again,
++                    # the open answers 409 and the session resumes
++                    retries[case["case_id"]] = retries.get(case["case_id"], 0) + 1
++                    log.warning("wave %s: retrying %s", case["wave"], case["case_id"])
++                    del started[case["case_id"]]
+                 if case["case_id"] not in started and case.get("seconds_left"):
+                     log.warning("wave %s: starting %s (%s)", case["wave"], case["case_id"], case.get("theme"))
+                     started[case["case_id"]] = pool.submit(one, case, functools.partial(caps.get, case["wave"]))
+diff --git a/starter-kit/csee/writer.py b/starter-kit/csee/writer.py
+index 8873121..879b50c 100644
+--- a/starter-kit/csee/writer.py
++++ b/starter-kit/csee/writer.py
+@@ -37,7 +37,7 @@ FIELD_WORDS = {
+ 
+ def describe(sheet, base=None):
+     """One sheet in words; with `base`, only what differs from it."""
+-    parts = [f"EUR {sheet['unit_price']:.2f} per unit"]
++    parts = [f"EUR {sheet['unit_price']:.2f} per unit"] if sheet.get("unit_price") is not None else []
+     for k, v in sheet.items():
+         if k == "unit_price" or v is None or k == "index_clause":
+             continue

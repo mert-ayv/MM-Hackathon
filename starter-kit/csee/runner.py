@@ -241,6 +241,20 @@ def _play_case(table, case_id, agent, deadline, clog):
         except Exception as e:  # a dropped connection: the same decision again (the client reuses its move id)
             log.warning("%s: close transport error %r, attempt %d", case_id, e, attempt + 1)
             time.sleep(1.0)
+    if out is None and hasattr(table, "client"):
+        # still open after the retries (an open session scores like a walk-away at the wave cap): the kit's
+        # closing move, then a plain walk-away
+        for last in ("kit closing_move", "walk_away"):
+            try:
+                if table.client.session(table.session_id).get("status") == "ended":
+                    break
+                d = closing_move(case, threads) if last == "kit closing_move" else {
+                    "supplier_id": sid, "message": {"action": {"type": "walk_away"}}}
+                log.warning("%s: last resort %s", case_id, last)
+                out = table.close(d["supplier_id"], d["message"])
+                break
+            except Exception as e:
+                log.warning("%s: last resort %s failed: %r", case_id, last, e)
     if out is None:
         try:
             out = table.result()
@@ -421,7 +435,7 @@ def play_all(client, case_ids, new_agent, parallel=8, run=None):
 
 def play_waves(client, new_agent, waves=5, parallel=10, poll=3.0, run=None):
     """The Live Final, as the kit's `play_waves`, with the parallel-thread `play_case`."""
-    started, closed, caps = {}, set(), {}
+    started, closed, caps, retries = {}, set(), {}, {}
 
     def one(case, deadline):
         try:
@@ -449,6 +463,13 @@ def play_waves(client, new_agent, waves=5, parallel=10, poll=3.0, run=None):
                     continue
                 if case.get("seconds_left") is not None:
                     caps[case["wave"]] = time.time() + case["seconds_left"]
+                f = started.get(case["case_id"])
+                if f and f.done() and isinstance(f.result(), Exception) and retries.get(case["case_id"], 0) < 2:
+                    # it failed before closing (open or attachments after the client's retries): play it again,
+                    # the open answers 409 and the session resumes
+                    retries[case["case_id"]] = retries.get(case["case_id"], 0) + 1
+                    log.warning("wave %s: retrying %s", case["wave"], case["case_id"])
+                    del started[case["case_id"]]
                 if case["case_id"] not in started and case.get("seconds_left"):
                     log.warning("wave %s: starting %s (%s)", case["wave"], case["case_id"], case.get("theme"))
                     started[case["case_id"]] = pool.submit(one, case, functools.partial(caps.get, case["wave"]))
