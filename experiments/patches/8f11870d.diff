@@ -1,0 +1,419 @@
+diff --git a/starter-kit/csee/agents/ege.py b/starter-kit/csee/agents/ege.py
+index a73ee9a..e2da8d0 100644
+--- a/starter-kit/csee/agents/ege.py
++++ b/starter-kit/csee/agents/ege.py
+@@ -1,22 +1,24 @@
+-"""Ege's agent: Claude negotiates RFQ and bundling cases itself, through tools; code keeps it safe.
+-Every other case type, and any run without an LLM (--no-llm, no ANTHROPIC_API_KEY), plays exactly like
+-base. Only Ege edits this file.
++"""Ege's agent: Claude negotiates RFQ and bundling cases with tools, a playbook and a plan; the rules set the
++minimum pressure. Every other case type, and any run without an LLM (--no-llm, no ANTHROPIC_API_KEY), plays
++exactly like base. Only Ege edits this file.
+ 
+-Each supplier reply starts one agent turn (Anthropic SDK tool runner). Claude gets the case, the
++Each supplier reply starts one agent turn (Anthropic SDK tool runner). The brief holds the case, the
+ supplier's profile, the whole thread, the rivals' offers with their cost C, the arguments the arena will
+-verify, and base's rule-based ask as a reference. It can price any package exactly (`price_package`),
+-look up a data row (`lookup`), and ends the turn with `submit_move`: counter (1-3 term sheets and the
+-e-mail it writes), ready (stop writing to this supplier), accept its offer now, or walk away.
+-
+-Code checks every move: sheets snapped to the allowed options with the must-haves kept, none dearer than
+-the supplier's own offer, our main ask never below our last one (except a push), a push after "agreed" /
+-"final_offer" only with a backup bidder (RFQ) or by at most 1 % (one supplier), accept only the standing
+-offer and only if it beats the alternative, walk away only if no offer does, data IDs it did not get
+-removed, chosen arguments kept word for word. A turn that fails or runs past MOVE_BUDGET_S falls back to
+-base's move with a template e-mail, so we are never late (the arena gives 60 s per message).
+-
+-    uv run python -m csee --agent ege bench --agents base ege --variants v9      sandbox, free (D02 = RFQ)
+-    uv run python -m csee --agent ege --variant v9 play case:P05 --confirm        practice: 1 session
++verify, the playbook for this case type (agents/playbooks/<type>.md) and the plan Claude committed to for
++this supplier (anchor / target / walk-away, set on its first move, revised only with a reason). Tools:
++`price_package` (exact C of any package), `lookup` (a data row), `submit_move` (counter, ready, accept,
++walk_away).
++
++The rules are the floor (three games: Claude alone conceded more than they did): our main sheet never
++costs us more than base's rule move, and while the rules would still counter an open thread, "ready",
++"accept" or "walk_away" become the rule move. Claude can always be harder: a lower ask, a push after
++"agreed"/"final_offer" (RFQ: only with a backup bidder; one supplier: once, at most 1 %), trade sheets,
++arguments, the e-mail. Code also snaps every sheet to the allowed options, keeps the must-haves, accepts
++only the standing offer and only if it beats the alternative, and removes data IDs Claude was not given.
++A turn that fails or runs past MOVE_BUDGET_S falls back to base's move with a template e-mail.
++
++    uv run python -m csee --agent ege --variant v9 run --set sandbox --cases case:D02 --parallel 1   free
++    uv run python -m csee --agent ege --variant v9 play case:P05 --confirm      practice: 1 session
+ """
+ 
+ import functools
+@@ -25,6 +27,7 @@ import logging
+ import os
+ import time
+ from concurrent.futures import ThreadPoolExecutor
++from pathlib import Path
+ 
+ from anthropic import beta_tool
+ 
+@@ -40,6 +43,7 @@ from ..writer import ID_RE, SIGN, LLMWriter, TemplateWriter, describe
+ log = logging.getLogger("csee")
+ 
+ AGENT_TYPES = {"rfq", "bundling"}
++PLAYBOOKS = Path(__file__).parent / "playbooks"
+ MOVE_BUDGET_S = 40  # one whole agent turn; the arena allows 60 s per message
+ MAX_TURNS = 5  # model calls per move (each tool round trip is one)
+ MAX_ARGUMENTS = 3  # the arena checks at most 3 per message
+@@ -51,33 +55,38 @@ industrial suppliers. Each turn you decide our next move toward ONE supplier, th
+ 
+ Score: the total cost C of the deal we finally accept (price, payment days, freight, lead time, coverage \
+ of our need, quality, ...; lower is better), measured between the opening offer and the best deal any \
+-supplier would ever accept. price_package gives the exact C of any package - use it instead of estimating.
+-
+-What we have learned from real games against these suppliers:
+-- They converge on our anchor, so the first ask matters most. A bidder that answers "agreed" at once took \
+-our ask as it stood and probably had room left.
+-- They turn to a final offer around their 4th reply. Steady, visible concessions keep them conceding; a \
+-far push after a final offer can make them walk away, a small one sometimes works.
+-- In an RFQ the bidders compete; a lower rival price is our strongest argument.
+-- In stabilise and secure_supply cases, squeezing a supplier below a sustainable margin raises our C too \
+-(price_package includes it).
+-- Read the supplier: its pressures (cash, idle capacity, volume, energy, quality) show what it will give \
+-price for. Faster payment costs us little (8 % a year) and can be worth much more to a cash-short firm.
++supplier would ever accept. price_package gives the exact C of any package - use it, do not estimate.
++
++Hard numbers from our team's real games against these suppliers:
++- Deals land 2-8 % above our FIRST ask: the anchor decides most of the score.
++- 0 walk-aways in about 630 supplier replies; the one walk-away came after a far push past a final offer. \
++Caution costs more than it saves: do not soften to "avoid risk".
++- Suppliers turn to a final offer around their 4th reply. Small, steady steps keep them conceding.
++- A supplier that answers "agreed" at once took our ask as it stood and had room left.
+ - Only the FIRST sheet of a supplier's reply can be accepted. To take one of its other sheets, send it back \
+ as your counter word for word; it will agree.
+ - Every term sheet binds exactly as sent; prose never binds.
+ 
++Our rule engine's next ask is shown in the brief. It is the minimum pressure: code will never send a main \
++sheet that costs us more than the rule move, and while the rules would still counter, it overrides ready / \
++accept / walk_away. Add what the rules cannot: a harder ask when the thread shows room, the right trade \
++sheet, the right arguments, a push after "agreed", and an e-mail that fits this supplier.
++
++The PLAN: on your first move toward a supplier, set plan = {"anchor", "target", "walk_away"} as unit \
++prices (walk_away = the most we would ever pay it). Later moves keep it; revise only when the supplier \
++gave new information, and say why in the reason.
++
+ submit_move actions:
+ - counter: 1-3 term sheets (main ask first) and the e-mail. Plain text, at most 150 words, polite and \
+ firm, signed "Hollerau Pumpenwerke GmbH, Purchasing". Include each chosen argument sentence word for word. \
+ Never reveal urgency, a budget, a deadline or that we lack alternatives. Use no figures or data IDs that \
+ are not in the input.
+-- ready: stop writing to this supplier; its offer stands, and we accept the best offer once every bidder \
+-is done. Choose it when pushing further is not worth the risk.
++- ready: stop writing to this supplier; its offer stands and we accept the best offer once every bidder \
++is done.
+ - accept: accept this supplier's current offer now (ends the whole case).
+ - walk_away: end the case without a deal (only right if no offer beats our alternative).
+ 
+-Be quick: this turn has about 30 seconds. One or two price_package calls, then submit_move."""
++Be quick: this turn has about 30 seconds. At most one or two price_package calls, then submit_move."""
+ 
+ 
+ @functools.cache
+@@ -87,6 +96,12 @@ def client():
+     return anthropic.Anthropic(max_retries=0)  # a retry would overrun the move budget
+ 
+ 
++@functools.cache
++def playbook(case_type):
++    path = PLAYBOOKS / f"{case_type}.md"
++    return path.read_text(encoding="utf-8") if path.is_file() else ""
++
++
+ def llm_ready():
+     return bool(os.environ.get("ANTHROPIC_API_KEY")) and os.environ.get("LLM_PROVIDER", "anthropic") == "anthropic"
+ 
+@@ -98,7 +113,7 @@ class EgeAgent(CseeAgent):
+     def __init__(self, package=None, writer=None, params=None):
+         super().__init__(package, writer, params)
+         self.llm = isinstance(writer, LLMWriter) and llm_ready()
+-        self.pushes = {}
++        self.pushes, self.plans = {}, {}
+ 
+     def mine(self, case):
+         return self.llm and case.get("type") in AGENT_TYPES
+@@ -115,12 +130,15 @@ class EgeAgent(CseeAgent):
+         if latest(ev).get("status") in ENDED or moves_left(case, ev) <= 0:
+             st.ready = True
+             return None
+-        decision = self.ask_agent(case, threads, sid)
++        rule = self.rule_move(case, threads, sid)
++        decision = self.ask_agent(case, threads, sid, rule)
+         if decision is not None:
+             try:
+-                return self.apply(case, threads, sid, decision)
++                msg = self.apply(case, threads, sid, decision, rule)
++                if msg is not False:
++                    return msg
+             except Exception:
+-                log.exception("%s %s: agent move invalid - base move", case["case_id"], sid)
++                log.exception("%s %s: agent move invalid - rule move", case["case_id"], sid)
+         msg = super().thread_move(case, threads, sid)
+         if msg:
+             msg.pop("_write", None)  # the agent used the time: template wording
+@@ -139,27 +157,50 @@ class EgeAgent(CseeAgent):
+         if price is not None and (not st.their_prices or st.their_prices[-1] != price):
+             st.their_prices.append(price)
+ 
++    def rule_move(self, case, threads, sid):
++        """Base's next ask for an open thread ({"terms", "C", "sheets"}), or None when the rules would stop."""
++        ev = threads[sid]
++        if latest(ev).get("status") != "open" or moves_left(case, ev) <= self.p.reserve_moves:
++            return None
++        std = standard_terms(ev)
++        supplier = self.supplier_estimate(case, sid, std)
++        sheet_id, theirs = self.their_sheet(case, ev, std, supplier)
++        if not sheet_id or theirs.get("unit_price") is None:
++            return None
++        terms = CseeAgent.next_terms(self, case, threads, sid, theirs, std, supplier, moves_left(case, ev))
++        if terms is None:
++            return None
++        sheets = CseeAgent.sheets(self, case, sid, terms, std, supplier)
++        return {"terms": sheets[0], "C": total_cost(case, sheets[0], std, supplier), "sheets": sheets}
++
+     # ---------- the agent turn ----------
+-    def ask_agent(self, case, threads, sid):
++    def ask_agent(self, case, threads, sid, rule):
+         """Claude's move for this thread, or None (failed, or over MOVE_BUDGET_S)."""
+         t0, stop, decision = time.monotonic(), {"now": False}, {}
+         try:
+             arguments = self.arguments(case, threads, sid)
+-            brief = self.brief(case, threads, sid, arguments)
++            brief = self.brief(case, threads, sid, arguments, rule)
+             tools = self.tools(case, threads, sid, decision)
+-            future = _pool.submit(self.run_turns, brief, tools, decision, stop, t0)
+-            future.result(timeout=MOVE_BUDGET_S)
++            _pool.submit(self.run_turns, brief, tools, decision, stop, t0).result(timeout=MOVE_BUDGET_S)
+         except Exception as e:
+             stop["now"] = True
+-            log.warning("%s %s: agent failed (%s) - base move", case["case_id"], sid, type(e).__name__)
++            log.warning("%s %s: agent failed (%s) - rule move", case["case_id"], sid, type(e).__name__)
+             return None
+         if not decision:
+-            log.warning("%s %s: agent made no move - base move", case["case_id"], sid)
++            log.warning("%s %s: agent made no move - rule move", case["case_id"], sid)
+             return None
+         decision["_arguments"] = arguments
++        if isinstance(decision.get("plan"), dict) and (sid not in self.plans or decision["plan"]):
++            self.plans[sid] = {k: decision["plan"].get(k) for k in ("anchor", "target", "walk_away")}
+         took = time.monotonic() - t0
+         log.info(
+-            "%s %s: agent %s in %.1fs: %s", case["case_id"], sid, decision.get("action"), took, decision.get("reason")
++            "%s %s: agent %s in %.1fs (plan %s): %s",
++            case["case_id"],
++            sid,
++            decision.get("action"),
++            took,
++            self.plans.get(sid),
++            decision.get("reason"),
+         )
+         try:
+             self.log.event(
+@@ -229,7 +270,7 @@ class EgeAgent(CseeAgent):
+             Args:
+                 data_id: the citable data ID.
+             """
+-            fact = self.fact_row(case, data_id)
++            fact = case.get("facts", {}).get(data_id) or (self.pkg.lookup(data_id) if self.pkg else None)
+             return json.dumps(fact, ensure_ascii=False, default=str)[:1500] if fact else "unknown ID"
+ 
+         @beta_tool
+@@ -238,6 +279,7 @@ class EgeAgent(CseeAgent):
+             term_sheets: list[dict] | None = None,
+             argument_keys: list[str] | None = None,
+             email_body: str = "",
++            plan: dict | None = None,
+             reason: str = "",
+         ) -> str:
+             """Our move toward this supplier. Call exactly once, as the last step.
+@@ -247,6 +289,8 @@ class EgeAgent(CseeAgent):
+                 term_sheets: counter only: 1-3 packages over the negotiable fields, main ask first.
+                 argument_keys: counter only: up to 3 keys of the verified arguments to use, e.g. ["A1"].
+                 email_body: counter only: the e-mail, plain text, signed.
++                plan: {"anchor", "target", "walk_away"} unit prices for this supplier. Required on our first
++                    move toward it; afterwards only to revise it (say why in reason).
+                 reason: one sentence on why, for our log.
+             """
+             decision.update(
+@@ -254,15 +298,13 @@ class EgeAgent(CseeAgent):
+                 term_sheets=term_sheets,
+                 argument_keys=argument_keys,
+                 email_body=email_body,
++                plan=plan,
+                 reason=reason,
+             )
+             return "Recorded."
+ 
+         return [price_package, lookup, submit_move]
+ 
+-    def fact_row(self, case, data_id):
+-        return case.get("facts", {}).get(data_id) or (self.pkg.lookup(data_id) if self.pkg else None)
+-
+     def arguments(self, case, threads, sid):
+         """{key: Claim}: the arguments still unused in this case that the arena will verify."""
+         st = self.threads[sid]
+@@ -283,7 +325,7 @@ class EgeAgent(CseeAgent):
+                 break
+         return out
+ 
+-    def brief(self, case, threads, sid, arguments):
++    def brief(self, case, threads, sid, arguments, rule):
+         b, st, ev = case["buyer"], self.threads[sid], threads[sid]
+         std = standard_terms(ev)
+         supplier = self.supplier_estimate(case, sid, std)
+@@ -297,13 +339,14 @@ class EgeAgent(CseeAgent):
+             f"{b.get('must_haves')}. Negotiable: {case['negotiable']}, allowed options "
+             f"{case.get('term_options')}; fixed: {case.get('fixed_terms')}.",
+             f"Our alternative without a deal: C = {levers.alternative_cost(case):,.0f}",
++            f"PLAYBOOK FOR THIS CASE TYPE:\n{playbook(case.get('type'))}",
+             f"SUPPLIER {sid}: {json.dumps({k: profile.get(k) for k in keys}, ensure_ascii=False)[:3000]}",
+             f"Its standard terms (apply to anything a sheet leaves out): {json.dumps(std)}",
+             f"Rough full-cost estimate per unit (should-cost based, often 5 % off): {self.floor_price(st)}",
++            f"YOUR PLAN FOR THIS SUPPLIER: {json.dumps(self.plans.get(sid)) if sid in self.plans else 'not set yet'}",
+             "THREAD WITH THIS SUPPLIER, oldest first:",
+         ]
+-        bodies = {i for i, m in enumerate(ev) if m.get("from") != "buyer"}
+-        bodies = set(sorted(bodies)[-3:])
++        bodies = set(sorted(i for i, m in enumerate(ev) if m.get("from") != "buyer")[-3:])
+         for i, m in enumerate(ev):
+             line = f"- {'we' if m.get('from') == 'buyer' else 'supplier'}"
+             line += f" [{m.get('status')}]" if m.get("status") else ""
+@@ -326,19 +369,20 @@ class EgeAgent(CseeAgent):
+                     f"RIVAL {s}: status {latest(threads[s]).get('status')}, offer {json.dumps(t)}"
+                     + (f" -> C {c:,.0f}" if c is not None else "")
+                 )
+-        try:
+-            _, theirs = self.their_sheet(case, ev, std, supplier)
+-            hint = super().next_terms(case, threads, sid, theirs, std, supplier, moves_left(case, ev))
+-            if hint:
+-                out.append(f"Our rule-based engine would ask: {json.dumps(hint)} (a reference, not an order)")
+-        except Exception:
+-            pass
++        if rule:
++            out.append(
++                f"RULE MOVE (minimum pressure): main {json.dumps(rule['terms'])} -> C {rule['C']:,.0f}; "
++                f"its trade sheets {json.dumps(rule['sheets'][1:])}"
++            )
++        else:
++            out.append("RULE MOVE: the rules would stop writing to this supplier now (you may still push).")
+         out.append("VERIFIED ARGUMENTS (cite by key; the sentence must appear word for word):")
+         out += [f"{k}: {c.sentence}" for k, c in arguments.items()] or ["(none left)"]
+         return "\n".join(out)
+ 
+     # ---------- checking and sending the move ----------
+-    def apply(self, case, threads, sid, d):
++    def apply(self, case, threads, sid, d, rule):
++        """The checked message, None (thread ready), or False: use the rule move instead."""
+         st, ev = self.threads[sid], threads[sid]
+         action = d.get("action")
+         std = standard_terms(ev)
+@@ -346,12 +390,12 @@ class EgeAgent(CseeAgent):
+         sheet_id, theirs = standing(ev)
+         status = latest(ev).get("status")
+         c_alt = levers.alternative_cost(case)
++        if action != "counter" and rule is not None:
++            log.info("%s %s: agent wanted %s - the rules still counter", case["case_id"], sid, action)
++            return False  # stopping while the rules would still counter is a concession: rule move
+         if action == "accept":
+-            if (
+-                sheet_id
+-                and theirs.get("unit_price") is not None
+-                and must_haves_ok(case, theirs, std)
+-                and (total_cost(case, theirs, std) < c_alt)
++            if sheet_id and theirs.get("unit_price") is not None and must_haves_ok(case, theirs, std) and (
++                total_cost(case, theirs, std) < c_alt
+             ):
+                 st.ready = True
+                 return {"action": {"type": "accept", "term_sheet_id": sheet_id}}
+@@ -378,13 +422,17 @@ class EgeAgent(CseeAgent):
+                 continue  # dearer than what it already offers: pointless
+             sheets.append(t)
+         if not sheets:
+-            st.ready = True
+-            return None
++            return False
+         main = sheets[0]
+         if pushing and len(case["suppliers"]) == 1:
+             main["unit_price"] = round(max(main["unit_price"], theirs["unit_price"] * (1 - SOLO_PUSH_MAX)), 2)
+         elif not pushing and st.our_prices:
+             main["unit_price"] = round(max(main["unit_price"], st.our_prices[-1]), 2)  # never step back
++        if rule and total_cost(case, main, std, supplier) > rule["C"] + 0.01:
++            log.info("%s %s: agent ask softer than the rules - rule sheet as main", case["case_id"], sid)
++            main = sheets[0] = dict(rule["terms"])
++        c_main = total_cost(case, main, std, supplier)
++        sheets = [main] + [t for t in sheets[1:] if t != main and total_cost(case, t, std, supplier) <= c_main]
+         if pushing:
+             self.pushes[sid] = self.pushes.get(sid, 0) + 1
+         claims = [d["_arguments"][k] for k in (d.get("argument_keys") or []) if k in d["_arguments"]]
+@@ -434,7 +482,7 @@ class EgeAgent(CseeAgent):
+             bool(sheet_id)
+             and terms.get("unit_price") is not None
+             and must_haves_ok(case, terms, std)
+-            and (total_cost(case, terms, std) < c_alt)
++            and total_cost(case, terms, std) < c_alt
+         )
+ 
+     def may_push(self, case, threads, sid):
+diff --git a/starter-kit/csee/agents/playbooks/bundling.md b/starter-kit/csee/agents/playbooks/bundling.md
+new file mode 100644
+index 0000000..b6ae44a
+--- /dev/null
++++ b/starter-kit/csee/agents/playbooks/bundling.md
+@@ -0,0 +1,22 @@
++# Playbook: bundling (several parts as one kit, one supplier)
++
++**What we sell the supplier:** the whole kit's volume in one multi-year contract, instead of today's
++split across several suppliers, and simpler logistics (one kit, scheduled call-offs). A distributor with
++idle capacity values that most: in P07 Leitner's second shift had been idle since spring and the kit was
++about 4.7x its business with us. Say it - our template e-mails never did.
++
++**Our fallback is today's terms.** Walking away keeps the current contract (its C is "our alternative"),
++so any deal must beat it; the supplier knows we can stay where we are.
++
++**Offer length, keep the volume.** The longest contract (36 months) and the full volume cost us nothing
++and are worth a lot to the supplier; trade them for price. Faster payment is a second trade if the
++profile shows cash pressure.
++
++**Expect small steps.** Family distributors often need a committee for moves above about 2 %, so they
++concede around 1 % a round (P07: 5.74 -> 5.61 -> 5.55 -> 5.49 -> final 5.45). Keep our own steps small
++and steady; a jump on our side only gives money away.
++
++**Avoid:** threats to drop a supplier that is already the cheapest and wants the work (win-win framing
++works), and rising-cost arguments - a rising index "confirms their case".
++
++**Evidence:** P07 house agent 0.78; our rules 0.72 (deal EUR 5.45, best reachable about EUR 5.02).
+diff --git a/starter-kit/csee/agents/playbooks/rfq.md b/starter-kit/csee/agents/playbooks/rfq.md
+new file mode 100644
+index 0000000..9d6bcba
+--- /dev/null
++++ b/starter-kit/csee/agents/playbooks/rfq.md
+@@ -0,0 +1,25 @@
++# Playbook: RFQ (2-3 bidders quote for one part; we award one)
++
++**The lever is competition.** Every bidder knows it is not alone; the cheapest rival offer is the
++strongest argument we have. Cite it (its `offer:` ID, a verified argument) only to bidders that are
++dearer than it - citing it reveals the figure.
++
++**Anchor below the field, not below this bidder.** The rules open 22 % below a bidder's price and at
++least 8 % below the cheapest rival's. Suppliers converge on our anchor: in P05 (three founder-led job
++shops) a hard opening ended at EUR 28.13 (score 0.81), a soft one at EUR 33.00 (0.35). The house agent
++scored 0.56 there.
++
++**"Agreed" at once means room left.** A bidder that agrees to our first or second ask took it as it
++stood. While another bidder holds a valid offer as backup, ask it once more, lower.
++
++**Keep two bidders alive** until the leader stops moving. Awarding early throws the competition away.
++
++**Compare total cost, not price.** Freight (EXW/FCA cost us per unit, DAP does not), lead time beyond
++our need (a cost per day), payment days (8 % a year) and coverage all count. A cheaper EXW offer can
++lose to a dearer DAP one - price_package shows it.
++
++**Cash-short bidders trade price for payment.** Founder-led job shops often need cash: in P05 Hrvelec
++asked EUR 35.00 at 90 days but 31.00 at 30 days - over 10 % for 60 days that cost us about 1.3 %. Offer
++14-30 days in an alternative sheet when the profile or its e-mails show cash pressure.
++
++**Lead time is often a must-have** (e.g. at most 42 days). Never propose or accept a sheet that breaks it.
