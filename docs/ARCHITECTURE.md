@@ -98,7 +98,7 @@ How our agent negotiates, and how each architecture version is tracked. Code: [`
 | v13 | v9 with sticky terms only when they cost <= 0.8 % of C + v12's quality/contract fixes | 0.97 / 0.70 / 0.835 (with AI writer 0.97 / 0.72 / 0.846) | 0.276 | **P02 0.44 (was 0), P03 0.92 (= house), P10 0.67, P11 0.71 (house 0.31), P18 0.42**; board mean 0.50 -> 0.69 | **current champion candidate** |
 | v14 | v13 + relationship-goal anchor at the supplier's real cost (should-cost x0.98), trade sheets without the relationship term (all were dropped), close only within 10 % of the room | 0.97 / 0.70 / 0.835 (= v13, as predicted: the sandbox has no should-cost) | 0.385 vs v13 0.31 on rel/price-increase cases | – (bot calibrated on real P02: 0.41 -> 0.83-0.91) | candidate for P01/P02-type cases |
 
-**Routing for the final (`csee/agents/router.py`):** raw material -> `emre/base` (P08 0.55, P18 0.47: best measured; pinned so v13 switches can't leak in); payment days from a supplier's alternative sheet are adopted only for cash-short suppliers (P18 lost 0.048 to a locked-in 30 days). Bets for Emre's agent: `docs/notes/raw-material-review.md`.
+**Routing for the final (`csee/agents/router.py`, Sat 17:10, from practice results):** price increase, renewal, capacity, quality and unknown types -> `base/v14`; RFQ -> `base/v7` (P05 0.81); bundling -> `base` (P07 0.72: the v13 line's deep anchor drew a final offer at reply 2); raw material -> `emre/base` (P08 0.55, P18 0.47: best measured; pinned so v13 switches can't leak in); payment days from a supplier's alternative sheet are adopted only for cash-short suppliers (P18 lost 0.048 to a locked-in 30 days). Bets for Emre's agent: `docs/notes/raw-material-review.md`.
 
 **Final-mode estimate:** every run now records what it would have scored at the final's cutoffs (390/330/270 s, `csee/final_est.py`; `csee board --final`, `csee finalest`). The v13 validation cases took 49-215 s, so time was not binding in practice.
 
@@ -114,7 +114,7 @@ How our agent negotiates, and how each architecture version is tracked. Code: [`
   - a final case that failed before closing is played again (409 -> resume).
 - **Check:** sim unchanged (base .267, v13 .285, v14 .317); sandbox v14 0.97 / 0.70; 159 tests pass.
 
-| v15 | v14 + one 0.8 % push after a final offer, leading bidder only (sandbox logs: 10 of 11 pushes <= 2 % improved the deal, none walked) | 0.97 / 0.72 / 0.846 (2 repeats each; v14 0.835) | 0.317 (= v14: the sim bot treats a final offer as hard) | – | **candidate**: needs practice evidence that practice bots move after "final" |
+| v15 | v14 + one 0.8 % push after a final offer, leading bidder only (sandbox logs: 10 of 11 pushes <= 2 % improved the deal, none walked) | 0.97 / 0.72 / 0.846 (2 repeats each; v14 0.835) | 0.317 (= v14: the sim bot treats a final offer as hard) | P01 0.93 (no push fired), **P02 0 (pushed 372.20 -> 369.22 after its final offer: it walked; accepting scored 0.48)**, P07 0.70 (push agreed 5.52 -> 5.48), P11 0.71 (push ignored) | **rejected**: 1 gain, 1 neutral, 1 walk-away worth -0.48, and no tell in the text |
 
 **Free-tool ceiling (Sat ~17:00):**
 - The local sim can't rank variants: levels are off by about 0.3 and it ranks P11 the wrong way round.
