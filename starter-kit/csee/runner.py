@@ -13,7 +13,14 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 
 from arena_kit.client import ArenaError
-from arena_kit.play import CLOSE_BEFORE_CAP_S, RemoteTable, fetch_documents, live_threads, quota_used_up
+from arena_kit.play import (
+    CLOSE_BEFORE_CAP_S,
+    RemoteTable,
+    closing_move,
+    fetch_documents,
+    live_threads,
+    quota_used_up,
+)
 
 log = logging.getLogger("csee")
 
@@ -78,7 +85,11 @@ def play_case(table, case_id, agent, deadline=None):
     if result:
         return {**result, "session_id": table.session_id}
     with lock:
-        decision = agent.close(case, threads, force=True)
+        try:
+            decision = agent.close(case, threads, force=True)
+        except Exception:
+            log.exception("%s: agent.close failed - kit closing move", case_id)
+            decision = closing_move(case, threads)
     sid, msg = decision["supplier_id"], decision["message"]
     log.info("%s: closing %s %s", case_id, sid, msg["action"])
     try:

@@ -6,6 +6,10 @@
     uv run python -m csee eval [--set practice]    fetch finished sessions into runs/, report vs house agent
     uv run python -m csee show <session_id>        one negotiation, move by move (from runs/)
     uv run python -m csee board                    every variant x case from the team ledger (experiments/)
+    uv run python -m csee bench --variants base v2 --repeat 3   FREE: sandbox D01+D02, N times each
+
+Practice costs quota (200 / 24h for the whole team): `run`/`play` on practice cases need --confirm
+and refuse to go below the reserve of 30 sessions. Test on `bench` (free) first.
 
 Every play/run is logged to experiments/<date>-<author>.jsonl with --variant, commit and --note.
 
@@ -61,6 +65,12 @@ def main(argv=None):
     r.add_argument("--set", default="practice", choices=["practice", "sandbox"])
     r.add_argument("--parallel", type=int, default=8)
     r.add_argument("--cases", nargs="*", help="only these case ids")
+    r.add_argument("--confirm", action="store_true", help="practice only: yes, spend the quota")
+    p.add_argument("--confirm", action="store_true", help="practice only: yes, spend the quota")
+    bn = sub.add_parser("bench", help="FREE: sandbox cases, several times per variant")
+    bn.add_argument("--variants", nargs="+", default=["base"])
+    bn.add_argument("--repeat", type=int, default=3)
+    bn.add_argument("--parallel", type=int, default=8)
     f = sub.add_parser("final")
     f.add_argument("--parallel", type=int, default=10)
     f.add_argument("--waves", type=int, default=5)
@@ -80,6 +90,8 @@ def main(argv=None):
         from arena_kit.play import RemoteTable
 
         client = ArenaClient()
+        if args.case_id.startswith("case:P"):
+            guard_quota(client, 1, args.confirm)
         factory = agent_factory(not args.no_llm, args.variant)
         result = play_case(RemoteTable(client), args.case_id, factory())
         log_row(args, args.case_id, "practice" if "case:P" in args.case_id else "sandbox", result)
@@ -89,6 +101,8 @@ def main(argv=None):
     elif args.cmd == "run":
         client = ArenaClient()
         ids = args.cases or [c["case_id"] for c in hosted(client.cases(args.set))]
+        if args.set == "practice":
+            guard_quota(client, len(ids), args.confirm)
         out = play_all(client, ids, agent_factory(not args.no_llm, args.variant), min(args.parallel, 10))
         for cid, res in out.items():
             log_row(args, cid, args.set, res)
@@ -99,6 +113,33 @@ def main(argv=None):
         for cid, res in out.items():
             log_row(args, cid, "final", res)
             print(cid, json.dumps(summary(res)) if isinstance(res, dict) else f"ERROR {res}")
+    elif args.cmd == "bench":
+        client = ArenaClient()
+        ids = [c["case_id"] for c in client.cases("sandbox")]
+        jobs = [(v, cid) for v in args.variants for cid in ids for _ in range(args.repeat)]
+        from concurrent.futures import ThreadPoolExecutor
+
+        from arena_kit.play import RemoteTable
+
+        factories = {v: agent_factory(not args.no_llm, v) for v in args.variants}
+
+        def one(job):
+            v, cid = job
+            try:
+                res = play_case(RemoteTable(client), cid, factories[v]())
+            except Exception as e:  # keep the bench going
+                res = e
+            args.variant = v
+            ledger.record(cid, "sandbox", res, v, variants.describe(v), getattr(agent_factory, "llm", False), args.note)
+            return v, cid, res
+
+        with ThreadPoolExecutor(max_workers=min(args.parallel, 9)) as pool:
+            for v, cid, res in pool.map(one, jobs):
+                print(
+                    v, cid, f"{res.get('score'):.3f}" if isinstance(res, dict) and res.get("score") is not None else res
+                )
+        rows = [r for r in ledger.load() if r["variant"] in args.variants and r.get("commit") == ledger.commit()]
+        print(ledger.board(rows, None, "sandbox"))
     elif args.cmd == "eval":
         client = ArenaClient()
         sessions = evaluate.fetch(client, args.set)
@@ -113,6 +154,20 @@ def main(argv=None):
     elif args.cmd == "board":
         house = evaluate.house_scores(os.environ.get("ARENA_URL", "https://arena.tacto.ai"))
         print(ledger.board(ledger.load(), house, args.set))
+
+
+RESERVE = 30  # practice sessions we always keep for Sunday morning (data release, pre-flight)
+
+
+def guard_quota(client, n, confirm):
+    left = (client.me().get("practice") or {}).get("left", 0)
+    print(f"practice quota: {left} left; this run uses {n}; reserve {RESERVE}")
+    if not confirm:
+        raise SystemExit(
+            "practice costs quota shared by the whole team. Test with `bench` (free) first; add --confirm."
+        )
+    if left - n < RESERVE:
+        raise SystemExit(f"refused: would leave {left - n} < reserve {RESERVE}. Ask the team before going lower.")
 
 
 def log_row(args, case_id, set_, result):

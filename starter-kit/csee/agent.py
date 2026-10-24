@@ -10,7 +10,7 @@ import logging
 import math
 from dataclasses import dataclass, field
 
-from arena_kit.cost import RELATIONSHIP_GOALS, complete_offer, must_haves_ok, total_cost
+from arena_kit.cost import RELATIONSHIP_GOALS, closing_terms, complete_offer, must_haves_ok, total_cost
 from arena_kit.docs import standard_terms
 from arena_kit.play import ENDED, latest, live_threads, moves_left, standing
 
@@ -47,6 +47,7 @@ class ThreadState:
     our_prices: list = field(default_factory=list)
     their_prices: list = field(default_factory=list)
     breakdown: dict | None = None
+    opening: dict = field(default_factory=dict)  # its first offered terms
     cited_rival: float | None = None  # the rival price we last cited to this supplier
     asked_breakdown: bool = False
     ready: bool = False  # nothing more to gain by writing: wait for the coordinator
@@ -66,7 +67,7 @@ class CseeAgent:
         for sid in case["suppliers"]:
             _, terms = standing(threads[sid]) if threads.get(sid) else (None, {})
             info = intel_mod.build(case, self.pkg, sid, terms.get("unit_price"))
-            self.threads[sid] = ThreadState(info)
+            self.threads[sid] = ThreadState(info, opening=dict(terms))
             log.info(
                 "%s %s: full cost %s (%s), %d claims",
                 case["case_id"],
@@ -83,7 +84,10 @@ class CseeAgent:
             return None
         pressures = " ".join(p.get("type", "") for p in st.intel.profile.get("pressures", []))
         rate = self.p.cash_rate if "cash" in pressures else 0.08
-        return {"full_cost": full, "interest_rate": rate, "standard": {**std}}
+        # its standard terms, complete: the quote PDF's standard section often omits what it offered,
+        # so fill every field from its opening offer and the case (supplier_value needs them all)
+        standard = closing_terms(case, st.opening, std)
+        return {"full_cost": full, "interest_rate": rate, "standard": standard}
 
     # ---------- the cheapest opening, the alternative, the reservation ----------
     def c_of(self, case, threads, sid, supplier=None):
