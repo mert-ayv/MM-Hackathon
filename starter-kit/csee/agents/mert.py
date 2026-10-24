@@ -234,3 +234,34 @@ class MertDialogueAgent(MertAgent):
         if write:
             msg["_write"] = lambda: explain(write())
         return msg
+
+
+class MertClauseAgent(MertAgent):
+    """P02 challenger: when the supplier blames an index we may write a clause on, offer that clause as an
+    alternative sheet for a lower base price (P02: copper +47.7 %, 20 % of its cost; no run ever offered one).
+
+    The clause sheet costs us exactly the main sheet's C less trade_gain (code prices it), so taking it is
+    never worse for us; the supplier-favoured form (smallest deadband) gives it the most risk relief."""
+
+    def sheets(self, case, sid, ours, std, supplier):
+        out = super().sheets(case, sid, ours, std, supplier)
+        if "index_clause" not in case["negotiable"] or "unit_price" not in case["negotiable"]:
+            return out
+        main = out[0]
+        if main.get("index_clause"):
+            return out
+        events = self.threads[sid].events
+        opening = next((m.get("body") or "" for m in events if m.get("from") != "buyer"), "")
+        blamed = set(intel.DRIVER_RE.findall(opening))
+        clauses = [c for c in levers.options(case, "index_clause") if c and c.get("series") in blamed]
+        if not clauses:
+            return out
+        clause = min(clauses, key=lambda c: c.get("deadband_pct") or 0)  # most relief for the supplier
+        t = complete_offer(case, {**main, "index_clause": clause})
+        if not must_haves_ok(case, t, std):
+            return out
+        target = total_cost(case, main, std, None) * (1 - self.p.trade_gain)
+        t["unit_price"] = levers.price_for(case, t, target, std, None)
+        if t["unit_price"] <= 0 or t in out:
+            return out
+        return [main, t] + out[1:2]

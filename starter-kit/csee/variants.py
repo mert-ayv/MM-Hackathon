@@ -148,6 +148,7 @@ VARIANTS = {
 }
 VARIANTS["v15"] = {**VARIANTS["v14"], "final_push": 0.008}
 VARIANTS["v16"] = {**VARIANTS["v14"], "history_claims": True}
+VARIANTS["v17"] = {**VARIANTS["v16"], "rel_anchor": False, "close_gap": 0.001, "close_room": 0.05}
 
 
 
@@ -177,6 +178,8 @@ DESCRIPTIONS = {
     "equal (it pays chargebacks at its real ppm); no contract beyond the horizon when a rising index clause looms.",
     "v13": "v9 with sticky terms only where keeping the supplier's value costs us <= 0.8 % of C (D01 payment "
     "sticks; P01's early date does not) + v12's value-neutral quality terms and contract cap.",
+    "v17": "v16 with v13's anchor for relationship goals (P02: 369 kept the supplier open at reply 4, 358 drew "
+    "a final offer at reply 4 in all three runs) and patience: close only within 0.1 % of C / 5 % of the room.",
     "v16": "v14 + more checked arguments for rounds 2+: our order history with the supplier (its cheapest "
     "recent orders), mean ppm of its quality notifications, delivery over earlier quarters, and case refs we "
     "hold no figures for, cited without one (D01/D02 had no arguments at all).",
