@@ -76,16 +76,17 @@ def play_case(table, case_id, agent, deadline=None):
     while any(w.is_alive() for w in workers) and not ended.is_set() and not near_cap():
         time.sleep(0.5)
     if result:
-        return result
+        return {**result, "session_id": table.session_id}
     with lock:
         decision = agent.close(case, threads, force=True)
     sid, msg = decision["supplier_id"], decision["message"]
     log.info("%s: closing %s %s", case_id, sid, msg["action"])
     try:
-        return table.close(sid, msg)
+        out = table.close(sid, msg)
     except ArenaError as e:
         log.warning("%s: close failed (%s %s)", case_id, e.status, e.detail)
-        return table.result()
+        out = table.result()
+    return {**out, "session_id": table.session_id}
 
 
 def play_all(client, case_ids, new_agent, parallel=8):
