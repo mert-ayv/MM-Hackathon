@@ -33,6 +33,8 @@ class Intel:
     full_cost_source: str = ""
     claims: list = field(default_factory=list)
     country: str = "DE"
+    history_target: float | None = None  # where its past renewals say it settles (current x (1 + ask - usual give))
+    last_price: float | None = None  # our latest agreed price for this part with it (price_conditions)
 
 
 def _fact(case, pkg, ref):
@@ -132,7 +134,84 @@ def build(case, pkg, supplier_id, opening_price=None, opening_text="", opening=N
     intel.country = (rows[0]["country"] if rows else None) or intel.profile.get("country") or "DE"
     intel.full_cost, intel.full_cost_source = estimate_full_cost(case, pkg, supplier_id, intel.country)
     intel.claims = claims_for(case, pkg, supplier_id, opening_price, opening_text)
+    intel.last_price = last_price(case, pkg, supplier_id)
+    intel.history_target = history_target(case, pkg, supplier_id, opening_price, intel.last_price)
     return intel
+
+
+def last_price(case, pkg, supplier_id):
+    """Our latest agreed price per price unit for the case's (single) part with this supplier, or None."""
+    parts = case.get("parts") or []
+    if len(parts) != 1:
+        return None
+    rows = _q(
+        pkg,
+        "SELECT price FROM price_conditions WHERE part_id = ? AND supplier_id = ? ORDER BY valid_from DESC LIMIT 1",
+        (parts[0], supplier_id),
+    )
+    return rows[0]["price"] if rows and rows[0].get("price") else None
+
+
+def history_target(case, pkg, supplier_id, asked_price, last=None, events=4):
+    """Where its past renewals say it settles: the current price x (1 + its ask now - its usual give), the give
+    averaged over its last `events` negotiations (asked_pct - settled_pct). None with under 2 events.
+    Offline check (24 Oct): within ~1-2 % of our best practice deal in P01/P03/P04/P10/P11; raw-material
+    suppliers settle far below it (P08/P18: target 5.88/5.92, deals 5.32/5.30) - the agent skips it there."""
+    current = (case.get("buyer") or {}).get("current_unit_price") or last
+    if not current or not asked_price:
+        return None
+    rows = _q(
+        pkg,
+        "SELECT asked_pct, settled_pct FROM negotiation_history WHERE supplier_id = ? AND asked_pct IS NOT NULL "
+        "AND settled_pct IS NOT NULL ORDER BY date DESC LIMIT ?",
+        (supplier_id, events),
+    )
+    if len(rows) < 2:
+        return None
+    give = sum(r["asked_pct"] - r["settled_pct"] for r in rows) / len(rows)
+    return round(current * (1 + ((asked_price / current - 1) * 100 - give) / 100), 4)
+
+
+QUOTE_MONTHS = 18  # a rival's quote older than this says little about today's price
+
+
+def quote_claims(case, pkg, supplier_id, asked_price):
+    """A rival's latest quote for the same part, if it beats this supplier's ask (quotes / quote: facts: checked
+    by the arena). Single-part cases only; the newest quote per rival counts, so an old low one is not cherry-picked."""
+    parts = case.get("parts") or []
+    if len(parts) != 1 or not asked_price:
+        return []
+    rows = _q(
+        pkg,
+        "SELECT q.id, q.supplier_id, q.quote_date, q.unit_price, q.price_unit, s.name FROM quotes q "
+        "LEFT JOIN suppliers s ON s.id = q.supplier_id WHERE q.part_id = ? ORDER BY q.quote_date DESC",
+        (parts[0],),
+    )
+    if not rows:
+        return []
+    newest = rows[0]["quote_date"] or ""
+    cutoff = f"{int(newest[:4]) - QUOTE_MONTHS // 12}{newest[4:]}" if newest[:4].isdigit() else ""
+    latest, out = {}, []
+    for q in rows:
+        latest.setdefault(q["supplier_id"], q)
+    unit = next((p.get("price_unit") for p in _q(pkg, "SELECT price_unit FROM parts WHERE id = ?", (parts[0],))), 1)
+    for sid, q in latest.items():
+        if sid == supplier_id or not q.get("unit_price") or (q["quote_date"] or "") < cutoff:
+            continue
+        price = q["unit_price"] * (unit or 1) / (q.get("price_unit") or 1)
+        if price <= asked_price * 0.99 and _fact(case, pkg, q["id"]):
+            who = q.get("name") or "another qualified supplier"
+            out.append(
+                Claim(
+                    f"For this part, {who} quoted EUR {price:.2f} per unit on {q['quote_date']} ({q['id']}).",
+                    [q["id"]],
+                    "rival",
+                    strength=1.5,
+                    price=price,
+                    source="quote",
+                )
+            )
+    return sorted(out, key=lambda c: c.price)[:1]
 
 
 DRIVER_RE = re.compile(r"([A-Z][A-Z0-9-]{2,}) rose [\d.]+ ?% in twelve months")
@@ -264,6 +343,7 @@ def claims_for(case, pkg, supplier_id, asked_price=None, opening_text=""):
                 )
                 break
     # (no news claims: suppliers brushed them off, and the agent drops them)
+    out += quote_claims(case, pkg, supplier_id, asked_price)
     out += history_claims(case, pkg, supplier_id, asked_price, cards)
     return sorted(out, key=lambda c: -c.strength)
 

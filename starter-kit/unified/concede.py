@@ -106,8 +106,14 @@ class Concede:
         _, before = self.their_sheet(case, [replies[-2]], std, supplier)
         c_before = total_cost(case, before, std, supplier)
         c_now = total_cost(case, theirs, std, supplier)
-        if not math.isfinite(c_before) or c_before - c_now <= 0.01:
-            return None  # it stopped conceding: close
+        above_history = (
+            self.p.history_hold
+            and case.get("type") != "raw_material"  # raw-material suppliers settle far below their history
+            and st.intel.history_target
+            and (theirs.get("unit_price") or 0) > st.intel.history_target * 1.01
+        )
+        if (not math.isfinite(c_before) or c_before - c_now <= 0.01) and not above_history:
+            return None  # it stopped conceding and is at or below where its history says it settles: close
         proposal = complete_offer(case, previous)
         if not must_haves_ok(case, proposal, std) or total_cost(case, proposal, std, supplier) >= c_now - 0.01:
             return None  # it already met or beat our last package
@@ -179,8 +185,9 @@ class Concede:
             # suppliers converge on our anchor, not their floor (deal = first ask + 2-8 %): anchor low,
             # and an estimated floor must not lift it (should-cost is not Tacto's floor)
             p = p_s * (1 - self.p.anchor_leverage)
-            if b.get("current_unit_price") and case.get("type") in ("price_increase", "raw_material", "renewal"):
-                p = min(p, b["current_unit_price"])
+            current = b.get("current_unit_price") or st.intel.last_price  # price_conditions when the case has none
+            if current and case.get("type") in ("price_increase", "raw_material", "renewal"):
+                p = min(p, current)
             if self.p.rfq_anchor_vs_leader and len(case["suppliers"]) > 1:
                 rivals = [
                     standing(threads[s])[1].get("unit_price")
@@ -192,8 +199,9 @@ class Concede:
             p = min(p, p_s * 0.995)
         elif not st.our_prices:  # the anchor
             p = p_s * (1 - self.p.anchor_below_open)
-            if b.get("current_unit_price") and case.get("type") in ("price_increase", "raw_material", "renewal"):
-                p = min(p, b["current_unit_price"])
+            current = b.get("current_unit_price") or st.intel.last_price  # price_conditions when the case has none
+            if current and case.get("type") in ("price_increase", "raw_material", "renewal"):
+                p = min(p, current)
             if self.p.rel_anchor and rel_goal:
                 floor = None  # should-cost is not the bot's floor: P01/P02/P17 should-cost >= the supplier's own ask
             if floor:

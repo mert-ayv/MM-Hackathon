@@ -330,9 +330,26 @@ def build_profile(supplier_id, case, pkg, opening=None):
     for p in pressures:
         p.pop("_weight", None)
     values = list(dict.fromkeys(VALUES[p["type"]] for p in pressures if p["type"] in VALUES))[:4]
+    spend = _q(pkg, "SELECT spend_eur FROM spend_cube WHERE supplier_id = ? ORDER BY fiscal_year DESC LIMIT 1", (sid,))
+    turnover = irow.get("turnover_eur")
+    share = round(100 * spend[0]["spend_eur"] / turnover, 1) if spend and turnover else None
+    alternatives = sorted(
+        {
+            r["supplier_id"]
+            for part in case.get("parts") or []
+            for r in _q(
+                pkg, "SELECT supplier_id FROM sourcing WHERE part_id = ? AND status IN ('active', 'qualified')", (part,)
+            )
+            if r["supplier_id"] != sid
+        }
+    )
     situation = (
         f"{name}: {owner or 'unknown-owner'} supplier ({country}), {KINDS.get(case.get('type'), 'in this case')}."
     )
+    if share is not None:
+        situation += f" We are {share} % of its turnover."
+    if alternatives:
+        situation += f" We have {len(alternatives)} qualified alternative supplier(s) for these parts."
     if pressures:
         situation += " Signals: " + "; ".join(f"{p['type']} ({p['evidence'][:80]})" for p in pressures[:3]) + "."
     return {
@@ -346,6 +363,8 @@ def build_profile(supplier_id, case, pkg, opening=None):
         "situation": situation,
         "what_it_values": values,
         "persona": _persona(otext, owner),
+        "our_share_pct": share,  # spend_cube / supplier_intel: how much it needs us
+        "alternatives": alternatives,  # sourcing: qualified second sources for its parts
         "source": "data",
     }
 
