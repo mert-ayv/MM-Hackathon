@@ -127,3 +127,11 @@ How our agent negotiates, and how each architecture version is tracked. Code: [`
   - continuing the RFQ auction with an agreed bidder (P05).
 
 | v16 | v14 + more checked arguments for rounds 2+ (`history_claims`, intel.history_claims): this supplier's cheapest orders of the part in the last 2 years (3 per argument, each ID next to its exact price; P02 339.37, P08 5.17, P18 5.26), mean ppm of its quality notifications, delivery over earlier quarters, and case `refs` we hold no data for (orders, should-cost), cited without a figure | **0.99 / 0.75 / 0.871** (v14 0.835; both figure-free arguments came back `verified` - D01/D02 had sent no arguments at all before) | – | – | **candidate**; 72 new practice-case arguments all match facts.json (static check); figured order arguments not yet checked by the arena |
+
+**Pacing study (Sat evening, 1,132 supplier replies; scratchpad sub-misc):**
+- **Patience.** Each supplier has a fixed patience before its final offer: median 4 replies (P10 1, P04 2, P08/P18 3, P02/P07 4, P01 5, P03/D01 5-6).
+- **Deep asks shorten it.** An ask more than about 8-10 % below the supplier's floor cuts that patience by 1-2 replies: D01 6 -> 3, P07 4 -> 2, P18 3 -> 2, P11 6 -> 4-5.
+- **Anchor cap.** `mert-anchorcap` caps the anchor by case type: 12 % for price increase/renewal, 15 % for bundling/capacity. Not routed yet.
+- **Faster concessions lose on the sandbox** (D01 0.969 -> 0.856/0.921).
+- **The gated push after a final offer is rejected.** Size min(1 %, 0.6 x the supplier's own concession), only after >= 1 %. 20 logged pushes inside the gate were safe, but P18 session afada094 walked after a 0.55 % push inside it ("we have already reached our absolute limit").
+- **Push hook.** Agents now size a push per thread with the `final_push_size` hook, never by swapping `self.p`: threads decide in parallel outside the runner's lock.

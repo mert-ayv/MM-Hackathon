@@ -377,9 +377,10 @@ class CseeAgent:
                     "term_sheets": [{"terms": completed}],
                     "refs": [],
                 }
+        push = self.final_push_size(case, ev) if status == "final_offer" else 0.0
         if (
             status == "final_offer"
-            and self.p.final_push
+            and push
             and st.pushed < 1
             and left > self.p.reserve_moves
             and sheet_id
@@ -388,11 +389,11 @@ class CseeAgent:
         ):
             st.pushed += 1
             ask = complete_offer(
-                case, {**theirs, "unit_price": round(theirs["unit_price"] * (1 - self.p.final_push), 2)}
+                case, {**theirs, "unit_price": round(theirs["unit_price"] * (1 - push), 2)}
             )
             st.our_prices.append(ask["unit_price"])
             self.note_decision(
-                ev, sid, "send", f"final offer: one small push ({self.p.final_push:.1%}), leader only", t0
+                ev, sid, "send", f"final offer: one small push ({push:.1%}), leader only", t0
             )
             return {
                 "subject": f"Re: {case['title']}"[:300],
@@ -442,6 +443,11 @@ class CseeAgent:
             events = list(ev)
             msg["_write"] = lambda: self.writer.write(case, self, sid, events, sheets, claims, ask_breakdown)
         return msg
+
+    def final_push_size(self, case, events):
+        """How far below its final offer to push once (0: accept). A hook so a subclass can size it per thread
+        without changing self.p, which threads share while deciding outside the runner's lock."""
+        return self.p.final_push
 
     def is_leader(self, case, threads, sid):
         """This thread holds our cheapest standing deal (always true with one supplier)."""

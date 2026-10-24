@@ -520,3 +520,59 @@ class MertRawAgent(MertConsistentAgent):
         if write:
             msg["_write"] = lambda: add(write())
         return msg
+
+
+# ------------------------------------------------------------------ pacing study (scratchpad sub-misc, Sat 24 Oct):
+# 1,132 supplier replies, 26 pushes after a final offer; see docs/ARCHITECTURE.md
+# max anchor depth below the opening, by case type (outside relationship goals): floor depth + ~6 pp
+ANCHOR_CAP = {
+    "price_increase": 0.12,
+    "renewal": 0.12,
+    "quality": 0.22,  # P11 0.71 (record) was played at 22 % and hit the bot's reservation (45.5): keep
+    "bundling": 0.15,
+    "capacity": 0.15,
+    "raw_material": 0.22,
+    "rfq": 0.22,
+}
+
+# ------------------------------------------------------------------ GatedPushAgent (recommended)
+PUSH_MAX = 0.01  # never more than 1 % below its final price
+PUSH_SHARE = 0.6  # at most this share of its own concession since its first counter-offer
+MIN_CONCESSION = 0.01  # a supplier that moved less than 1 % is at its limit: accept (P02 walked)
+
+
+class GatedPushAgent(MertAgent):
+    """One push after a final offer, sized by how far the supplier has already moved."""
+
+    def push_size(self, case, events):
+        sup = [m for m in events if m.get("from") != "buyer" and m.get("term_sheets")]
+        if len(sup) < 3 or latest(events).get("status") != "final_offer":
+            return 0.0  # need the opening, a first counter and the final offer
+        std = standard_terms(events)
+        first = sup[1]["term_sheets"][0]["terms"]  # its first counter-offer (after seeing our terms)
+        final = sup[-1]["term_sheets"][0]["terms"]
+        c1, cf = total_cost(case, first, std), total_cost(case, final, std)
+        if not (c1 and cf) or c1 == float("inf") or cf == float("inf"):
+            return 0.0
+        conc = (c1 - cf) / c1
+        if conc < MIN_CONCESSION:
+            return 0.0
+        return round(min(PUSH_MAX, PUSH_SHARE * conc), 4)
+
+    def final_push_size(self, case, events):
+        return self.push_size(case, events)
+
+
+# ------------------------------------------------------------------ AnchorCapAgent
+class AnchorCapAgent(MertAgent):
+    """anchor_leverage capped by case type (base applies it outside relationship goals only)."""
+
+    def prepare(self, case, threads):
+        super().prepare(case, threads)
+        cap = ANCHOR_CAP.get(case.get("type"))
+        if cap is not None and self.p.anchor_leverage > cap:
+            self.p = replace(self.p, anchor_leverage=cap)
+
+
+class FinalCandidateAgent(GatedPushAgent, AnchorCapAgent):
+    """Anchor cap by case type + gated push after a final offer."""

@@ -49,6 +49,9 @@ from .annika import AnnikaAgent
 from .ege import EgeAgent
 from .emre import EmreAgent
 from .mert import (
+    AnchorCapAgent,
+    FinalCandidateAgent,
+    GatedPushAgent,
     MertAgent,
     MertAnchorAgent,
     MertClauseAgent,
@@ -73,6 +76,9 @@ AGENTS = {
     "mert-raw": MertRawAgent,
     "mert-hedge": MertHedgeAgent,
     "mert-hedge-late": MertHedgeLateAgent,
+    "mert-anchorcap": AnchorCapAgent,
+    "mert-gatedpush": GatedPushAgent,  # rejected: P18 afada094 walked after a push inside the gate
+    "mert-final": FinalCandidateAgent,
     "router": RouterAgent,
 }
 
