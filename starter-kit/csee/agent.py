@@ -63,6 +63,7 @@ class Params:
     hold_on_internal: bool = False  # "we will come back to you on price": hold our price one round
     # v8 switches (trade every lever; read the supplier's own words)
     generic_trades: bool = False  # trade sheets over every negotiable term, cheapest concession for us first
+    push_after_final: int = 0  # rounds we still push after its final_offer (0 = accept the final offer)
     time_aware: bool = True  # Live Final: pace concessions to the rounds that fit before the wave's cap
     sticky_terms: bool = False  # after our first ask, keep the non-price terms of its cheapest sheet (P11)
     text_signals: bool = False  # infer cash/capacity/volume pressure from the supplier's e-mails, not only profiles
@@ -78,6 +79,7 @@ class ThreadState:
     cited_rival: float | None = None  # the rival price we last cited to this supplier
     alt_requested: str | None = None  # an alternative sheet of theirs we proposed back
     events: list = field(default_factory=list)  # the thread so far (for the supplier's own signals)
+    pushed: int = 0  # rounds pushed after a final offer
     round_s: list = field(default_factory=list)  # seconds per round (our move + its reply), for the wave cap
     asked_breakdown: bool = False
     ready: bool = False  # nothing more to gain by writing: wait for the coordinator
@@ -241,6 +243,9 @@ class CseeAgent:
                 "term_sheets": [{"terms": terms}],
                 "refs": [],
             }
+        if status == "final_offer" and st.pushed < self.p.push_after_final and left > self.p.reserve_moves and sheet_id:
+            st.pushed += 1  # replays: 0 walk-aways in ~630 supplier moves; test whether a final offer still moves
+            status = "open"
         if status in READY_STATUSES or left <= self.p.reserve_moves or not sheet_id:
             st.ready = True
             return None

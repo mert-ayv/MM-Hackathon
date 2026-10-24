@@ -1,0 +1,107 @@
+diff --git a/starter-kit/csee/agent.py b/starter-kit/csee/agent.py
+index 36feb61..110ea60 100644
+--- a/starter-kit/csee/agent.py
++++ b/starter-kit/csee/agent.py
+@@ -63,6 +63,7 @@ class Params:
+     hold_on_internal: bool = False  # "we will come back to you on price": hold our price one round
+     # v8 switches (trade every lever; read the supplier's own words)
+     generic_trades: bool = False  # trade sheets over every negotiable term, cheapest concession for us first
++    push_after_final: int = 0  # rounds we still push after its final_offer (0 = accept the final offer)
+     time_aware: bool = True  # Live Final: pace concessions to the rounds that fit before the wave's cap
+     sticky_terms: bool = False  # after our first ask, keep the non-price terms of its cheapest sheet (P11)
+     text_signals: bool = False  # infer cash/capacity/volume pressure from the supplier's e-mails, not only profiles
+@@ -78,6 +79,7 @@ class ThreadState:
+     cited_rival: float | None = None  # the rival price we last cited to this supplier
+     alt_requested: str | None = None  # an alternative sheet of theirs we proposed back
+     events: list = field(default_factory=list)  # the thread so far (for the supplier's own signals)
++    pushed: int = 0  # rounds pushed after a final offer
+     round_s: list = field(default_factory=list)  # seconds per round (our move + its reply), for the wave cap
+     asked_breakdown: bool = False
+     ready: bool = False  # nothing more to gain by writing: wait for the coordinator
+@@ -241,6 +243,9 @@ class CseeAgent:
+                 "term_sheets": [{"terms": terms}],
+                 "refs": [],
+             }
++        if status == "final_offer" and st.pushed < self.p.push_after_final and left > self.p.reserve_moves and sheet_id:
++            st.pushed += 1  # replays: 0 walk-aways in ~630 supplier moves; test whether a final offer still moves
++            status = "open"
+         if status in READY_STATUSES or left <= self.p.reserve_moves or not sheet_id:
+             st.ready = True
+             return None
+diff --git a/starter-kit/csee/localsim.py b/starter-kit/csee/localsim.py
+index e18b8cb..d8f22f8 100644
+--- a/starter-kit/csee/localsim.py
++++ b/starter-kit/csee/localsim.py
+@@ -33,6 +33,10 @@ OPEN_ASK = {
+ }
+ 
+ 
++def rng_share(rng, lo, hi):
++    return rng.uniform(lo, hi)
++
++
+ class Supplier:
+     def __init__(self, case, sid, pkg, rng):
+         self.case, self.sid, self.rng = case, sid, rng
+@@ -66,10 +70,15 @@ class Supplier:
+         self.want_clause = bool(opts.get("index_clause")) and rng.random() < 0.6
+         self.hold_payment = self.cash_short or rng.random() < 0.3
+         self.band = 0.02 * self.p0  # a bigger step needs the boss
++        # calibrated on 626 real supplier moves (practice + sandbox replays): final offer at reply 3-5
++        # (median 4), step median 0.8 % of the opening; personalities: gap-closers (D02 owner 0.2-0.8 of the
++        # gap), steady steppers (D01 ~0.09 of the gap, ~1 % of the price), stubborn (Kalwisz, Hrvelec: ~0)
+         owner = (profile.get("owner_type") or "").lower()
+-        # owner-led shops close much of the gap (D02's owner); family firms and groups give a fixed step (D01)
+-        self.gap_closer = owner in ("founder", "private") or (profile.get("staff") or 999) < 80
+-        self.patience = rng.randint(5, 7)
++        r = rng.random()
++        small = owner in ("founder", "private") or (profile.get("staff") or 999) < 80
++        self.style = "closer" if (small and r < 0.6) or r < 0.2 else ("stubborn" if r > 0.75 else "stepper")
++        self.gap_closer = self.style == "closer"
++        self.patience = rng.choice([3, 4, 4, 4, 5, 5, 6])
+         self.prev_buyer = None
+         self.ask_value = self.value({"unit_price": self.p0})
+         self.floor = self.full * (1 + self.min_margin)
+@@ -143,7 +152,12 @@ class Supplier:
+         if self.final:  # replays: 0 walk-aways in ~350 supplier messages - it repeats its final offer
+             return self.reply_msg("final_offer", [self.standing], "Our final offer stands.")
+         gap = self.ask_value - self.value(best)
+-        step = min(0.6 * gap, self.band) if self.gap_closer else min(0.01 * self.p0, gap)
++        if self.style == "closer":
++            step = min(rng_share(self.rng, 0.2, 0.8) * gap, self.band)
++        elif self.style == "stubborn":
++            step = min(0.002 * self.p0, gap)
++        else:
++            step = min(0.009 * self.p0, gap)
+         before = self.ask_value
+         self.ask_value = max(self.floor, self.ask_value - max(step, 0))
+         self.last_step = before - self.ask_value
+diff --git a/starter-kit/csee/variants.py b/starter-kit/csee/variants.py
+index ce1b3bb..867a98c 100644
+--- a/starter-kit/csee/variants.py
++++ b/starter-kit/csee/variants.py
+@@ -86,6 +86,16 @@ VARIANTS = {
+         "adopt_revealed": True,
+         "sticky_terms": True,
+     },
++    "v10": {
++        "adopt_insisted": True,
++        "rival_only_lower": True,
++        "cash_trade_always": True,
++        "anchor_leverage": 0.22,
++        "rfq_anchor_vs_leader": 0.08,
++        "adopt_revealed": True,
++        "sticky_terms": True,
++        "push_after_final": 1,
++    },
+ }
+ 
+ 
+@@ -107,6 +117,7 @@ DESCRIPTIONS = {
+     "the supplier, liked terms first, then cheapest for us; + pressures read from the supplier's own e-mails.",
+     "v9": "v7 + sticky terms: after our first ask keep the non-price terms of the supplier's cheapest-for-us "
+     "sheet and negotiate price (P11 flipped quality terms 3x and accepted the dearest set).",
++    "v10": "v9 + push once more after the supplier's final offer (0 walk-aways in ~630 real supplier moves).",
+     "v4": "base tactics (12% anchor, steady concessions keep the supplier conceding: D01) + v2's adopt-held-terms, "
+     "lower-rival-only, cash sheet + floor guard (P05 anchored 0.5% below the opening) + RFQ: beat the leader.",
+ }

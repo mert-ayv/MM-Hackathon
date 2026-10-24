@@ -33,6 +33,10 @@ OPEN_ASK = {
 }
 
 
+def rng_share(rng, lo, hi):
+    return rng.uniform(lo, hi)
+
+
 class Supplier:
     def __init__(self, case, sid, pkg, rng):
         self.case, self.sid, self.rng = case, sid, rng
@@ -66,10 +70,15 @@ class Supplier:
         self.want_clause = bool(opts.get("index_clause")) and rng.random() < 0.6
         self.hold_payment = self.cash_short or rng.random() < 0.3
         self.band = 0.02 * self.p0  # a bigger step needs the boss
+        # calibrated on 626 real supplier moves (practice + sandbox replays): final offer at reply 3-5
+        # (median 4), step median 0.8 % of the opening; personalities: gap-closers (D02 owner 0.2-0.8 of the
+        # gap), steady steppers (D01 ~0.09 of the gap, ~1 % of the price), stubborn (Kalwisz, Hrvelec: ~0)
         owner = (profile.get("owner_type") or "").lower()
-        # owner-led shops close much of the gap (D02's owner); family firms and groups give a fixed step (D01)
-        self.gap_closer = owner in ("founder", "private") or (profile.get("staff") or 999) < 80
-        self.patience = rng.randint(5, 7)
+        r = rng.random()
+        small = owner in ("founder", "private") or (profile.get("staff") or 999) < 80
+        self.style = "closer" if (small and r < 0.6) or r < 0.2 else ("stubborn" if r > 0.75 else "stepper")
+        self.gap_closer = self.style == "closer"
+        self.patience = rng.choice([3, 4, 4, 4, 5, 5, 6])
         self.prev_buyer = None
         self.ask_value = self.value({"unit_price": self.p0})
         self.floor = self.full * (1 + self.min_margin)
@@ -143,7 +152,12 @@ class Supplier:
         if self.final:  # replays: 0 walk-aways in ~350 supplier messages - it repeats its final offer
             return self.reply_msg("final_offer", [self.standing], "Our final offer stands.")
         gap = self.ask_value - self.value(best)
-        step = min(0.6 * gap, self.band) if self.gap_closer else min(0.01 * self.p0, gap)
+        if self.style == "closer":
+            step = min(rng_share(self.rng, 0.2, 0.8) * gap, self.band)
+        elif self.style == "stubborn":
+            step = min(0.002 * self.p0, gap)
+        else:
+            step = min(0.009 * self.p0, gap)
         before = self.ask_value
         self.ask_value = max(self.floor, self.ask_value - max(step, 0))
         self.last_step = before - self.ask_value
