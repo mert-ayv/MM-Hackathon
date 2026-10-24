@@ -48,7 +48,7 @@ from ..agent import CseeAgent
 from .annika import AnnikaAgent
 from .ege import EgeAgent
 from .emre import EmreAgent
-from .mert import MertAgent
+from .mert import MertAgent, MertAnchorAgent, MertConsistentAgent, MertDialogueAgent
 from .router import RouterAgent
 
 AGENTS = {
@@ -57,6 +57,9 @@ AGENTS = {
     "ege": EgeAgent,
     "emre": EmreAgent,
     "mert": MertAgent,
+    "mert-dialogue": MertDialogueAgent,
+    "mert-anchor": MertAnchorAgent,
+    "mert-consistent": MertConsistentAgent,
     "router": RouterAgent,
 }
 

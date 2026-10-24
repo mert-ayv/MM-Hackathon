@@ -1,0 +1,247 @@
+diff --git a/starter-kit/csee/agents/__init__.py b/starter-kit/csee/agents/__init__.py
+index 601f771..507525f 100644
+--- a/starter-kit/csee/agents/__init__.py
++++ b/starter-kit/csee/agents/__init__.py
+@@ -48,7 +48,7 @@ from ..agent import CseeAgent
+ from .annika import AnnikaAgent
+ from .ege import EgeAgent
+ from .emre import EmreAgent
+-from .mert import MertAgent
++from .mert import MertAgent, MertAnchorAgent, MertDialogueAgent
+ from .router import RouterAgent
+ 
+ AGENTS = {
+@@ -57,6 +57,8 @@ AGENTS = {
+     "ege": EgeAgent,
+     "emre": EmreAgent,
+     "mert": MertAgent,
++    "mert-dialogue": MertDialogueAgent,
++    "mert-anchor": MertAnchorAgent,
+     "router": RouterAgent,
+ }
+ 
+diff --git a/starter-kit/csee/agents/mert.py b/starter-kit/csee/agents/mert.py
+index d211af7..3795bed 100644
+--- a/starter-kit/csee/agents/mert.py
++++ b/starter-kit/csee/agents/mert.py
+@@ -1,12 +1,213 @@
+-"""Mert's agent. Starts identical to base: override any CseeAgent method (next_terms, sheets,
+-pick_claims, close, ...) to try another strategy. Only Mert edits this file.
++"""Isolated continuation candidate; not selected by the final router.
+ 
+-    uv run python -m csee --agent mert sim      free, offline
+-    uv run python -m csee --agent mert bench    free, sandbox
++Use --agent mert --variant v16 for v16 evidence plus these policy changes:
++raw-material packages inherit Emre's clause/payment alternatives, preserve total
++cost across package changes, and allow at most two extra counters when a close-gap
++decision would stop an OPEN, still-conceding supplier. Final-offer pushes are off.
++Other case types retain the selected base policy, except the evidence guard and
++disabled final pushes. No claimed practice improvement until measured.
+ """
+ 
+-from ..agent import CseeAgent
++import math
++import re
++from dataclasses import replace
+ 
++from arena_kit.cost import closing_terms, complete_offer, must_haves_ok, total_cost
++from arena_kit.docs import standard_terms
++from arena_kit.play import latest
+ 
+-class MertAgent(CseeAgent):
+-    pass
++from .. import intel, levers
++from ..writer import SIGN
++from .emre import EmreAgent
++
++CONTINUATION_REASON = "open supplier still conceding: hold last package"
++
++
++class MertAgent(EmreAgent):
++    MAX_CONTINUATIONS = 2
++
++    def prepare(self, case, threads):
++        super().prepare(case, threads)
++        # Emre enables a final push in prepare; explicitly disable it afterwards.
++        self.p = replace(self.p, final_push=0.0, push_after_final=0)
++        self.continuations = {}
++        for sid, events in threads.items():
++            asks = [m["term_sheets"][0]["terms"] for m in events if m.get("from") == "buyer" and m.get("term_sheets")]
++            # Recover conservatively after restart: repeated identical proposals
++            # consume the continuation budget even if an older policy sent them.
++            self.continuations[sid] = sum(a == b for a, b in zip(asks, asks[1:], strict=False))
++        for st in self.threads.values():
++            # v16 asserted that an UNKNOWN should-cost is below the quote. A
++            # reference existing is not evidence about the direction of its value.
++            st.intel.claims = [
++                c
++                for c in st.intel.claims
++                if not (
++                    c.source == "history"
++                    and c.kind == "should_cost"
++                    and any(not intel._fact(case, self.pkg, ref) for ref in c.ids)
++                )
++            ]
++
++    @staticmethod
++    def last_proposal(events):
++        return next(
++            (
++                m["term_sheets"][0]["terms"]
++                for m in reversed(events)
++                if m.get("from") == "buyer" and m.get("term_sheets")
++            ),
++            None,
++        )
++
++    def next_terms(self, case, threads, sid, theirs, std, supplier, left):
++        proposal = super().next_terms(case, threads, sid, theirs, std, supplier, left)
++        if not self.raw or "unit_price" not in case["negotiable"]:
++            return proposal
++        st, events = self.threads[sid], threads[sid]
++        previous = self.last_proposal(events)
++        if previous is None or previous.get("unit_price") is None:
++            return proposal
++        if proposal is None:
++            # next_terms is also used as a read-only stopping probe by base.
++            # Count continuations only in thread_move, after a message is built.
++            if not st.why.startswith("their C "):
++                return None
++            return self.continue_open(case, threads, sid, theirs, std, supplier, left, previous)
++
++        changed = any(proposal.get(f) != previous.get(f) for f in case["negotiable"] if f != "unit_price")
++        if changed:
++            # Budget just the policy's explicit price concession on the OLD
++            # package. A new clause/shorter payment must not add a second gift.
++            old_at_new_price = {**previous, "unit_price": max(previous["unit_price"], proposal["unit_price"])}
++            budget = total_cost(case, old_at_new_price, std, supplier)
++            if total_cost(case, proposal, std, supplier) > budget:
++                price = levers.price_for(case, proposal, budget, std, supplier)
++                repriced = False
++                if price is not None and price > 0:
++                    adjusted = {**proposal, "unit_price": price}
++                    # price_for rounds to cents: never round above our budget.
++                    if total_cost(case, adjusted, std, supplier) > budget:
++                        adjusted["unit_price"] = round(price - 0.01, 2)
++                    if (
++                        adjusted["unit_price"] > 0
++                        and total_cost(case, adjusted, std, supplier) <= budget
++                        and must_haves_ok(case, adjusted, std)
++                    ):
++                        proposal = adjusted
++                        repriced = True
++                        st.why += "; package change repriced within concession budget"
++                if not repriced:
++                    st.why = "cannot price changed package within concession budget"
++                    return None
++        return proposal
++
++    def continue_open(self, case, threads, sid, theirs, std, supplier, left, previous):
++        events = threads[sid]
++        if (
++            latest(events).get("status") != "open"
++            or self.continuations[sid] >= self.MAX_CONTINUATIONS
++            or self.rounds_left(sid, left) <= self.p.reserve_moves + 1
++        ):
++            return None
++        replies = [m for m in events if m.get("from") != "buyer" and m.get("term_sheets")]
++        if len(replies) < 2:
++            return None
++        _, before = self.their_sheet(case, [replies[-2]], std, supplier)
++        c_before = total_cost(case, before, std, supplier)
++        c_now = total_cost(case, theirs, std, supplier)
++        # An actual improvement in package cost, not nominal price, is required.
++        if not math.isfinite(c_before) or c_before - c_now <= 0.01:
++            return None
++        proposal = complete_offer(case, previous)
++        if not must_haves_ok(case, proposal, std):
++            return None
++        if total_cost(case, proposal, std, supplier) >= c_now - 0.01:
++            return None  # they already met or beat our last package
++        self.threads[sid].why = CONTINUATION_REASON
++        return proposal
++
++    def thread_move(self, case, threads, sid):
++        if self.case_id == case["case_id"]:
++            self.threads[sid].why = ""
++        msg = super().thread_move(case, threads, sid)
++        if self.raw and msg and msg.get("term_sheets"):
++            st = self.threads[sid]
++            if st.why == CONTINUATION_REASON:
++                self.continuations[sid] += 1
++            # Emre can replace the proposed main sheet with its clause sheet.
++            # The next round must start at the price actually sent, not a draft.
++            already_sent = sum(m.get("from") == "buyer" and bool(m.get("term_sheets")) for m in threads[sid])
++            price = msg["term_sheets"][0]["terms"]["unit_price"]
++            if len(st.our_prices) <= already_sent:
++                st.our_prices.append(price)
++            else:
++                st.our_prices[-1] = price
++        return msg
++
++
++class MertAnchorAgent(MertAgent):
++    """Raw-only 30% opening-anchor ablation; every other decision unchanged."""
++
++    def prepare(self, case, threads):
++        super().prepare(case, threads)
++        if self.raw:
++            self.p = replace(self.p, anchor_leverage=0.30)
++
++
++class MertDialogueAgent(MertAgent):
++    """Separate challenger: answer binding-volume questions and request real approval.
++
++    No invented volume, contract extension, authority threshold or guaranteed approval.
++    Numbers come from the actual main package including the enquiry's fixed terms.
++    Approval requests are made only when the dossier documents an approval process.
++    """
++
++    def thread_move(self, case, threads, sid):
++        msg = super().thread_move(case, threads, sid)
++        if not msg or not msg.get("term_sheets") or latest(threads[sid]).get("status") != "open":
++            return msg
++        events, st = threads[sid], self.threads[sid]
++        first = not any(m.get("from") == "buyer" for m in events)
++        last_body = (latest(events).get("body") or "").lower()
++        notes = []
++        main = closing_terms(case, msg["term_sheets"][0]["terms"], standard_terms(events))
++        if first or re.search(r"volume|quantity|commitment|forecast", last_body):
++            volume, months = main.get("volume_per_year"), main.get("contract_months")
++            if volume and months:
++                notes.append(
++                    f"Our main package is a binding annual quantity of {volume:g} for {months:g} months, "
++                    "as specified in the enquiry and term sheet. Please price that committed quantity; "
++                    "the wider forecast is not an additional commitment."
++                )
++        pressures = st.intel.profile.get("pressures") or []
++        authority = next(
++            (p for p in pressures if re.search(r"committee|approval|authori", p.get("evidence", ""), re.I)),
++            None,
++        )
++        prior_bodies = " ".join(m.get("body") or "" for m in events if m.get("from") == "buyer")
++        if authority and "responsible approver" not in prior_bodies:
++            refs = [r for r in authority.get("ids", []) if r.startswith("doc:") and intel._fact(case, self.pkg, r)]
++            source = f" ({', '.join(refs[:2])})" if refs else ""
++            approver = "pricing committee" if "committee" in authority.get("evidence", "").lower() else "management"
++            notes.append(
++                f"Our supplier notes describe your approval process{source}. "
++                f"Please refer these packages to your {approver}, the responsible approver, "
++                "for a further price concession, "
++                "and obtain their decision before issuing a final offer. Which package can they approve?"
++            )
++            msg["refs"] = list(dict.fromkeys([*msg.get("refs", []), *refs[:2]]))[:20]
++        if not notes:
++            return msg
++        addition = "\n\n".join(notes)
++
++        def explain(body):
++            if SIGN in body:
++                return body.replace(SIGN, addition + "\n\n" + SIGN)
++            return body.rstrip() + "\n\n" + addition
++
++        msg["body"] = explain(msg["body"])
++        write = msg.get("_write")
++        if write:
++            msg["_write"] = lambda: explain(write())
++        return msg

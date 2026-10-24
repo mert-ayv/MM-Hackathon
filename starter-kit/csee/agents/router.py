@@ -19,7 +19,7 @@ ROUTES = {
     "price_increase": "base/v14",  # P01 0.93 (v15 run, no push fired); P02 v13 0.44, v14 anchor stood at 0.48
     "renewal": "base/v14",  # P03 v13 0.92 (= house; v14 = v13 off relationship goals); P04 base 0.86 untested
     "rfq": "base/v7",  # P05 v7 0.81 vs base 0.35, ege/v9 0.52
-    "raw_material": "emre/base",  # pinned: emre with v13 switches offered 30 days (raw-material review, P18 -0.048)
+    "raw_material": "mert/v16",  # P08 0.711, P18 0.552 (emre/base 0.549 / 0.467; latest emre/base P08 0.527); 30 % anchor: 0.278 / 0.485
     "capacity": "base/v14",  # P10 v13 0.67 vs base 0.57
     "quality": "base/v14",  # P11 v13 0.71 and v15 0.71 vs base 0.23
     "bundling": "base",  # P07 base 0.72; the v13 line's deep anchor drew a final offer at reply 2 (v15 0.70 with a push)
