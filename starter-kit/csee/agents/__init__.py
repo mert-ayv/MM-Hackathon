@@ -92,6 +92,7 @@ from .mert_dossier import (
     PlanMesoRawSoftClaims,
     SkipHedgeDossier,
 )
+from .emre_ehl import PlanMesoLeverDeepClaims, PlannerDeepClaims
 from .router import RouterAgent, RouterPlanAgent
 
 AGENTS = {
@@ -139,6 +140,9 @@ AGENTS = {
     "mert-plan-soft": PlannerSoftClaims,  # 6 % anchor (P10 challenger)
     "mert-plan-meso-raw-soft": PlanMesoRawSoftClaims,  # 12 % raw anchor (P18 challenger)
     "router": RouterAgent,
+    # EHL-final challengers (emre_ehl.py): the router's planner routes with an 18 % first ask
+    "emre-plan-deep": PlannerDeepClaims,  # vs mert-plan-dc (renewal, capacity)
+    "emre-plan-meso-lever-deep": PlanMesoLeverDeepClaims,  # vs mert-plan-meso-lever-dc (price_increase)
     "router-plan": RouterPlanAgent,  # A/B candidate: the planner on every non-RFQ type
 }
 

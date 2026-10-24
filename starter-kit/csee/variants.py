@@ -155,6 +155,8 @@ VARIANTS["v7a"] = {**VARIANTS["v7"], "alt_quote_claim": True}
 VARIANTS["basea"] = {"rival_only_lower": True, "alt_quote_claim": True}
 VARIANTS["v14r"] = {**VARIANTS["v14a"], "rel_full": 0.965}
 VARIANTS["v14s"] = {**VARIANTS["v14a"], "anchor_below_open": 0.04}
+VARIANTS["baseacr"] = {**VARIANTS["basea"], "close_room": 0.05}
+VARIANTS["v7acr"] = {**VARIANTS["v7a"], "close_room": 0.05}
 VARIANTS["v17"] = {**VARIANTS["v16"], "rel_anchor": False, "close_gap": 0.001, "close_room": 0.05}
 
 
@@ -203,6 +205,8 @@ DESCRIPTIONS = {
     "v7a": "v7 + the v14a alternative-quote argument.",
     "basea": "base + cite only rivals below this supplier's price (base cites the best rival even when it is higher: "
     "'the rival offer is still higher than our price', P05) + the v14a alternative-quote argument.",
+    "baseacr": "basea + patience: a thread is done only when the C gap <= 5 % of the room (EHL final: closing at reply 2 within 0.4 % of C lost ~0.3 on H30/H34 to teams that pushed to reply 3-4).",
+    "v7acr": "v7a + baseacr's patience rule (close only when the gap <= 5 % of the room).",
     "v14": "v13 + price-increase review: relationship goals anchor at the relationship-optimal price at the "
     "supplier's real cost (should-cost x0.98), not the should-cost floor (P02 369 -> 358); trade sheets priced "
     "without the relationship term (they were all dropped); close only when the gap <= 10 % of the room.",
