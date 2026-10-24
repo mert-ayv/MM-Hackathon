@@ -1,0 +1,47 @@
+diff --git a/starter-kit/csee/localsim.py b/starter-kit/csee/localsim.py
+index fcec8c2..8e2f709 100644
+--- a/starter-kit/csee/localsim.py
++++ b/starter-kit/csee/localsim.py
+@@ -63,6 +63,11 @@ class Supplier:
+         self.want_clause = bool(opts.get("index_clause")) and rng.random() < 0.6
+         self.hold_payment = self.cash_short or rng.random() < 0.3
+         self.band = 0.02 * self.p0  # a bigger step needs the boss
++        owner = (profile.get("owner_type") or "").lower()
++        # owner-led shops close much of the gap (D02's owner); family firms and groups give a fixed step (D01)
++        self.gap_closer = owner in ("founder", "private") or (profile.get("staff") or 999) < 80
++        self.patience = rng.randint(5, 7)
++        self.prev_buyer = None
+         self.ask_value = self.value({"unit_price": self.p0})
+         self.floor = self.full * (1 + self.min_margin)
+         self.final, self.round, self.n = False, 0, 0
+@@ -112,6 +117,15 @@ class Supplier:
+         if verified and self.n <= 3:
+             self.ask_value -= 0.004 * self.p0 * min(len(verified), 2)  # "we did not know that - a fair point"
+         best = max(sheets, key=self.value)
++        # patience: an offer far below its cost, or a buyer who barely moves, ends the haggling sooner
++        bv = self.value(best)
++        if bv < self.floor * 0.93:
++            self.patience -= 1
++        if self.prev_buyer is not None and self.n > 1:
++            their_last = getattr(self, "last_step", 0) or 0.01 * self.p0
++            if bv - self.prev_buyer < 0.25 * their_last:
++                self.patience -= 1
++        self.prev_buyer = bv
+         if self.hold_payment and "payment_days" in best and best["payment_days"] > self.std["payment_days"]:
+             best = {**best, "payment_days": self.std["payment_days"]}
+         if self.want_clause and "index_clause" in self.case["negotiable"] and best.get("index_clause") is None:
+@@ -123,9 +137,12 @@ class Supplier:
+             if self.rng.random() < 0.5:
+                 return self.reply_msg("walked_away", [], "We cannot go further. Goodbye.")
+             return self.reply_msg("final_offer", [self.standing], "Our final offer stands.")
+-        step = min(0.45 * (self.ask_value - self.value(best)), self.band)
++        gap = self.ask_value - self.value(best)
++        step = min(0.6 * gap, self.band) if self.gap_closer else min(0.01 * self.p0, gap)
++        before = self.ask_value
+         self.ask_value = max(self.floor, self.ask_value - max(step, 0))
+-        if self.ask_value <= self.floor * 1.003 or self.n >= 6:
++        self.last_step = before - self.ask_value
++        if self.ask_value <= self.floor * 1.003 or self.n >= self.patience:
+             self.final = True
+         counter = {**best, "unit_price": self.price_for_value(best, self.ask_value)}
+         out = [counter]

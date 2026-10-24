@@ -8,6 +8,12 @@ ROOT="$(git -C "$(dirname "$0")" rev-parse --show-toplevel 2>/dev/null)" || exit
 cd "$ROOT" || exit 0
 say() { printf '{"systemMessage": "sync: %s"}\n' "$1"; }
 
+branch="$(git rev-parse --abbrev-ref HEAD)"
+if [ "$branch" != "main" ]; then
+  say "on branch $branch, not main - auto-sync is off here (push it yourself)"
+  exit 0
+fi
+
 if ! git pull --rebase --autostash -q origin main 2>/dev/null; then
   git rebase --abort 2>/dev/null
   say "pull failed (conflict?) - resolve manually with git status"
