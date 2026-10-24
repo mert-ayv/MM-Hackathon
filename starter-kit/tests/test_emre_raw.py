@@ -37,12 +37,16 @@ def first_move(agent, case):
 def test_raw_keeps_base_price_and_adds_the_widest_clause(pkg, cases, case_id, with_data):
     case, p = cases[case_id], pkg if with_data else None
     ours, theirs = first_move(EmreAgent(p), case), first_move(CseeAgent(p), case)
-    main, alt = ours["term_sheets"][0]["terms"], ours["term_sheets"][1]["terms"]
-    assert main == theirs["term_sheets"][0]["terms"]  # base's opening offer
+    sheets = [s["terms"] for s in ours["term_sheets"]]
+    base_main = theirs["term_sheets"][0]["terms"]
     widest = max(c["deadband_pct"] for c in case["term_options"]["index_clause"] if c)
-    assert alt["index_clause"]["deadband_pct"] == widest
-    assert total_cost(case, alt) < total_cost(case, main)  # an alternative worth taking for us
-    assert "includes an index clause" in ours["body"]
+    clause = next(s for s in sheets if s.get("index_clause"))
+    assert clause["index_clause"]["deadband_pct"] == widest
+    assert total_cost(case, clause) < total_cost(case, base_main)  # worth taking for us
+    if with_data and case_id != "case:P16":  # our contracts with 70710/70740 follow an index: it leads
+        assert sheets[0] == clause and all(s.get("index_clause") for s in sheets)
+    else:  # no clause in the contract (P16) or no data: base's fixed price leads, the clause follows
+        assert sheets[0] == base_main and "includes an index clause" in ours["body"]
 
 
 def test_other_case_types_untouched(pkg, cases):

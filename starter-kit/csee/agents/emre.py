@@ -5,6 +5,9 @@ For `type == "raw_material"`, on top of base (same opening offer, concessions, a
 - A fixed price leads; the case's widest-deadband index clause is offered as the alternative, priced so it
   costs us trade_gain less than the fixed price. Base deals had ended on a 0 % deadband clause; with this
   alternative both suppliers settled on 5 % (practice P08/P18).
+- **If our current contract with the supplier already has an index clause** (`contract_clauses`), that
+  clause is the status quo: we lead with the widest-deadband clause at that price and send no fixed price
+  first (both suppliers asked for a clause in their first reply; one round saved). Untested on real suppliers.
 - The e-mail says which sheet carries the clause (the template's wording leaves clauses out).
 - **One checked argument per e-mail**, not all of them in the first (base sends max_claims + 1 in the
   first and runs dry): in every practice replay rounds 2+ carried none.
@@ -34,6 +37,7 @@ import logging
 from arena_kit.cost import complete_offer, must_haves_ok, total_cost
 
 from .. import levers
+from ..intel import _q
 from ..agent import CseeAgent
 from ..writer import SIGN
 
@@ -56,6 +60,17 @@ def has_clause(sheet):
 def widest_clause(case):
     clauses = [c for c in levers.options(case, "index_clause") if c]
     return max(clauses, key=lambda c: c.get("deadband_pct") or 0) if clauses else None
+
+
+def current_clause(pkg, sid):
+    """The index series our current contract with this supplier follows, or None (also without data)."""
+    rows = _q(
+        pkg,
+        "SELECT cc.series FROM contract_clauses cc JOIN contracts c ON c.id = cc.contract_id "
+        "WHERE c.supplier_id = ? AND cc.type = 'index' AND cc.series IS NOT NULL AND cc.series != ''",
+        (sid,),
+    )
+    return rows[0]["series"] if rows else None
 
 
 def revealed_payment(case, events):
@@ -90,6 +105,7 @@ class EmreAgent(CseeAgent):
             return
         self.p = dataclasses.replace(self.p, final_push=FINAL_PUSH)
         self.revealed = {}
+        self.status_quo = {sid: current_clause(self.pkg, sid) for sid in self.threads}
         for st in self.threads.values():
             for c in st.intel.claims:
                 if c.kind == "index":  # base cites only falls: no topic filter (see the docstring)
@@ -112,12 +128,15 @@ class EmreAgent(CseeAgent):
         if not self.raw:
             return out
         try:
-            extra = [self.payment_sheet(case, sid, out[0], std, supplier)]
             if not has_clause(out[0]):  # if it insisted on a clause, base already asks for the cheapest one
-                extra.append(self.clause_sheet(case, out[0], std, supplier))
-            for alt in extra:
-                if alt and alt not in out:
-                    out = [out[0], alt] + out[1:]
+                clause = self.clause_sheet(case, out[0], std, supplier)
+                if clause and self.status_quo.get(sid):  # a clause is the status quo: it leads, alone
+                    out = [clause] + out[1:]
+                elif clause and clause not in out:
+                    out = [out[0], clause] + out[1:]
+            pay = self.payment_sheet(case, sid, out[0], std, supplier)  # from the sheet that leads
+            if pay and pay not in out:
+                out = [out[0], pay] + out[1:]
         except Exception:  # a sheet we cannot build must never cost the case
             log.exception("%s %s: raw sheets failed", case["case_id"], sid)
         return out[:3]
@@ -153,7 +172,7 @@ class EmreAgent(CseeAgent):
         t["unit_price"] = price
         return t
 
-    # ---------- the e-mail: say which sheet carries a clause ----------
+    # ---------- the e-mail: say which sheet carries a clause (the template's wording leaves clauses out) ----------
     def thread_move(self, case, threads, sid):
         if self.raw:
             self.revealed[sid] = revealed_payment(case, threads[sid])
@@ -161,8 +180,8 @@ class EmreAgent(CseeAgent):
         if not self.raw or not msg or SIGN not in (msg.get("body") or ""):
             return msg
         sheets = [s["terms"] for s in msg.get("term_sheets") or []]
-        if len({has_clause(s) for s in sheets}) < 2:
-            return msg  # all sheets alike: the template's wording is enough
+        if not any(has_clause(s) for s in sheets):
+            return msg  # no clause anywhere: the template's wording is enough
         notes = []
         for i, s in enumerate(sheets):
             which = "Our proposal" if i == 0 else "The alternative"
