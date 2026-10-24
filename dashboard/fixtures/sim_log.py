@@ -2,8 +2,9 @@
 
 Local only: refuses any URL that is not 127.0.0.1/localhost, so it never touches the hosted arena.
 
-    # terminal 1 (starter-kit/):  uv run arena-sim serve --no-clock --data ../data
-    # terminal 2 (agent/):        uv run python ../dashboard/fixtures/sim_log.py case:S01 case:S03
+    # terminal 1 (starter-kit/):  uv run --extra sim arena-sim serve --no-clock --data ../data --port 8765
+    # terminal 2 (repo root):     uv run --project starter-kit python dashboard/fixtures/sim_log.py case:S01 case:S03 \
+    #                                 --url http://127.0.0.1:8765
 
 By default the log goes to dashboard/fixtures/runs/ (use --out ../runs for the real runs folder).
 """
@@ -11,6 +12,7 @@ By default the log goes to dashboard/fixtures/runs/ (use --out ../runs for the r
 import argparse
 import csv
 import os
+import sys
 import time
 from pathlib import Path
 from urllib.parse import urlparse
@@ -19,9 +21,9 @@ from arena_kit.agents.naive import NaiveAgent
 from arena_kit.client import ArenaClient
 from arena_kit.docs import standard_terms
 from arena_kit.play import RemoteTable, latest, play
-from hollerau.runlog import Run, priced
-
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE.parent))
+from runlog_lite import Run, priced  # noqa: E402
 SUPPLIERS_CSV = HERE.parents[1] / "data" / "data" / "suppliers.csv"
 
 
@@ -46,12 +48,12 @@ class LoggedTable(RemoteTable):
     def open(self, case_id):
         case, threads = super().open(case_id)
         self.log.session_id = self.session_id
-        self.case, self.threads = case, threads
+        self.case, self.threads, self.std = case, threads, {}
         opening = {}
         for sid, events in threads.items():
             m = latest(events)
             sheets = m.get("term_sheets") or [{}]
-            std = standard_terms(events)
+            std = self.std[sid] = standard_terms(events)
             opening[sid] = {"offer_id": sheets[0].get("term_sheet_id"), "supplier_name": NAMES.get(sid, m.get("from")),
                             "priced": priced(case, sheets[0].get("terms") or {}, std), "standard_terms": std,
                             "body": m.get("body")}
@@ -62,15 +64,16 @@ class LoggedTable(RemoteTable):
 
     def send(self, sid, message):
         r = self.rounds[sid] = self.rounds.get(sid, 0) + 1
-        sheets = [priced(self.case, s["terms"]) for s in message.get("term_sheets") or []]
+        std = self.std.get(sid)
+        sheets = [priced(self.case, s["terms"], std) for s in message.get("term_sheets") or []]
         self.log.event("message_sent", round=r, supplier_id=sid, subject=message.get("subject"),
-                       body=message.get("body"), sheets=sheets, refs=message.get("refs", []))
+                       body=message.get("body"), sheets=sheets, refs=message.get("refs", []), claims=[])
         t0 = time.monotonic()
         reply = super().send(sid, message)
         sheet = (reply.get("term_sheets") or [None])[0]
         self.log.event("reply", round=r, supplier_id=sid, **{"from": reply.get("from")}, status=reply.get("status"),
                        subject=reply.get("subject"), body=reply.get("body"),
-                       standing={"offer_id": sheet["term_sheet_id"], "priced": priced(self.case, sheet["terms"])}
+                       standing={"offer_id": sheet["term_sheet_id"], "priced": priced(self.case, sheet["terms"], std)}
                        if sheet else None,
                        claim_results=reply.get("claim_results", []), missing_fields=reply.get("missing_fields", []),
                        signals=reply.get("signals", {}), attachments=reply.get("attachments", []),

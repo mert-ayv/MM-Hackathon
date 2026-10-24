@@ -3,7 +3,7 @@
 Every C and breakdown comes from Tacto's published cost function (`arena_kit.cost`), so the
 numbers are consistent with what the arena would compute. Run it from the agent's env:
 
-    cd agent && uv run python ../dashboard/fixtures/generate.py
+    uv run --project starter-kit python dashboard/fixtures/generate.py      # from the repo root
 
 It rewrites `dashboard/fixtures/runs/` (deterministic: same input, same output).
 """
@@ -419,9 +419,10 @@ def play_case(run, case, start, seed, threads, outcome, rich=True, extras=()):
                    decided_in_s=round((t_dec - t_think).total_seconds(), 1))
             if rd["kind"] == "send":
                 sheets = rd.get("sheets") or (chosen["sheets"] if chosen else [])
-                refs = sorted({cl["id"].split(" ")[0] for cl in (chosen["claims"] if chosen else rd.get("claims", []))})
+                sent = chosen["claims"] if chosen else rd.get("claims", [])
+                refs = sorted({cl["id"].split(" ")[0] for cl in sent})
                 w.emit(c.tick(0.2, 0.6), "message_sent", round=r, supplier_id=sid, subject=rd["subject"],
-                       body=rd["body"], sheets=[priced(case, s, sid) for s in sheets], refs=refs)
+                       body=rd["body"], sheets=[priced(case, s, sid) for s in sheets], refs=refs, claims=sent)
             for err in rd.get("errors", []):
                 w.emit(c.tick(1.0, 3.0), "error", supplier_id=sid, status=err["status"], detail=err["detail"])
             rp = rd.get("reply")

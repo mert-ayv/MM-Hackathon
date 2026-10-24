@@ -73,10 +73,11 @@ empty, and unknown event types are ignored.
 Every C and breakdown comes from `arena_kit.cost`. To regenerate them:
 
 ```bash
-cd agent && uv run python ../dashboard/fixtures/generate.py
+# from the repo root
+uv run --project starter-kit python dashboard/fixtures/generate.py
 # real log against the local simulator only (refuses any non-localhost URL):
-uv run arena-sim serve --no-clock --data ../data --port 8765 &
-uv run python ../dashboard/fixtures/sim_log.py case:S01 case:S03 --url http://127.0.0.1:8765
+(cd starter-kit && uv run --extra sim arena-sim serve --no-clock --data ../data --port 8765) &
+uv run --project starter-kit python dashboard/fixtures/sim_log.py case:S01 case:S03 --url http://127.0.0.1:8765
 ```
 
 The repo root `.gitignore` ignores every `runs/` folder; `fixtures/.gitignore` re-includes this one.
