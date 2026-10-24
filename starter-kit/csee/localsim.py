@@ -15,6 +15,7 @@ import math
 import random
 from pathlib import Path
 
+from arena_kit.client import ArenaError
 from arena_kit.cost import closing_terms, complete_offer, must_haves_ok, score, total_cost
 
 from . import intel as intel_mod
@@ -118,6 +119,10 @@ class Supplier:
         verified = [c for c in (msg.get("refs") or [])]
         if verified and self.n <= 3:
             self.ask_value -= 0.004 * self.p0 * min(len(verified), 2)  # "we did not know that - a fair point"
+        offered = list(getattr(self, "offered", {}).values())
+        for sh in sheets:  # the buyer takes one of our own sheets word for word: agreed
+            if complete_offer(self.case, {**self.std_for_sheet(), **sh}) in offered:
+                return self.reply_msg("agreed", [sh], "Agreed, as offered.")
         best = max(sheets, key=self.value)
         # patience: an offer far below its cost, or a buyer who barely moves, ends the haggling sooner
         bv = self.value(best)
@@ -207,9 +212,9 @@ class LocalTable:
         act = message["action"]
         if act["type"] == "accept":
             sp = self.sup[supplier_id]
+            if act["term_sheet_id"] != sp.standing_id:  # as on the arena: only the first sheet stands
+                raise ArenaError(422, "not a standing offer in this session")
             terms = sp.offered.get(act["term_sheet_id"])
-            if terms is None:
-                return {"deal": False, "error": "unknown term sheet"}
             c = total_cost(self.case, terms, sp.std)
             ok = must_haves_ok(self.case, terms, sp.std)
             s = score(self.c_open, c, c_best) if ok and c <= self.c_open else 0.0
