@@ -636,3 +636,107 @@ class AnnikaCapacity9J2Agent(AnnikaCapacityAgent):
         jump=True,
         jump_edge=True,
     )
+
+
+class AnnikaCapacityContractAgent(AnnikaCapacity9JAgent):
+    """k9j + our framework agreement with the supplier. P10: Ravensteiner's contract (ctr:4600070410, valid to
+    2027-06-30) fixes prices per calendar year, a change needs written notice 90 days before the year ends (#3.1),
+    and its standard lead time is 42 days (#5.1). No letter of Ravensteiner asked for a new price (its 18 Sep
+    letter is about capacity only), yet it quotes 32.20 @ 54 d against the contract's 29.89 @ 42 d. No P10 run of
+    the team (8) cited the contract; the desk answered every other argument with "does not change our calculation".
+    R1: the contract price at the contract lead time, the same value to us at its own lead time, and the two
+    clauses + should-cost as checked arguments. Only when the clauses exist, the contract still runs at the new
+    price's start, no letter of the supplier asked for a price change, and today's price is below its opening."""
+
+    K = KParams(
+        anchor_below_open=0.09,
+        first_claims=("contract_price", "contract_lead", "should_cost"),
+        pay_on_terms=True,
+        jump=True,
+    )
+
+    def contract(self, case, sid):
+        """(price clause id, delivery clause id or None, contract price) if the contract argument holds, else None."""
+        b = case["buyer"]
+        current, start = b.get("current_unit_price"), (case.get("fixed_terms") or {}).get("effective_date")
+        clauses = intel_mod.supplier_facts(case, self.pkg, sid, "ctr:")
+        price = next((r for r, f in clauses.items() if "#" in r and f.get("type") == "price" and f.get("days")), None)
+        if not current or not price:
+            return None
+        head = clauses.get(price.split("#")[0]) or {}
+        if start and head.get("valid_to") and head["valid_to"] < start:
+            return None  # the contract ends before the new price would start
+        letters = intel_mod.supplier_facts(case, self.pkg, sid, "doc:")
+        if any(f.get("asked_pct") is not None or f.get("asked_price") is not None for f in letters.values()):
+            return None  # it did ask for a new price: base's notice argument covers a late one
+        p_open = (self.plans.get(sid) or {}).get("p_open")
+        if not p_open or current >= p_open:
+            return None
+        lead = next((r for r, f in clauses.items() if "#" in r and f.get("type") == "delivery" and f.get("days")), None)
+        return price, lead, current
+
+    def prepare(self, case, threads):
+        super().prepare(case, threads)
+        if not self.is_capacity(case):
+            return
+        for sid in case["suppliers"]:
+            got = self.plans.get(sid) and self.contract(case, sid)
+            self.threads[sid].k_contract = got
+            if not got:
+                continue
+            price, lead, current = got
+            days = intel_mod.supplier_facts(case, self.pkg, sid, "ctr:")[price]["days"]
+            claims = [
+                intel_mod.Claim(
+                    f"Our framework agreement fixes prices for each calendar year; a change needs written notice at "
+                    f"least {days} days before the year ends ({price}). We have received no such notice, so the "
+                    f"agreed price of EUR {current:.2f} continues to apply.",
+                    [price],
+                    "contract_price",
+                    strength=3.0,
+                )
+            ]
+            if lead:
+                lt = intel_mod.supplier_facts(case, self.pkg, sid, "ctr:")[lead]["days"]
+                claims.append(
+                    intel_mod.Claim(
+                        f"Under the same agreement the standard lead time is {lt} days from order ({lead}).",
+                        [lead],
+                        "contract_lead",
+                        strength=2.5,
+                    )
+                )
+            self.threads[sid].intel.claims = list(self.threads[sid].intel.claims) + claims
+
+    def first_sheets(self, case, sid, base_ours, std, supplier):
+        sheets, why = super().first_sheets(case, sid, base_ours, std, supplier)
+        got = getattr(self.threads[sid], "k_contract", None)
+        plan = self.plans[sid]
+        if not got or not plan["leads"]:
+            return sheets, why
+        current = got[2]
+        ours_lt, its_lt = plan["leads"]
+        main = complete_offer(case, {**sheets[0], "lead_time_days": ours_lt, "unit_price": current})
+        main["lead_time_days"] = ours_lt
+        out = [main]
+        if its_lt != ours_lt:  # the same cost to us at its own lead time (it charges for speed, we pay for delay);
+            # without the relationship term, which grows as the price falls (the search would run to 0)
+            target, lo, hi = total_cost(case, main, std), 0.0, 2 * current
+            for _ in range(50):
+                mid = (lo + hi) / 2
+                cheaper = total_cost(case, {**main, "lead_time_days": its_lt, "unit_price": mid}, std) < target
+                lo, hi = (mid, hi) if cheaper else (lo, mid)
+            if 0 < lo < 2 * current - 0.01:
+                out.append({**main, "lead_time_days": its_lt, "unit_price": round(lo, 2)})
+        out = [s for s in out if must_haves_ok(case, s, std)] or sheets
+        return out, why + f"; contract: EUR {current:.2f} at {ours_lt} d ({got[0]}), same value at {its_lt} d"
+
+    def first_focus(self, case, sid):
+        text = super().first_focus(case, sid)
+        if getattr(self.threads[sid], "k_contract", None):
+            text += (
+                " State the framework agreement calmly as a shared fact (prices fixed per calendar year unless notice "
+                "was given; its standard lead time), never as a threat or a legal claim, and pair it with our offer "
+                "of a long-term binding commitment that secures their capacity planning."
+            )
+        return text

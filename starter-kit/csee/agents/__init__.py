@@ -46,7 +46,13 @@ The runner's contract (`runner.play_case`), in call order:
 
 from ..agent import CseeAgent
 from .annika import AnnikaAgent
-from .annika_capacity import AnnikaCapacity9Agent, AnnikaCapacity9J2Agent, AnnikaCapacity9JAgent, AnnikaCapacityAgent
+from .annika_capacity import (
+    AnnikaCapacity9Agent,
+    AnnikaCapacity9J2Agent,
+    AnnikaCapacity9JAgent,
+    AnnikaCapacityAgent,
+    AnnikaCapacityContractAgent,
+)
 from .ege import EgeAgent
 from .emre import EmreAgent
 from .mert import (
@@ -116,6 +122,7 @@ AGENTS = {
     "annika-k9": AnnikaCapacity9Agent,  # the same with a 9 % anchor (practice #3 P10 0.679)
     "annika-k9j": AnnikaCapacity9JAgent,  # k9 + appreciation/pay-on-terms in R1 + one R2 jump (P10 #5: 0.686)
     "annika-k9j2": AnnikaCapacity9J2Agent,  # k9j with a 12 % anchor and the R2 jump to 31.34 (fit on #2/#3/#5)
+    "annika-kc": AnnikaCapacityContractAgent,  # k9j + framework agreement: contract price + lead clause (P10 29.89 @ 42 d)
     "ege": EgeAgent,
     "emre": EmreAgent,
     "mert": MertAgent,
