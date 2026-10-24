@@ -34,3 +34,7 @@ logs/
 
 # Practice run logs
 runs/
+
+# demo video raw footage and renders (large)
+video/**/source/
+video/**/renders/
