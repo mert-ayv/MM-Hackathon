@@ -1,0 +1,214 @@
+{
+ "supplier_id": "sup:70190",
+ "name": "Gießerei Pfaffenreuth GmbH",
+ "category": "castings",
+ "country": "DE",
+ "owner_type": "family",
+ "group_parent": null,
+ "staff": 95,
+ "turnover_eur": 14800000,
+ "our_spend_fy2026_eur": 1048066,
+ "our_share_of_their_turnover_pct": 7.1,
+ "parts": [
+  {
+   "part_id": "part:310040",
+   "name": "Casing cover HB",
+   "current_price": 33.94,
+   "price_unit": 1,
+   "quota_pct": 100,
+   "qualified_alternatives": [],
+   "should_cost_id": "cost:310040",
+   "should_cost_unit": 33.93
+  },
+  {
+   "part_id": "part:310060",
+   "name": "Pump housing HB 40",
+   "current_price": 43.39,
+   "price_unit": 1,
+   "quota_pct": 40,
+   "qualified_alternatives": [
+    "sup:70150"
+   ],
+   "should_cost_id": "cost:310060",
+   "should_cost_unit": 39.82
+  },
+  {
+   "part_id": "part:310011",
+   "name": "Volute casing HN 65-250 (qualified, 0 %)",
+   "current_price": null,
+   "price_unit": 1,
+   "quota_pct": 0,
+   "qualified_alternatives": [
+    "sup:70130"
+   ],
+   "should_cost_id": "cost:310011",
+   "should_cost_unit": 180.19
+  },
+  {
+   "part_id": "part:310020",
+   "name": "Bearing bracket HN (qualified, 0 %, quote 53.56)",
+   "current_price": null,
+   "price_unit": 1,
+   "quota_pct": 0,
+   "qualified_alternatives": [
+    "sup:70140"
+   ],
+   "should_cost_id": null,
+   "should_cost_unit": null
+  }
+ ],
+ "contract": {
+  "id": "ctr:4600070190",
+  "valid_to": "2027-06-30",
+  "payment_days": 30,
+  "incoterm": "FCA",
+  "notice_days": 90,
+  "index_clauses": []
+ },
+ "standard_terms_hint": {
+  "payment_days": 30,
+  "incoterm": "FCA",
+  "lead_time_days": 42,
+  "skonto": null
+ },
+ "quality": {
+  "latest_scorecard_id": "sc:70190@2026Q3",
+  "otd_pct": 85.1,
+  "ppm": 715,
+  "colour": "amber",
+  "trend": "oscillates green/amber; many small QNs (13 in rolling 12m), 1 overdue 8D",
+  "open_8d_overdue": 1
+ },
+ "payment_behaviour": {
+  "avg_days_late_by_us": 3.0,
+  "note": "avg 33.0 days on 30 net"
+ },
+ "financial_health": {
+  "equity_ratio_pct": 33.9,
+  "credit_index": 227,
+  "credit_index_12m_ago": 227,
+  "signal": "stable; energy hedged to 2028"
+ },
+ "negotiation_history": {
+  "events": 6,
+  "avg_asked_pct": 0.5,
+  "avg_settled_pct": -1.87,
+  "settle_to_ask_ratio": -0.3,
+  "notes": [
+   "310060 held flat at 43.39 since 2024 despite asks of +1.6 / +1.5 %",
+   "310040 cut -2.5 % in 2025-12 to its should-cost level"
+  ]
+ },
+ "situation": "Small German family foundry for which we are a big customer (7.1 % of turnover). It bought power forward to Dec 2028 and has covered material to Dec 2028, so it offers a price fixed until then. Market-energy arguments are 'not our reality' in either direction. The casing cover is priced exactly at should-cost (33.94 vs 33.93); the HB 40 housing (43.39) carries margin and is 35 % above Tarsevi. It is the qualified backup for three distressed suppliers' parts (310011, 310020, 310030), on our tooling.",
+ "pressures": [
+  {
+   "type": "energy",
+   "evidence": "electricity fixed 2026-2028 - insulated from market moves",
+   "ids": [
+    "news:20260426-10",
+    "doc:20260623-70190-M1"
+   ]
+  },
+  {
+   "type": "volume",
+   "evidence": "competes with Tarsevi on 310060 (32.24 vs 43.39); could gain volume from Kalwisz/Wimbacher/Velkenreith parts",
+   "ids": [
+    "quote:7300068",
+    "quote:7200011"
+   ]
+  }
+ ],
+ "what_it_values": [
+  "long fixed-price contract matching its 2028 hedge",
+  "volume security / additional parts",
+  "predictability over index mechanics"
+ ],
+ "likely_tradeables": [
+  {
+   "lever": "contract_months",
+   "give": "contract to Dec 2028 (~27 months)",
+   "get": "price fixed at today's level or below on 310040/310060, no index clause",
+   "why": "it offered exactly this: material and power covered to 2028",
+   "ids": [
+    "quote:7300064",
+    "news:20260426-10"
+   ]
+  },
+  {
+   "lever": "volume_per_year",
+   "give": "more HB 40 share or 310020/310030 volume",
+   "get": "310060 price toward Tarsevi level",
+   "why": "310060 has ~8 % margin over cost:310060",
+   "ids": [
+    "cost:310060",
+    "quote:7300068"
+   ]
+  },
+  {
+   "lever": "index_clause",
+   "give": "drop index clause (none today)",
+   "get": "fixed price",
+   "why": "its costs are hedged - an index only adds risk for us",
+   "ids": [
+    "doc:20260623-70190-M1"
+   ]
+  }
+ ],
+ "arguments_that_should_land": [
+  {
+   "argument": "You quoted the cover at 33.94 with material covered to Dec 2028; let's lock it to then.",
+   "ids": [
+    "quote:7300064"
+   ],
+   "why": "uses its own offer"
+  },
+  {
+   "argument": "HB 40 housing is sourced in parallel at 32.24.",
+   "ids": [
+    "quote:7300068"
+   ],
+   "why": "verifiable competition on the margin-carrying part (reveals Tarsevi's price)"
+  },
+  {
+   "argument": "We can add volume: HN bearing bracket you quoted at 53.56.",
+   "ids": [
+    "quote:7200011"
+   ],
+   "why": "volume carrot"
+  }
+ ],
+ "arguments_to_avoid": [
+  {
+   "argument": "Energy/power index arguments (up or down)",
+   "why": "hedged to 2028: 'not our reality'"
+  },
+  {
+   "argument": "Pushing 310040 below 33.94",
+   "why": "it is at full cost (cost:310040); goal stabilise"
+  },
+  {
+   "argument": "Index clause on PPI-D351",
+   "why": "decoupled from its real cost"
+  }
+ ],
+ "persona": {
+  "who_writes": "inside sales (new contact from 2025-10), owner behind",
+  "style": "matter-of-fact, planning-oriented",
+  "decision_making": "family owner; values planning certainty",
+  "relationship_notes": "reliable mid-quality supplier, many small QNs"
+ },
+ "noise": [
+  "doc:20251014-70190-N new contact person"
+ ],
+ "key_quotes": [
+  {
+   "id": "doc:20260623-70190-M1",
+   "quote": "the market price is 'not our reality' before then"
+  },
+  {
+   "id": "quote:7300064",
+   "quote": "Material covered until December 2028; price valid accordingly."
+  }
+ ],
+ "confidence": "high"
+}

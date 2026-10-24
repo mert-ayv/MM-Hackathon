@@ -1,0 +1,220 @@
+{
+ "supplier_id": "sup:70110",
+ "name": "Gießerei Brandlhuber GmbH & Co. KG",
+ "category": "castings",
+ "country": "DE",
+ "owner_type": "family",
+ "group_parent": null,
+ "staff": 185,
+ "turnover_eur": 25800000,
+ "our_spend_fy2026_eur": 1256303,
+ "our_share_of_their_turnover_pct": 4.9,
+ "parts": [
+  {
+   "part_id": "part:310010",
+   "name": "Volute casing HN 50-200",
+   "current_price": 126.53,
+   "price_unit": 1,
+   "quota_pct": 100,
+   "qualified_alternatives": [
+    "sup:70140"
+   ],
+   "should_cost_id": "cost:310010",
+   "should_cost_unit": 132.64
+  },
+  {
+   "part_id": "part:310012",
+   "name": "Volute casing HN 100-315",
+   "current_price": 383.06,
+   "price_unit": 1,
+   "quota_pct": 40,
+   "qualified_alternatives": [
+    "sup:70130"
+   ],
+   "should_cost_id": "cost:310012-70110",
+   "should_cost_unit": 347.27
+  }
+ ],
+ "contract": {
+  "id": "ctr:4600070110",
+  "valid_to": "2026-12-31",
+  "payment_days": 30,
+  "incoterm": "FCA",
+  "notice_days": 90,
+  "index_clauses": []
+ },
+ "standard_terms_hint": {
+  "payment_days": 30,
+  "incoterm": "FCA",
+  "lead_time_days": 42,
+  "skonto": null
+ },
+ "quality": {
+  "latest_scorecard_id": "sc:70110@2026Q3",
+  "otd_pct": 85.2,
+  "ppm": 712,
+  "colour": "amber",
+  "trend": "slipping: green/A through 2026Q2, first amber in 2026Q3 (score 94.0 in 2025Q1 -> 84.0)",
+  "open_8d_overdue": 1
+ },
+ "payment_behaviour": {
+  "avg_days_late_by_us": 3.7,
+  "note": "145 paid invoices, avg 33.7 days on 30 net; 3.4 days late in last 12m. No skonto ever taken."
+ },
+ "financial_health": {
+  "equity_ratio_pct": 24.7,
+  "credit_index": 222,
+  "credit_index_12m_ago": 222,
+  "signal": "thin equity, flat credit index; selling 310010 below its own full cost; asks for 10-day payment"
+ },
+ "negotiation_history": {
+  "events": 6,
+  "avg_asked_pct": 0.43,
+  "avg_settled_pct": -2.37,
+  "settle_to_ask_ratio": -0.37,
+  "notes": [
+   "ratio on positive-ask renewals (ask +2.0 %, settled -0.75 %)",
+   "310010 renewals EV-2024/2025/2026-70110-310010 all 'accepted below full cost to keep the volume'"
+  ]
+ },
+ "situation": "Family foundry, sole source for HN 50-200 volutes, asks +9.5 % (126.53 -> 138.55 from 2026-11-01) citing energy, material, wages. Indices justify ~+2.3 %, but the part is truly under water: 4.6 % below our model of its plant (cost:310010) after three below-cost renewals. The owner admits a two-year-old costing sheet and wants partnership plus 10-day payment. Goal stabilise: a fair, smaller increase from 2027-01-01, paid partly with cash timing, beats a squeeze.",
+ "pressures": [
+  {
+   "type": "cash",
+   "evidence": "asks us to pay within 10 days against a cash discount; 24.7 % equity",
+   "ids": [
+    "doc:20260902-70110-M2"
+   ]
+  },
+  {
+   "type": "other",
+   "evidence": "310010 priced below full cost for 3 renewals; 132.64 should-cost vs 126.53 price",
+   "ids": [
+    "cost:310010",
+    "quote:7300001"
+   ]
+  },
+  {
+   "type": "energy",
+   "evidence": "letter blames energy/raw material/wages; owner has not tracked his prices since the 2022 peak",
+   "ids": [
+    "doc:20260911-70110-P01",
+    "doc:20260909-70110-M4",
+    "doc:20260824-70110-M1"
+   ]
+  },
+  {
+   "type": "quality",
+   "evidence": "first amber scorecard, 6 QNs in rolling 12m, 1 overdue 8D",
+   "ids": [
+    "sc:70110@2026Q3"
+   ]
+  }
+ ],
+ "what_it_values": [
+  "recognition / partnership (2022 loyalty)",
+  "faster payment (cash)",
+  "getting off below-cost pricing on 310010",
+  "volume security on both volutes"
+ ],
+ "likely_tradeables": [
+  {
+   "lever": "payment_days",
+   "give": "pay in 14 days (their ask: 10)",
+   "get": "increase cut to roughly the should-cost gap (+4-5 %) instead of +9.5 %",
+   "why": "cash is what he asked for; our interest cost of 30->14 days is ~0.35 % of spend",
+   "ids": [
+    "doc:20260902-70110-M2"
+   ]
+  },
+  {
+   "lever": "effective_date",
+   "give": "accept a moderate increase",
+   "get": "effective 2027-01-01 instead of 2026-11-01",
+   "why": "contract fixes prices per calendar year and needs 90 days notice; letter gave 51",
+   "ids": [
+    "ctr:4600070110#3.1",
+    "doc:20260911-70110-P01"
+   ]
+  },
+  {
+   "lever": "contract_months",
+   "give": "24-month renewal (contract ends 2026-12-31)",
+   "get": "price held for the term",
+   "why": "security for a family firm that 'expects partnership'",
+   "ids": [
+    "ctr:4600070110#8.1",
+    "doc:20260917-70110-M3"
+   ]
+  }
+ ],
+ "arguments_that_should_land": [
+  {
+   "argument": "Notice: the letter gives 51 days, the contract requires 90 days and prices fixed per calendar year, so nothing can move before 2027-01-01.",
+   "ids": [
+    "doc:20260911-70110-P01",
+    "ctr:4600070110"
+   ],
+   "why": "checked as notice given vs agreed"
+  },
+  {
+   "argument": "Basic iron and steel +6.5 % (105.9 vs 99.4), labour +2.7 %, industrial power -3.7 % yoy; weighted by his cost drivers this is about +2.3 %, not +9.5 %.",
+   "ids": [
+    "idx:PPI-C241@2025-08",
+    "idx:PPI-C241@2026-08",
+    "idx:PPI-D351@2025-08",
+    "idx:PPI-D351@2026-08",
+    "idx:LCI-C@2025-06",
+    "idx:LCI-C@2026-06"
+   ],
+   "why": "he asked where our index figures come from and admits his sheet is stale: real data disarms him"
+  },
+  {
+   "argument": "Offer to help with his costing: our model puts the part at 132.64, so we can accept a move toward that, not 138.55.",
+   "ids": [
+    "cost:310010"
+   ],
+   "why": "shows good faith while anchoring well below the ask"
+  }
+ ],
+ "arguments_to_avoid": [
+  {
+   "argument": "Threatening to move 310010 to Kalwisz",
+   "why": "Kalwisz quoted 143.22 (quote:7200001), above even the 138.55 ask, and is red; empty threat"
+  },
+  {
+   "argument": "Spot gas / day-ahead power data",
+   "why": "WB-NGEU +129 % and SMARD-DA +73 % yoy to 2026-09 support his energy story; stick to PPI-D351"
+  },
+  {
+   "argument": "Demanding a price cut or flat price",
+   "why": "price is already below full cost; stabilise goal charges us for squeezing him"
+  },
+  {
+   "argument": "Lecturing him about his stale spreadsheet",
+   "why": "embarrassment hardens an owner"
+  }
+ ],
+ "persona": {
+  "who_writes": "the owner himself (family firm, office manager does costing)",
+  "style": "personal, appeals to loyalty and 'partnership', not numbers-driven",
+  "decision_making": "owner decides alone, fast; no committee",
+  "relationship_notes": "repeats that in 2022 he kept supplying at the old price for a quarter (said twice). Acknowledge it explicitly."
+ },
+ "noise": [
+  "doc:20251217-70110-N holiday shutdown",
+  "doc:20260715-70110-M5 = doc:20260917-70110-M3 (same note twice)",
+  "310012 is fine (9 % over cost:310012-70110), not part of P01"
+ ],
+ "key_quotes": [
+  {
+   "id": "doc:20260909-70110-M4",
+   "quote": "had not followed his material and energy prices closely since the 2022 peak"
+  },
+  {
+   "id": "doc:20260902-70110-M2",
+   "quote": "Could you pay our invoices within 10 days?"
+  }
+ ],
+ "confidence": "high"
+}

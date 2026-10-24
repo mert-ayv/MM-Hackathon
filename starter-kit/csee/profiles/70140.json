@@ -1,0 +1,234 @@
+{
+ "supplier_id": "sup:70140",
+ "name": "Odlewnia Kalwisz Sp. z o.o.",
+ "category": "castings",
+ "country": "PL",
+ "owner_type": "private",
+ "group_parent": null,
+ "staff": 210,
+ "turnover_eur": 9770000,
+ "our_spend_fy2026_eur": 682716,
+ "our_share_of_their_turnover_pct": 7.0,
+ "parts": [
+  {
+   "part_id": "part:310020",
+   "name": "Bearing bracket HN",
+   "current_price": 45.15,
+   "price_unit": 1,
+   "quota_pct": 100,
+   "qualified_alternatives": [
+    "sup:70190"
+   ],
+   "should_cost_id": null,
+   "should_cost_unit": null
+  },
+  {
+   "part_id": "part:310030",
+   "name": "Impeller HN 200",
+   "current_price": 30.14,
+   "price_unit": 1,
+   "quota_pct": 30,
+   "qualified_alternatives": [
+    "sup:70120",
+    "sup:70190"
+   ],
+   "should_cost_id": "cost:310030",
+   "should_cost_unit": 35.98
+  }
+ ],
+ "contract": {
+  "id": "ctr:4600070140",
+  "valid_to": "2027-06-30",
+  "payment_days": 60,
+  "incoterm": "FCA",
+  "notice_days": 90,
+  "index_clauses": []
+ },
+ "standard_terms_hint": {
+  "payment_days": 10,
+  "incoterm": "FCA",
+  "lead_time_days": 56,
+  "skonto": "offers a cash discount for payment within 10 days (amount not stated)"
+ },
+ "quality": {
+  "latest_scorecard_id": "sc:70140@2026Q3",
+  "otd_pct": 63.5,
+  "ppm": 2376,
+  "colour": "red",
+  "trend": "red in 7 of the last 9 quarters; ppm improving slowly (3434 in 2025Q2 -> 2376) but OTD fell back to 63.5 %",
+  "open_8d_overdue": 0
+ },
+ "payment_behaviour": {
+  "avg_days_late_by_us": 8.8,
+  "note": "WE pay late: avg 68.8 days on 60 net, 10.4 days late in the last 12m (max 19). They can throw this back at us."
+ },
+ "financial_health": {
+  "equity_ratio_pct": 39.1,
+  "credit_index": 225,
+  "credit_index_12m_ago": 225,
+  "signal": "restructuring with its banks after two loss-making years (filed figures are stale)"
+ },
+ "negotiation_history": {
+  "events": 6,
+  "avg_asked_pct": -0.18,
+  "avg_settled_pct": -2.37,
+  "settle_to_ask_ratio": 0.0,
+  "notes": [
+   "every positive ask (+3.8, +1.3, +2.8 %) settled at 0.0 %",
+   "accepted cuts in 2023 and 2025-12 (-2.5 % on 310020)"
+  ]
+ },
+ "situation": "Polish foundry in bank-led restructuring, sole source for HN bearing brackets (its own tooling). Red: OTD 63.5 %, 2376 ppm, 4 QNs on 310020 since 2025-10 (one 8D open). It begs for faster payment (bank watching, no margin cuts) while we pay ~10 days late. P11 is quality_first: buy a binding ppm/OTD commitment and a real chargeback with cash timing, not a price cut. Pfaffenreuth is qualified on 310020 (our tooling) but 18.6 % dearer.",
+ "pressures": [
+  {
+   "type": "cash",
+   "evidence": "asked twice for earlier payment; bank watching; quote states 10-day payment",
+   "ids": [
+    "doc:20260715-70140-M1",
+    "doc:20260710-70140-M2",
+    "quote:7300011"
+   ]
+  },
+  {
+   "type": "ownership",
+   "evidence": "restructuring programme with banks after two loss-making years",
+   "ids": [
+    "news:20260911-28"
+   ]
+  },
+  {
+   "type": "quality",
+   "evidence": "red scorecard; 310020 QNs: 8 pc missing marking, 3 porosity, 10 leakage, 6 wrong certificate",
+   "ids": [
+    "sc:70140@2026Q3",
+    "qn:20004747",
+    "qn:20004756",
+    "qn:20004952",
+    "qn:20005025"
+   ]
+  },
+  {
+   "type": "competition",
+   "evidence": "Pfaffenreuth quoted 310020 at 53.56 (2026-09), qualified since 2022",
+   "ids": [
+    "quote:7200011"
+   ]
+  }
+ ],
+ "what_it_values": [
+  "liquidity: being paid fast and on time",
+  "keeping the 7 %-of-turnover account during restructuring",
+  "no margin reduction",
+  "avoiding open-ended cost recovery"
+ ],
+ "likely_tradeables": [
+  {
+   "lever": "payment_days",
+   "give": "30 days (or 14 at the end) and genuinely on time",
+   "get": "binding ppm commitment and OTD plan for 310020, price held at 45.15",
+   "why": "cash-short; we are worth 7 % of turnover and currently pay ~10 days late",
+   "ids": [
+    "doc:20260715-70140-M1",
+    "quote:7300011"
+   ]
+  },
+  {
+   "lever": "ppm_commitment",
+   "give": "faster payment",
+   "get": "ppm commitment at or below ~1,000 (today 2,376)",
+   "why": "the main quality_first lever",
+   "ids": [
+    "sc:70140@2026Q3"
+   ]
+  },
+  {
+   "lever": "chargeback_eur_per_complaint",
+   "give": "faster payment / volume security to 2027-06",
+   "get": "chargeback well above the EUR 150 flat fee",
+   "why": "QNs were recharged 0 or 150 only",
+   "ids": [
+    "ctr:4600070140#6.1",
+    "qn:20004747"
+   ]
+  },
+  {
+   "lever": "lead_time_days",
+   "give": "keep volume",
+   "get": "lead time held at 56 days or less with a delivery schedule",
+   "why": "OTD 63.5 %",
+   "ids": [
+    "sc:70140@2026Q3"
+   ]
+  }
+ ],
+ "arguments_that_should_land": [
+  {
+   "argument": "Rolling scorecard: OTD 63.5 % and 2376 ppm, red.",
+   "ids": [
+    "sc:70140@2026Q3"
+   ],
+   "why": "indisputable, and it is the escalation trigger"
+  },
+  {
+   "argument": "Bearing-bracket QNs: 8, 10 and 6 parts in single lots.",
+   "ids": [
+    "qn:20004747",
+    "qn:20004952",
+    "qn:20005025"
+   ],
+   "why": "part-specific evidence, max 3 per message"
+  },
+  {
+   "argument": "Our qualified second source quoted 53.56 for 310020.",
+   "ids": [
+    "quote:7200011"
+   ],
+   "why": "credible exit, but cite once and calmly; reveals the price"
+  },
+  {
+   "argument": "We will fix our own payment discipline and pay faster if quality is contractually committed.",
+   "ids": [],
+   "why": "addresses their #1 need and pre-empts the 'you pay late' counter"
+  }
+ ],
+ "arguments_to_avoid": [
+  {
+   "argument": "Demanding a price reduction or cost recovery in EUR on top",
+   "why": "MD: 'I cannot sign anything that lowers our margin now' - restructuring firm may walk"
+  },
+  {
+   "argument": "Hard delisting threat",
+   "why": "supplier owns the 310020 tooling; Pfaffenreuth costs +18.6 %; walking hurts us"
+  },
+  {
+   "argument": "Pretending we pay on time",
+   "why": "we are ~10 days late on 60 net; they know"
+  },
+  {
+   "argument": "PLN/energy arguments",
+   "why": "irrelevant to a quality case"
+  }
+ ],
+ "persona": {
+  "who_writes": "managing director (Polish, private owner), sales for routine",
+  "style": "defensive, cash-anxious",
+  "decision_making": "MD under bank covenant scrutiny; cannot sign margin cuts",
+  "relationship_notes": "never got an increase; house agent scored 0.31 on P11 - stubborn on money, open on cash timing"
+ },
+ "noise": [
+  "doc:20251026-70140-N holiday shutdown",
+  "310010: qualified only; quote:7200001 (143.22) is a benchmark",
+  "cost:310030 models Velkenreith's German plant, not Kalwisz"
+ ],
+ "key_quotes": [
+  {
+   "id": "doc:20260715-70140-M1",
+   "quote": "I cannot sign anything that lowers our margin now."
+  },
+  {
+   "id": "doc:20260921-70140-P11",
+   "quote": "We expect a binding improvement plan for Bearing bracket HN"
+  }
+ ],
+ "confidence": "high"
+}

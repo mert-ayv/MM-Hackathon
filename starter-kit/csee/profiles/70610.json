@@ -1,0 +1,50 @@
+{
+ "supplier_id": "sup:70610",
+ "name": "Schraubenhandel Leitner & Sohn GmbH",
+ "category": "C-parts",
+ "country": "DE",
+ "owner_type": "family",
+ "group_parent": null,
+ "staff": 280,
+ "turnover_eur": 139000000,
+ "our_spend_fy2026_eur": 39959,
+ "our_share_of_their_turnover_pct": 0.03,
+ "parts": [
+  {"part_id": "part:360010", "name": "Hex bolt ISO 4017 M12x40 8.8, zinc", "current_price": 12.46, "price_unit": 100, "quota_pct": 40, "qualified_alternatives": ["sup:70650"], "should_cost_id": null, "should_cost_unit": null},
+  {"part_id": "part:360012", "name": "Hex nut ISO 4032 M12 8, zinc", "current_price": 4.91, "price_unit": 100, "quota_pct": 30, "qualified_alternatives": ["sup:70650"], "should_cost_id": null, "should_cost_unit": null},
+  {"part_id": "part:360030", "name": "Washer ISO 7089 M12, zinc", "current_price": 12.78, "price_unit": 1000, "quota_pct": 50, "qualified_alternatives": ["sup:70630"], "should_cost_id": null, "should_cost_unit": null}
+ ],
+ "contract": {"id": "ctr:4600070610", "valid_to": "2027-06-30", "payment_days": 30, "incoterm": "DAP", "notice_days": 90, "index_clauses": []},
+ "standard_terms_hint": {"payment_days": 30, "incoterm": "DAP", "lead_time_days": 5, "skonto": null},
+ "quality": {"latest_scorecard_id": "sc:70610@2026Q3", "otd_pct": 88.6, "ppm": 68, "colour": "green", "trend": "OTD 87.8%->88.3%, ppm 74->66 (mean 2024Q3-25Q2 vs 2025Q4-26Q3)", "open_8d_overdue": 0},
+ "payment_behaviour": {"avg_days_late_by_us": 2.1, "note": "last 12m: 21 of 71 invoices paid >3 days late, max 9 days. Avg 2.1 days late; minor."},
+ "financial_health": {"equity_ratio_pct": 30.0, "credit_index": 179, "credit_index_12m_ago": 179, "signal": "Family distributor, credit 179 unchanged; healthy. Idle shift = utilisation pressure."},
+ "negotiation_history": {"events": 9, "avg_asked_pct": 2.47, "avg_settled_pct": 0.17, "settle_to_ask_ratio": 0.07, "notes": ["9 renewals, asks avg 2.5%, settled 0.0% in 8 of 9 (EV-2026-70610-360010: asked 3.6, settled 0)."]},
+ "situation": "Family fastener distributor (EUR 139 m, since 1929); we spend only ~EUR 40k (0.03% of its turnover) on M12 bolts (40%), nuts (30%) and washers (50%). It has idle capacity (second shift on hold since spring) and says it can take more parts at short notice. Our memo wants ONE supplier for the whole kit (~30,000 kits/yr: M12x40, M16x60, nut, washer), worth ~EUR 189k/yr at today's blended prices - about 4.7x its current business. It is already the cheapest on M12 bolts (12.46 vs 14.52) and nuts (4.91 vs 5.60).",
+ "pressures": [
+  {"type": "utilisation", "evidence": "Second shift on hold since spring; can take additional parts.", "ids": ["doc:20260401-70610-M2", "doc:20260514-70610-M3"]},
+  {"type": "volume", "evidence": "Kit bundle on offer; M16x60 (part:360011) would be new business.", "ids": ["doc:20260909-70610-P07"]}
+ ],
+ "what_it_values": ["filling idle capacity / the whole kit", "multi-year volume", "simple logistics (one kit, scheduled call-offs)"],
+ "likely_tradeables": [
+  {"lever": "volume_per_year", "give": "whole kit: 570k M12 bolts, 180k M16 bolts, 630k nuts, 690k washers", "get": "kit prices at or below its current list (M16 below Mairhofer 37.64/100)", "why": "utilisation; 4.7x revenue", "ids": ["doc:20260909-70610-P07", "doc:20260401-70610-M2"]},
+  {"lever": "contract_months", "give": "24-36 month kit agreement", "get": "prices fixed for term", "why": "distributor values volume security", "ids": ["ctr:4600070610#8.1"]},
+  {"lever": "ppm_commitment", "give": "volume", "get": "ppm cap + chargeback; 19 QNs in 12 m", "why": "many small complaints", "ids": ["sc:70610@2026Q3"]}
+ ],
+ "arguments_that_should_land": [
+  {"argument": "You told us you can take additional parts at short notice with the second shift idle: the full kit fills it.", "ids": ["doc:20260401-70610-M2"], "why": "their own words"},
+  {"argument": "Fastener producer prices rose only 1.7% yoy, so no increase is justified.", "ids": ["idx:PPI-C2594@2025-08", "idx:PPI-C2594@2026-08"], "why": "blocks any price-up ask"},
+  {"argument": "Volumes grow: M16 bolt +15.3%, nut +9.0%.", "ids": ["fc:360011@2026-09", "fc:360012@2026-09"], "why": "bigger kit"}
+ ],
+ "arguments_to_avoid": [
+  {"argument": "Threats to drop it", "why": "it is the cheapest and wants the work; win-win framing works"},
+  {"argument": "Pressing >2% cut per part in one step", "why": "committee threshold"}
+ ],
+ "persona": {"who_writes": "Sales / key account manager", "style": "friendly, hungry for volume", "decision_making": "family-owned; committee >2%", "relationship_notes": "won the 2025 washer RFQ (quote:7100062)"},
+ "noise": ["doc:20251224-70610-N (trade fair)"],
+ "key_quotes": [
+  {"id": "doc:20260401-70610-M2", "quote": "they could take additional parts at short notice; the second shift has been on hold since spring."},
+  {"id": "doc:20260909-70610-P07", "quote": "We want one supplier for the kit."}
+ ],
+ "confidence": "high"
+}

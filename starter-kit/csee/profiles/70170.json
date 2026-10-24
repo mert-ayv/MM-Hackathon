@@ -1,0 +1,181 @@
+{
+ "supplier_id": "sup:70170",
+ "name": "Slévárna Vrbenský s.r.o.",
+ "category": "castings",
+ "country": "CZ",
+ "owner_type": "family",
+ "group_parent": null,
+ "staff": 150,
+ "turnover_eur": 8270000,
+ "our_spend_fy2026_eur": 198530,
+ "our_share_of_their_turnover_pct": 2.4,
+ "parts": [
+  {
+   "part_id": "part:310050",
+   "name": "Volute casing HI 80-250 (stainless)",
+   "current_price": 559.61,
+   "price_unit": 1,
+   "quota_pct": 25,
+   "qualified_alternatives": [
+    "sup:70180"
+   ],
+   "should_cost_id": null,
+   "should_cost_unit": null
+  }
+ ],
+ "contract": {
+  "id": "ctr:4600070170",
+  "valid_to": "2027-06-30",
+  "payment_days": 45,
+  "incoterm": "FCA",
+  "notice_days": 90,
+  "index_clauses": []
+ },
+ "standard_terms_hint": {
+  "payment_days": 45,
+  "incoterm": "FCA",
+  "lead_time_days": 56,
+  "skonto": null
+ },
+ "quality": {
+  "latest_scorecard_id": "sc:70170@2026Q3",
+  "otd_pct": 91.7,
+  "ppm": 5682,
+  "colour": "red",
+  "trend": "perfect until 2025Q3; red now only because 2 porosity/burr QNs hit ~24 small lots (jumpy ppm). OTD still best-in-group.",
+  "open_8d_overdue": 0
+ },
+ "payment_behaviour": {
+  "avg_days_late_by_us": 5.5,
+  "note": "avg 50.5 days on 45 net; 5.2 days late in last 12m"
+ },
+ "financial_health": {
+  "equity_ratio_pct": 36.4,
+  "credit_index": 239,
+  "credit_index_12m_ago": 239,
+  "signal": "sound; has just invested in a new moulding line"
+ },
+ "negotiation_history": {
+  "events": 3,
+  "avg_asked_pct": -0.23,
+  "avg_settled_pct": -2.53,
+  "settle_to_ask_ratio": -0.94,
+  "notes": [
+   "settled below its own ask every time (-5.9, 0.0, -1.7 %)"
+  ]
+ },
+ "situation": "Czech family foundry that has just doubled its stainless-casting capacity with a new automatic moulding line. It now needs to fill it and calls Hollerau an important reference customer. It is the cheaper HI 80-250 source (559.61 vs Allgäu-Reiter 654.52) but holds only 25 %. It also asked for 10-day payment. Volume and reference value are the currency; it has accepted cuts readily.",
+ "pressures": [
+  {
+   "type": "utilisation",
+   "evidence": "new line doubles stainless capacity - must be loaded",
+   "ids": [
+    "news:20260420-09"
+   ]
+  },
+  {
+   "type": "cash",
+   "evidence": "asked for payment within 10 days against a cash discount",
+   "ids": [
+    "doc:20260210-70170-M1"
+   ]
+  },
+  {
+   "type": "quality",
+   "evidence": "two QNs on small lots turned the rolling ppm red",
+   "ids": [
+    "sc:70170@2026Q3",
+    "qn:20005004"
+   ]
+  }
+ ],
+ "what_it_values": [
+  "more volume for the new line",
+  "Hollerau as a reference customer",
+  "faster payment",
+  "multi-year visibility"
+ ],
+ "likely_tradeables": [
+  {
+   "lever": "volume_per_year",
+   "give": "raise quota from 25 % toward 50 %+ of 1,593 pc/yr",
+   "get": "unit price below 559.61 and lead time <= 56 days",
+   "why": "fills new capacity; we save ~95 EUR/pc vs Allgäu-Reiter on shifted volume",
+   "ids": [
+    "news:20260420-09",
+    "fc:310050@2026-09"
+   ]
+  },
+  {
+   "lever": "contract_months",
+   "give": "24-36 months",
+   "get": "price held / cut",
+   "why": "investment payback visibility",
+   "ids": [
+    "ctr:4600070170#8.1"
+   ]
+  },
+  {
+   "lever": "payment_days",
+   "give": "30 or 14 days",
+   "get": "price",
+   "why": "its own request",
+   "ids": [
+    "doc:20260210-70170-M1"
+   ]
+  }
+ ],
+ "arguments_that_should_land": [
+  {
+   "argument": "HI 80-250 forecast 1,593 pc, +13.3 %: we can load your new line.",
+   "ids": [
+    "fc:310050@2026-09"
+   ],
+   "why": "growth plus capacity = volume deal"
+  },
+  {
+   "argument": "You are important to us too - we will act as a reference if price and quality hold.",
+   "ids": [
+    "doc:20260512-70170-M2"
+   ],
+   "why": "it named this itself"
+  },
+  {
+   "argument": "Delivery has been 91.7 % on time - best of our stainless sources.",
+   "ids": [
+    "sc:70170@2026Q3"
+   ],
+   "why": "appreciation; then ask for ppm containment"
+  }
+ ],
+ "arguments_to_avoid": [
+  {
+   "argument": "Making the red scorecard the headline",
+   "why": "2 QNs on tiny lots; KNOWN_ISSUES #10 - read rolling, not lots; would sour a willing partner"
+  },
+  {
+   "argument": "Alloy-surcharge data",
+   "why": "AS-14404 is +5.9 % yoy - supports an increase, not a cut"
+  },
+  {
+   "argument": "Revealing Allgäu-Reiter's higher price",
+   "why": "invites Vrbensky to price up toward 654.52"
+  }
+ ],
+ "persona": {
+  "who_writes": "owner / sales, family firm",
+  "style": "eager, partnership-minded",
+  "decision_making": "owner decides quickly",
+  "relationship_notes": "proud of being Hollerau's supplier (reference customer)"
+ },
+ "noise": [
+  "doc:20251109-70170-N trade fair invitation"
+ ],
+ "key_quotes": [
+  {
+   "id": "doc:20260512-70170-M2",
+   "quote": "Hollerau is an important reference customer for them"
+  }
+ ],
+ "confidence": "medium"
+}

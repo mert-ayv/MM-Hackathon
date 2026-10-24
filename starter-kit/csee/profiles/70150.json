@@ -1,0 +1,209 @@
+{
+ "supplier_id": "sup:70150",
+ "name": "Tarsevi Döküm Sanayi A.Ş.",
+ "category": "castings",
+ "country": "TR",
+ "owner_type": "family",
+ "group_parent": null,
+ "staff": 380,
+ "turnover_eur": 15800000,
+ "our_spend_fy2026_eur": 503212,
+ "our_share_of_their_turnover_pct": 3.2,
+ "parts": [
+  {
+   "part_id": "part:310060",
+   "name": "Pump housing HB 40",
+   "current_price": 32.24,
+   "price_unit": 1,
+   "quota_pct": 60,
+   "qualified_alternatives": [
+    "sup:70190"
+   ],
+   "should_cost_id": "cost:310060",
+   "should_cost_unit": 39.82
+  },
+  {
+   "part_id": "part:310070",
+   "name": "Volute casing HX 80-200 (open RFQ, P06)",
+   "current_price": null,
+   "price_unit": 1,
+   "quota_pct": 0,
+   "qualified_alternatives": [
+    "sup:70120"
+   ],
+   "should_cost_id": null,
+   "should_cost_unit": null
+  }
+ ],
+ "contract": {
+  "id": "ctr:4600070150",
+  "valid_to": "2027-06-30",
+  "payment_days": 60,
+  "incoterm": "FCA",
+  "notice_days": 90,
+  "index_clauses": []
+ },
+ "standard_terms_hint": {
+  "payment_days": 10,
+  "incoterm": "FCA",
+  "lead_time_days": 70,
+  "skonto": "offers a cash discount for payment within 10 days (amount not stated)"
+ },
+ "quality": {
+  "latest_scorecard_id": "sc:70150@2026Q3",
+  "otd_pct": 52.0,
+  "ppm": 2652,
+  "colour": "red",
+  "trend": "red four quarters running, OTD falling (80 % 2025Q1 -> 52 %)",
+  "open_8d_overdue": 0
+ },
+ "payment_behaviour": {
+  "avg_days_late_by_us": 4.9,
+  "note": "avg 64.9 days on 60 net; 6.2 days late in last 12m"
+ },
+ "financial_health": {
+  "equity_ratio_pct": 30.7,
+  "credit_index": 228,
+  "credit_index_12m_ago": 228,
+  "signal": "bank restructuring after two loss-making years; idle capacity"
+ },
+ "negotiation_history": {
+  "events": 3,
+  "avg_asked_pct": 1.0,
+  "avg_settled_pct": -2.13,
+  "settle_to_ask_ratio": -0.51,
+  "notes": [
+   "positive asks (+3.0, +0.7 %) ended at 0.0 and -1.9 %"
+  ]
+ },
+ "situation": "Turkish family foundry with idle capacity: half the floor idle, second shift on hold since spring, short hours. It is restructuring with its banks and asking to be paid in 10 days. It is the cheapest HB 40 housing source (32.24 vs Pfaffenreuth 43.39; German-base should-cost 39.82, about 30 at a TR cost base), but red on delivery and quality with a 70-day lead time. The owner offers to walk us through his calculation. It bids for HX 80-200 (P06) and will price aggressively for volume.",
+ "pressures": [
+  {
+   "type": "cash",
+   "evidence": "asks for 10-day payment; MD says bank watches every month",
+   "ids": [
+    "doc:20260804-70150-M4",
+    "doc:20260905-70150-M6",
+    "quote:7300068"
+   ]
+  },
+  {
+   "type": "utilisation",
+   "evidence": "half shop floor idle, second shift on hold",
+   "ids": [
+    "doc:20260610-70150-M1",
+    "doc:20260414-70150-M5"
+   ]
+  },
+  {
+   "type": "ownership",
+   "evidence": "restructuring with banks",
+   "ids": [
+    "news:20260809-22"
+   ]
+  },
+  {
+   "type": "quality",
+   "evidence": "OTD 52 %, 2652 ppm, red",
+   "ids": [
+    "sc:70150@2026Q3"
+   ]
+  }
+ ],
+ "what_it_values": [
+  "fast payment",
+  "volume to restart the second shift (HX work, more HB 40 quota)",
+  "keeping margin",
+  "being seen as a transparent partner (open book)"
+ ],
+ "likely_tradeables": [
+  {
+   "lever": "payment_days",
+   "give": "14-30 days instead of 60",
+   "get": "price held or reduced; OTD commitment",
+   "why": "cash-short; trading price for cash does not squeeze it",
+   "ids": [
+    "doc:20260804-70150-M4",
+    "quote:7300068"
+   ]
+  },
+  {
+   "lever": "volume_per_year",
+   "give": "more HB 40 quota or HX award",
+   "get": "lower unit price and binding ppm/OTD commitment",
+   "why": "idle capacity",
+   "ids": [
+    "doc:20260414-70150-M5",
+    "doc:20260926-70120-P06"
+   ]
+  },
+  {
+   "lever": "lead_time_days",
+   "give": "volume / faster payment",
+   "get": "lead time under 70 days",
+   "why": "70 days is the longest of our iron foundries",
+   "ids": [
+    "ctr:4600070150#5.1"
+   ]
+  }
+ ],
+ "arguments_that_should_land": [
+  {
+   "argument": "Take up the owner's open-book offer: walk through hourly rates and material together.",
+   "ids": [
+    "doc:20260418-70150-M2"
+   ],
+   "why": "his own offer; lets us see the floor"
+  },
+  {
+   "argument": "Euro is up 15.5 % against the lira in 12 months (48.49 -> 56.01 TRY per EUR), easing lira-based costs.",
+   "ids": [
+    "idx:ECB-TRY@2025-09",
+    "idx:ECB-TRY@2026-09"
+   ],
+   "why": "counters any cost-increase plea (use moderately: TR inflation is high)"
+  },
+  {
+   "argument": "HB 40 forecast 26,400 pc, +2.5 %: volume we can commit.",
+   "ids": [
+    "fc:310060@2026-09"
+   ],
+   "why": "volume for an idle plant"
+  }
+ ],
+ "arguments_to_avoid": [
+  {
+   "argument": "Price cut without a cash or volume give",
+   "why": "MD: 'I cannot sign anything that lowers our margin now'"
+  },
+  {
+   "argument": "Big volume shift with no quality conditions",
+   "why": "OTD 52 %, red four quarters - volume must come with ppm/OTD commitments"
+  },
+  {
+   "argument": "Citing cost:310060 as its cost",
+   "why": "it is a German-base estimate (12 % error); TR cost is ~25 % lower, so it would argue for a higher price"
+  }
+ ],
+ "persona": {
+  "who_writes": "owner/MD; sales on capacity topics",
+  "style": "eager for business, open (offers open-book)",
+  "decision_making": "owner decides, bank-constrained on margin",
+  "relationship_notes": "sales repeatedly offers short-notice capacity"
+ },
+ "noise": [
+  "doc:20251017-70150-N holiday shutdown",
+  "doc:20260419-70150-M3 duplicates M5"
+ ],
+ "key_quotes": [
+  {
+   "id": "doc:20260414-70150-M5",
+   "quote": "they could take additional parts at short notice; the second shift has been on hold since spring"
+  },
+  {
+   "id": "doc:20260418-70150-M2",
+   "quote": "he offered to walk us through their calculation"
+  }
+ ],
+ "confidence": "high"
+}

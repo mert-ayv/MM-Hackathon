@@ -1,0 +1,46 @@
+{
+ "supplier_id": "sup:70720",
+ "name": "Stahlhandel Rupprecht-Kessel GmbH",
+ "category": "raw material",
+ "country": "DE",
+ "owner_type": "family",
+ "group_parent": null,
+ "staff": 500,
+ "turnover_eur": 196000000,
+ "our_spend_fy2026_eur": 440941,
+ "our_share_of_their_turnover_pct": 0.22,
+ "parts": [
+  {"part_id": "part:370012", "name": "Round bar C45 dia 50 mm, cold drawn", "current_price": 126.05, "price_unit": 100, "quota_pct": 40, "qualified_alternatives": ["sup:70740"], "should_cost_id": null, "should_cost_unit": null},
+  {"part_id": "part:370020", "name": "Sheet S235JR 3 mm, hot rolled, cut to size", "current_price": 84.34, "price_unit": 100, "quota_pct": 100, "qualified_alternatives": [], "should_cost_id": null, "should_cost_unit": null}
+ ],
+ "contract": {"id": "ctr:4600070720", "valid_to": "2026-12-31", "payment_days": 30, "incoterm": "DAP", "notice_days": 60, "index_clauses": []},
+ "standard_terms_hint": {"payment_days": 30, "incoterm": "DAP", "lead_time_days": 10, "skonto": null},
+ "quality": {"latest_scorecard_id": "sc:70720@2026Q3", "otd_pct": 92.2, "ppm": 44, "colour": "green", "trend": "OTD 88.5%->90.8%, ppm 47->44 (mean 2024Q3-25Q2 vs 2025Q4-26Q3)", "open_8d_overdue": 0},
+ "payment_behaviour": {"avg_days_late_by_us": 2.5, "note": "last 12m: 16 of 47 invoices paid >3 days late, max 8 days. Avg 2.5 days late; fine."},
+ "financial_health": {"equity_ratio_pct": 39.0, "credit_index": 177, "credit_index_12m_ago": 177, "signal": "Family (since 1908), credit 177 unchanged; healthy."},
+ "negotiation_history": {"events": 6, "avg_asked_pct": -2.95, "avg_settled_pct": -5.32, "settle_to_ask_ratio": 0.0, "notes": ["Follows steel down readily: sheet -11.7%, -6.5%, -2.3% (EV-2026-70720-370020)."]},
+ "situation": "Family steel stockholder (EUR 196 m) on FIXED annual prices: S235 sheet EUR 84.34/100 kg (sole) and 40% of C45 bar at 126.05 (cheaper than Werdenfels' 143.39). Frame ends 2026-12-31 and it proposes a new basis with a PPI-C241 clause for the sheet (P16). PPI-C241 has risen eight months in a row, +7.8% since Nov 2025, so an index clause now shifts rising steel risk to us. It calls Hollerau an important reference customer and its owner offered to open the calculation.",
+ "pressures": [
+  {"type": "other", "evidence": "Steel cost rising: PPI-C241 98.2 -> 105.9 (Nov-25 -> Aug-26).", "ids": ["idx:PPI-C241@2025-11", "idx:PPI-C241@2026-08", "doc:20260916-70720-P16"]}
+ ],
+ "what_it_values": ["reference-customer relationship", "index protection on a rising market", "volume (sheet forecast +18.8%)"],
+ "likely_tradeables": [
+  {"lever": "index_clause", "give": "PPI-C241 clause with deadband >=3%, share <=0.7, symmetric", "get": "base price held at 84.34", "why": "steel rising; deadband limits pass-through", "ids": ["doc:20260916-70720-P16"]},
+  {"lever": "volume_per_year", "give": "more C45 share (Werdenfels 60%)", "get": "no clause or fixed sheet price", "why": "it is cheaper on C45", "ids": ["fc:370012@2026-09"]},
+  {"lever": "contract_months", "give": "24 months + reference role", "get": "fixed price", "why": "values reference status", "ids": ["doc:20260409-70720-M4"]}
+ ],
+ "arguments_that_should_land": [
+  {"argument": "Sheet volume forecast up 18.8%.", "ids": ["fc:370020@2026-09"], "why": "growth"},
+  {"argument": "Mean OTD 90.8%, ppm 44: you are among our best - we want to grow with you.", "ids": ["sc:70720@2025Q4", "sc:70720@2026Q1", "sc:70720@2026Q2", "sc:70720@2026Q3"], "why": "plays to reference pride"}
+ ],
+ "arguments_to_avoid": [
+  {"argument": "Steel prices are falling", "why": "PPI-C241 +6.5% yoy"},
+  {"argument": "Werdenfels sheet quote:7200016 (96.37)", "why": "rival far more expensive"}
+ ],
+ "persona": {"who_writes": "Owner / sales", "style": "relationship-oriented", "decision_making": "family owner decides", "relationship_notes": "proud of Hollerau as reference"},
+ "noise": ["doc:20251227-70720-N (trade fair)", "duplicate supplier-day notes"],
+ "key_quotes": [
+  {"id": "doc:20260409-70720-M4", "quote": "Hollerau is an important reference customer for them."}
+ ],
+ "confidence": "medium"
+}

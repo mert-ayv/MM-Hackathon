@@ -1,0 +1,195 @@
+{
+ "supplier_id": "sup:70430",
+ "name": "Elasto-Dicht Hermannsdorfer GmbH",
+ "category": "seals",
+ "country": "DE",
+ "owner_type": "family",
+ "group_parent": null,
+ "staff": 45,
+ "turnover_eur": 22900000,
+ "our_spend_fy2026_eur": 46359,
+ "our_share_of_their_turnover_pct": 0.2,
+ "parts": [
+  {
+   "part_id": "part:340020",
+   "name": "O-ring set EPDM, drinking-water approved",
+   "current_price": 65.41,
+   "price_unit": 100,
+   "quota_pct": 100,
+   "qualified_alternatives": [],
+   "should_cost_id": null,
+   "should_cost_unit": null
+  },
+  {
+   "part_id": "part:340040",
+   "name": "Lip seal 35x52x7",
+   "current_price": 100.98,
+   "price_unit": 100,
+   "quota_pct": 50,
+   "qualified_alternatives": [
+    "sup:70440"
+   ],
+   "should_cost_id": null,
+   "should_cost_unit": null
+  },
+  {
+   "part_id": "part:340030",
+   "name": "Casing gasket, aramid fibre (qualified, quote 1.97)",
+   "current_price": null,
+   "price_unit": 1,
+   "quota_pct": 0,
+   "qualified_alternatives": [
+    "sup:70410"
+   ],
+   "should_cost_id": null,
+   "should_cost_unit": null
+  }
+ ],
+ "contract": {
+  "id": "ctr:4600070430",
+  "valid_to": "2027-06-30",
+  "payment_days": 30,
+  "incoterm": "DAP",
+  "notice_days": 90,
+  "index_clauses": []
+ },
+ "standard_terms_hint": {
+  "payment_days": 30,
+  "incoterm": "DAP",
+  "lead_time_days": 7,
+  "skonto": null
+ },
+ "quality": {
+  "latest_scorecard_id": "sc:70430@2026Q3",
+  "otd_pct": 91.8,
+  "ppm": 291,
+  "colour": "green",
+  "trend": "best quarter in two years (OTD 91.8 %, score 94.5)",
+  "open_8d_overdue": 0
+ },
+ "payment_behaviour": {
+  "avg_days_late_by_us": 2.8,
+  "note": "avg 32.8 days on 30 net"
+ },
+ "financial_health": {
+  "equity_ratio_pct": 38.9,
+  "credit_index": 167,
+  "credit_index_12m_ago": 167,
+  "signal": "healthy distributor-like firm (45 staff, 22.9 M EUR)"
+ },
+ "negotiation_history": {
+  "events": 6,
+  "avg_asked_pct": 2.8,
+  "avg_settled_pct": 0.83,
+  "settle_to_ask_ratio": 0.3,
+  "notes": [
+   "2025-11/12: +2.4 % and +2.6 % granted (asks +5.4 / +4.0)",
+   "flat 2023-2025"
+  ]
+ },
+ "situation": "Small, fast (7-day lead time), well-performing family seal firm, and the natural one supplier for the seal kit in P15 (25,000 kits/yr: 2 O-ring sets, 1 gasket, 2 lip seals). Today we are a small account for it (46 k EUR, 0.2 % of turnover), and it says it is reviewing small accounts and will focus on customers with volume. The kit roughly triples our spend with it (~132 k EUR at current prices), which is exactly what it wants. The owner has offered an open-book walk-through.",
+ "pressures": [
+  {
+   "type": "volume",
+   "evidence": "reviewing small accounts, focusing on customers with volume",
+   "ids": [
+    "doc:20260515-70430-M1"
+   ]
+  },
+  {
+   "type": "competition",
+   "evidence": "half of the lip-seal volume sits with Kohlering at 111.69/100",
+   "ids": [
+    "quote:7100041"
+   ]
+  }
+ ],
+ "what_it_values": [
+  "volume (becoming a real account)",
+  "multi-year bundle",
+  "transparent, fair pricing (open book)",
+  "simple logistics"
+ ],
+ "likely_tradeables": [
+  {
+   "lever": "volume_per_year",
+   "give": "whole kit: 100 % of 340020, 340030 and 340040 (~25,000 kits)",
+   "get": "kit price below today's sum; reverse the 2026 increases",
+   "why": "turns a small account into a volume customer",
+   "ids": [
+    "doc:20260913-70430-P15",
+    "doc:20260515-70430-M1"
+   ]
+  },
+  {
+   "lever": "contract_months",
+   "give": "24-36 months",
+   "get": "price fixed for the term",
+   "why": "plannable volume for a 45-person firm",
+   "ids": []
+  },
+  {
+   "lever": "index_clause",
+   "give": "if needed, rubber-index clause on the material share",
+   "get": "lower base price",
+   "why": "kit parts are ~54-56 % PPI-C2219 driven; rubber +3.9 % yoy",
+   "ids": [
+    "idx:PPI-C2219@2025-08",
+    "idx:PPI-C2219@2026-08"
+   ]
+  }
+ ],
+ "arguments_that_should_land": [
+  {
+   "argument": "Bundling the kit with you lifts our volume to about 25,000 kits a year.",
+   "ids": [
+    "doc:20260913-70430-P15"
+   ],
+   "why": "directly answers its 'customers with volume' policy"
+  },
+  {
+   "argument": "Your gasket quote of 1.97 beat the incumbent's 2.23.",
+   "ids": [
+    "quote:7100039"
+   ],
+   "why": "acknowledges competitiveness, anchors gasket price"
+  },
+  {
+   "argument": "Let's take up your offer to walk through hourly rates and material.",
+   "ids": [
+    "doc:20260326-70430-M2"
+   ],
+   "why": "owner's own offer"
+  }
+ ],
+ "arguments_to_avoid": [
+  {
+   "argument": "Treating it as a small, replaceable account",
+   "why": "that is exactly why it would deprioritise us"
+  },
+  {
+   "argument": "Asking for a cut while keeping the volume split",
+   "why": "only volume buys price here"
+  },
+  {
+   "argument": "Pushing lead time below 7 days",
+   "why": "already best-in-class"
+  }
+ ],
+ "persona": {
+  "who_writes": "owner / sales director (new inside-sales contact since 2025-10)",
+  "style": "pragmatic, numbers-open",
+  "decision_making": "owner decides fast",
+  "relationship_notes": "best-improving seal supplier; reward it"
+ },
+ "noise": [
+  "doc:20251012-70430-N new contact person"
+ ],
+ "key_quotes": [
+  {
+   "id": "doc:20260515-70430-M1",
+   "quote": "reviewing small accounts and will focus on customers with volume"
+  }
+ ],
+ "confidence": "high"
+}
