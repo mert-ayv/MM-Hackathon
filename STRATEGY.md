@@ -2,6 +2,8 @@
 
 **Goal: first place in the Live Final, Sun 13:30.** That needs (1) a top-5 Live Final score and (2) the best pitch among the top 5. Background is in [CHALLENGE.md](CHALLENGE.md).
 
+**Benchmark:** Tacto's own house agent averages **≈ 0.70** on the 10 practice cases (from 0.31 on P11 to 0.97 on P01; see [CHALLENGE.md](CHALLENGE.md#the-10-hosted-practice-cases-and-the-bar-to-beat)). We need to beat it on every case, especially the hard ones: P11 quality (0.31), P18 raw material (0.39) and P05 RFQ (0.56).
+
 ## What the scoring rewards
 
 1. **C_best is fixed per case: the best package any supplier would *ever* accept, with every lever applied.** Haggling on price alone caps our score. To reach a score near 1 we have to pull every lever the supplier will trade: payment days, Incoterm, lead time, contract length, volume, effective date, ppm/chargeback, index clause and tooling.

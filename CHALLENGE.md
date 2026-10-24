@@ -204,6 +204,27 @@ The same €41.60 for only 12 months covers half the need, so C = €355,920. Th
 
 ---
 
+### The 10 hosted practice cases and the bar to beat
+
+The **house agent** is Tacto's own reference agent (the orange tick on each bar at https://arena.tacto.ai/live). A case shows a team as a record holder only if the team beats it. **Its mean is ≈ 0.70, and that's our minimum target.** Cases are sorted hardest first on the page; the live data is at `https://arena.tacto.ai/v1/live`.
+
+| Case | Type | Situation | Supplier(s) | House agent |
+| --- | --- | --- | --- | --- |
+| P01 | price_increase | Brandlhuber +9.5 % on HN volute casings | Gießerei Brandlhuber (DE, family, 185 staff, castings) | **0.97** |
+| P02 | price_increase | Nordmark passes on copper for the 7.5 kW motor | Antriebstechnik Nordmark AG (DE, group, 4,800 staff, electrical) | **0.74** |
+| P03 | renewal | Frame agreement renewal, 7.5 kW frequency converter | Selvbrunn Drive Systems (DE, group, 2,200 staff, electrical) | **0.92** |
+| P04 | renewal | Ball bearing 6306 agreement renewal | Wälzlager-Zentrum Süd (DE, family, 120 staff, C-parts) | **0.86** |
+| P05 | rfq | Pump shaft for the new HX series (3 bidders) | Zerspanung Dralveck (DE, 22 staff) · Strojírna Hrvelec (CZ, 60 staff) · Drehteile Fuchsreiter (DE, 18 staff), all founder-led machined parts | **0.56** |
+| P07 | bundling | Bundle the fastener kit with one distributor | Schraubenhandel Leitner & Sohn (DE, family, 280 staff, C-parts) | **0.78** |
+| P08 | raw_material | Alloy surcharge and base price, 1.4404 bar | Edelstahl-Service Donautal (DE, group, 350 staff, raw material) | **0.75** |
+| P10 | capacity | Ravensteiner cuts the seal allocation | Dichtungswerk Ravensteiner (DE, group, 650 staff, seals) | **0.69** |
+| P11 | quality | Kalwisz: bearing brackets in red | Odlewnia Kalwisz (PL, private, 210 staff, castings) | **0.31** |
+| P18 | raw_material | Alloy surcharge and base price, 1.4404 bar (Werdenfels) | Blankstahl Werdenfels (DE, family, 200 staff, raw material) | **0.39** |
+
+The other practice-case IDs (P06, P09, P12–P17, P19) have data in the package but aren't hosted. The final's hidden cases use **new** suppliers.
+
+---
+
 ## 5. The Live Final (Sunday 13:30)
 
 - **5 themed waves, 8 minutes each** (the host may extend one, so read `seconds_left` and don't assume). Every team plays at the same time.
