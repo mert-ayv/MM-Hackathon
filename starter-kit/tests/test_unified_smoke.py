@@ -105,21 +105,24 @@ def test_walk_guard_holds_without_move(pkg, cases):
 
 
 def test_risk_clause_on_blamed_index(pkg, cases):
-    case = cases["case:P02"]
+    case = cases["case:P16"]  # raw material, no relationship goal
+    sid = case["suppliers"][0]
+    body = "PPI-C241 rose 12.3 % in twelve months and is 38 % of our cost."
+    agent = ua.UnifiedAgent(pkg)
+    msg = agent.thread_move(case, {sid: [opening(case, sid, body=body)]}, sid)
+    clauses = [s["terms"] for s in msg["term_sheets"] if s["terms"].get("index_clause")]
+    assert clauses and clauses[0]["index_clause"]["series"] == "PPI-C241"
+    assert clauses[0]["index_clause"]["deadband_pct"] == 5  # widest deadband: the cheapest clause for us
+    assert "index clause on PPI-C241" in msg["body"]
+
+
+def test_no_clause_that_squeezes_a_stabilise_supplier(pkg, cases):
+    case = cases["case:P02"]  # stabilise: a clause sheet below its cost costs us the relationship charge
     sid = case["suppliers"][0]
     body = "CU-NOTATION rose 47.7 % in twelve months and is 20 % of our cost."
     agent = ua.UnifiedAgent(pkg)
-    threads = {sid: [opening(case, sid, body=body)]}
-    msg = agent.thread_move(case, threads, sid)
-    sheets = [s["terms"] for s in msg["term_sheets"]]
-    clauses = [s for s in sheets if s.get("index_clause")]
-    assert clauses and clauses[0]["index_clause"]["series"] == "CU-NOTATION"
-    assert clauses[0]["index_clause"]["deadband_pct"] == 5  # widest deadband: the cheapest clause for us
-    assert "index clause on CU-NOTATION" in msg["body"]
-    # without a blamed index: no clause sheet outside raw material
-    agent = ua.UnifiedAgent(pkg)
-    msg = agent.thread_move(case, {sid: [opening(case, sid)]}, sid)
-    assert not any(s["terms"].get("index_clause") for s in msg["term_sheets"][1:])
+    msg = agent.thread_move(case, {sid: [opening(case, sid, body=body)]}, sid)
+    assert not any(s["terms"].get("index_clause") for s in msg["term_sheets"])
 
 
 def test_claim_filter(pkg, cases):

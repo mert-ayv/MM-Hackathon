@@ -66,6 +66,7 @@ class Opening:
         t = complete_offer(case, {**main, "index_clause": clause})
         if not must_haves_ok(case, t, std):
             return None
+        full = supplier
         if self.p.trade_no_rel:
             supplier = None  # with the relationship term C is not monotone in price: price_for returns None (P02)
         target = total_cost(case, main, std, supplier) * (1 - self.p.trade_gain)
@@ -73,8 +74,10 @@ class Opening:
         if price is None or price <= 0:
             return None
         t["unit_price"] = price
-        # no relationship-charge veto here (base's trade sheets have one): our should-cost runs above P02's real
-        # cost, so it would drop the very sheet that won P02 (copper clause, 368 -> 357, score 0.63)
+        if self.p.trade_no_rel and full and total_cost(case, t, std, full) > total_cost(case, main, std, full):
+            # below its cost: dearer for us once the relationship charge counts (practice P02, 24 Oct: it agreed
+            # to the clause sheet at 353.48 at once, and the hidden relationship charge made it 0.39)
+            return None
         return t
 
     def payment_sheet(self, case, sid, main, std, supplier):
