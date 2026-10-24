@@ -49,7 +49,7 @@
 | **C** | **Eval loop and final infra**: practice runner with a score table, replay scraper and analysis, cloud VM, final rehearsal on the simulator, logging | one command plays all practice cases and prints scores vs. the last run; the final runner rehearsed |
 | **D** | **Pitch and submission**: architecture notes, 1-min demo and tech videos, slides, a replay walkthrough | everything uploaded by 13:00 |
 
-**Quota discipline:** 200 practice sessions per 24h, shared by all four of us. Use the simulator and the sandbox (`D01`, `D02`, free) for plumbing, and the hosted practice cases only to measure real changes. Log every run in `runs/` (git-ignored).
+**Quota discipline:** 400 practice sessions per rolling 24h (raised from 200 on Sat evening), shared by all four of us. Use the simulator and the sandbox (`D01`, `D02`, free) for plumbing, and the hosted practice cases only to measure real changes. Log every run in `runs/` (git-ignored).
 
 ## Timeline
 
@@ -65,7 +65,7 @@
 
 ## How we experiment (read before running anything)
 
-We share **one arena key and 200 practice sessions per 24h**, and the arena can't tell whose agent played a session. So:
+We share **one arena key and 400 practice sessions per rolling 24h**, and the arena can't tell whose agent played a session. So:
 
 1. **Approaches live in git, on `main`.** Each of us owns one agent file in [`starter-kit/csee/agents/`](starter-kit/csee/agents/) (`ege.py`, `mert.py`, `annika.py`, `emre.py`). Each one subclasses `CseeAgent` and starts identical to `base`: override what you want to change, edit only your own file, and run it with `--agent <name>`. Small changes are *variants*: parameter presets in [`starter-kit/csee/variants.py`](starter-kit/csee/variants.py), run with `--variant`. Don't use `exp/` branches: `scripts/sync.sh` rebases onto main and pushes HEAD to main after every Claude turn. Shared modules (`agent.py`, `levers.py`, `intel.py`, `writer.py`, `runner.py`) change every agent, so improve them only in ways that keep `base` scoring the same, or agree on it first. Uncommitted edits are saved as patches (`experiments/patches/`) and the run's commit tag reads `<commit>+<hash>`.
 2. **Every practice session must be logged.** Run practice only through the csee CLI (`uv run python -m csee play|run ... --confirm`), never through the kit's own play/run commands: those spend the shared quota without a trace (as of Sat 15:40, 3 sessions are unaccounted for). In Claude sessions a PreToolUse hook (`scripts/guard_practice.sh`) blocks them on practice cases. Set `CSEE_AUTHOR=<name>` in `.env`.

@@ -33,9 +33,11 @@ git add -A
 git reset -q -- starter-kit/.env '*.env' '.env*' 2>/dev/null   # never commit keys
 git diff --cached --quiet && exit 0
 if git diff --cached --name-only | grep -q '^starter-kit/csee/.*\.py$'; then
-  if ! (cd starter-kit && uv run pytest -q tests/test_csee_smoke.py >/dev/null 2>&1); then
+  # the final router on all case files (~30 s): the full smoke test takes ~6 min and the Stop hook stops sync
+  # after 120 s, so with it agent code was never auto-pushed. Run the full suite by hand before the freeze.
+  if ! (cd starter-kit && uv run pytest -q -x tests/test_csee_smoke.py -k router >/dev/null 2>&1); then
     git reset -q
-    say "smoke test failed - code NOT pushed (run: cd starter-kit && uv run pytest tests/test_csee_smoke.py)"
+    say "router smoke test failed - code NOT pushed (run: cd starter-kit && uv run pytest tests/test_csee_smoke.py -k router)"
     exit 0
   fi
 fi
