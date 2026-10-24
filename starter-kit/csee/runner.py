@@ -80,11 +80,32 @@ def play_case(table, case_id, agent, deadline=None):
             log.exception("%s %s: worker failed", case_id, sid)
             agent.threads[sid].ready = True
 
-    workers = [threading.Thread(target=safe, args=(sid,), daemon=True) for sid in live_threads(threads)]
-    for w in workers:
+    sids = live_threads(threads)
+    workers = {sid: threading.Thread(target=safe, args=(sid,), daemon=True) for sid in sids}
+    for w in workers.values():
         w.start()
-    while any(w.is_alive() for w in workers) and not ended.is_set() and not near_cap():
+    idle_since = {}  # thread -> when its worker stopped (its last supplier reply)
+    while any(w.is_alive() for w in workers.values()) and not ended.is_set() and not near_cap():
         time.sleep(0.5)
+        now = time.monotonic()
+        for sid, w in workers.items():
+            if not w.is_alive():
+                idle_since.setdefault(sid, now)
+        # A finished thread's 60 s clock keeps running while others negotiate: after IDLE_CLOSE_S the arena
+        # re-issues its offer (P05: a stale accept), three such timeouts end the thread. If the thread that
+        # waits holds our best deal, close now rather than risk it.
+        waiting = [sid for sid, t in idle_since.items() if now - t > IDLE_CLOSE_S]
+        if waiting:
+            with lock:
+                try:
+                    best = agent.close(case, threads, force=True)
+                except Exception:
+                    best = None
+            if best and best["supplier_id"] in waiting and best["message"]["action"]["type"] == "accept":
+                log.info(
+                    "%s: %s waited %ss holding the best deal - closing now", case_id, best["supplier_id"], IDLE_CLOSE_S
+                )
+                break
     if result:
         return {**result, "session_id": table.session_id}
     with lock:
@@ -126,6 +147,7 @@ def play_case(table, case_id, agent, deadline=None):
     return {**out, "session_id": table.session_id}
 
 
+IDLE_CLOSE_S = 40  # a ready thread holding the best deal must not wait out its 60 s clock
 WRITE_BUDGET_S = 15  # the model's share of our 60 s per message; the template is the fallback
 _writers = ThreadPoolExecutor(max_workers=16, thread_name_prefix="writer")
 

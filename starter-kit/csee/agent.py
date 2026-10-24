@@ -62,6 +62,7 @@ class Params:
     hold_on_internal: bool = False  # "we will come back to you on price": hold our price one round
     # v8 switches (trade every lever; read the supplier's own words)
     generic_trades: bool = False  # trade sheets over every negotiable term, cheapest concession for us first
+    sticky_terms: bool = False  # after our first ask, keep the non-price terms of its cheapest sheet (P11)
     text_signals: bool = False  # infer cash/capacity/volume pressure from the supplier's e-mails, not only profiles
 
 
@@ -282,6 +283,11 @@ class CseeAgent:
         if p_s is None:
             return None
         fixed = self.insisted_fields(case, threads[sid]) if self.p.adopt_insisted else {}
+        if self.p.sticky_terms and st.our_prices:
+            # once it has priced a set of terms, flipping them lets it re-price (P11: we flipped quality terms
+            # three times and accepted the dearest set it had offered): keep its cheapest-for-us sheet's terms,
+            # negotiate the price, trade other terms only in alternative sheets
+            fixed.update({f: theirs[f] for f in case["negotiable"] if f != "unit_price" and f in theirs})
         if self.p.adopt_revealed:
             fixed.update(self.revealed_fields(case, threads[sid], theirs))
         exclude = {}

@@ -1,0 +1,101 @@
+diff --git a/starter-kit/csee/agent.py b/starter-kit/csee/agent.py
+index 3123dca..d3e300b 100644
+--- a/starter-kit/csee/agent.py
++++ b/starter-kit/csee/agent.py
+@@ -62,6 +62,7 @@ class Params:
+     hold_on_internal: bool = False  # "we will come back to you on price": hold our price one round
+     # v8 switches (trade every lever; read the supplier's own words)
+     generic_trades: bool = False  # trade sheets over every negotiable term, cheapest concession for us first
++    sticky_terms: bool = False  # after our first ask, keep the non-price terms of its cheapest sheet (P11)
+     text_signals: bool = False  # infer cash/capacity/volume pressure from the supplier's e-mails, not only profiles
+ 
+ 
+@@ -282,6 +283,11 @@ class CseeAgent:
+         if p_s is None:
+             return None
+         fixed = self.insisted_fields(case, threads[sid]) if self.p.adopt_insisted else {}
++        if self.p.sticky_terms and st.our_prices:
++            # once it has priced a set of terms, flipping them lets it re-price (P11: we flipped quality terms
++            # three times and accepted the dearest set it had offered): keep its cheapest-for-us sheet's terms,
++            # negotiate the price, trade other terms only in alternative sheets
++            fixed.update({f: theirs[f] for f in case["negotiable"] if f != "unit_price" and f in theirs})
+         if self.p.adopt_revealed:
+             fixed.update(self.revealed_fields(case, threads[sid], theirs))
+         exclude = {}
+diff --git a/starter-kit/csee/runner.py b/starter-kit/csee/runner.py
+index bc5fb22..09ee3d6 100644
+--- a/starter-kit/csee/runner.py
++++ b/starter-kit/csee/runner.py
+@@ -80,11 +80,32 @@ def play_case(table, case_id, agent, deadline=None):
+             log.exception("%s %s: worker failed", case_id, sid)
+             agent.threads[sid].ready = True
+ 
+-    workers = [threading.Thread(target=safe, args=(sid,), daemon=True) for sid in live_threads(threads)]
+-    for w in workers:
++    sids = live_threads(threads)
++    workers = {sid: threading.Thread(target=safe, args=(sid,), daemon=True) for sid in sids}
++    for w in workers.values():
+         w.start()
+-    while any(w.is_alive() for w in workers) and not ended.is_set() and not near_cap():
++    idle_since = {}  # thread -> when its worker stopped (its last supplier reply)
++    while any(w.is_alive() for w in workers.values()) and not ended.is_set() and not near_cap():
+         time.sleep(0.5)
++        now = time.monotonic()
++        for sid, w in workers.items():
++            if not w.is_alive():
++                idle_since.setdefault(sid, now)
++        # A finished thread's 60 s clock keeps running while others negotiate: after IDLE_CLOSE_S the arena
++        # re-issues its offer (P05: a stale accept), three such timeouts end the thread. If the thread that
++        # waits holds our best deal, close now rather than risk it.
++        waiting = [sid for sid, t in idle_since.items() if now - t > IDLE_CLOSE_S]
++        if waiting:
++            with lock:
++                try:
++                    best = agent.close(case, threads, force=True)
++                except Exception:
++                    best = None
++            if best and best["supplier_id"] in waiting and best["message"]["action"]["type"] == "accept":
++                log.info(
++                    "%s: %s waited %ss holding the best deal - closing now", case_id, best["supplier_id"], IDLE_CLOSE_S
++                )
++                break
+     if result:
+         return {**result, "session_id": table.session_id}
+     with lock:
+@@ -126,6 +147,7 @@ def play_case(table, case_id, agent, deadline=None):
+     return {**out, "session_id": table.session_id}
+ 
+ 
++IDLE_CLOSE_S = 40  # a ready thread holding the best deal must not wait out its 60 s clock
+ WRITE_BUDGET_S = 15  # the model's share of our 60 s per message; the template is the fallback
+ _writers = ThreadPoolExecutor(max_workers=16, thread_name_prefix="writer")
+ 
+diff --git a/starter-kit/csee/variants.py b/starter-kit/csee/variants.py
+index 40ce5be..ce1b3bb 100644
+--- a/starter-kit/csee/variants.py
++++ b/starter-kit/csee/variants.py
+@@ -77,6 +77,15 @@ VARIANTS = {
+         "generic_trades": True,
+         "text_signals": True,
+     },
++    "v9": {
++        "adopt_insisted": True,
++        "rival_only_lower": True,
++        "cash_trade_always": True,
++        "anchor_leverage": 0.22,
++        "rfq_anchor_vs_leader": 0.08,
++        "adopt_revealed": True,
++        "sticky_terms": True,
++    },
+ }
+ 
+ 
+@@ -96,6 +105,8 @@ DESCRIPTIONS = {
+     "v7": "v6 without holding the price while the supplier asks its boss.",
+     "v8": "v7 + trade sheets over every term (lead time, ppm, chargeback, incoterm, clause...), one step toward "
+     "the supplier, liked terms first, then cheapest for us; + pressures read from the supplier's own e-mails.",
++    "v9": "v7 + sticky terms: after our first ask keep the non-price terms of the supplier's cheapest-for-us "
++    "sheet and negotiate price (P11 flipped quality terms 3x and accepted the dearest set).",
+     "v4": "base tactics (12% anchor, steady concessions keep the supplier conceding: D01) + v2's adopt-held-terms, "
+     "lower-rival-only, cash sheet + floor guard (P05 anchored 0.5% below the opening) + RFQ: beat the leader.",
+ }

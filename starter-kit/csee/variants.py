@@ -77,6 +77,15 @@ VARIANTS = {
         "generic_trades": True,
         "text_signals": True,
     },
+    "v9": {
+        "adopt_insisted": True,
+        "rival_only_lower": True,
+        "cash_trade_always": True,
+        "anchor_leverage": 0.22,
+        "rfq_anchor_vs_leader": 0.08,
+        "adopt_revealed": True,
+        "sticky_terms": True,
+    },
 }
 
 
@@ -96,6 +105,8 @@ DESCRIPTIONS = {
     "v7": "v6 without holding the price while the supplier asks its boss.",
     "v8": "v7 + trade sheets over every term (lead time, ppm, chargeback, incoterm, clause...), one step toward "
     "the supplier, liked terms first, then cheapest for us; + pressures read from the supplier's own e-mails.",
+    "v9": "v7 + sticky terms: after our first ask keep the non-price terms of the supplier's cheapest-for-us "
+    "sheet and negotiate price (P11 flipped quality terms 3x and accepted the dearest set).",
     "v4": "base tactics (12% anchor, steady concessions keep the supplier conceding: D01) + v2's adopt-held-terms, "
     "lower-rival-only, cash sheet + floor guard (P05 anchored 0.5% below the opening) + RFQ: beat the leader.",
 }
