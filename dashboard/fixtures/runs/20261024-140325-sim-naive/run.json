@@ -1,0 +1,13 @@
+{
+  "run_id": "20261024-140325-sim-naive",
+  "agent": "sim-naive",
+  "agent_version": "2089903",
+  "set": "sim",
+  "started_at": "2026-10-24T14:03:25.376+02:00",
+  "ended_at": "2026-10-24T14:03:38.276+02:00",
+  "cases": [
+    "case:S01",
+    "case:S03"
+  ],
+  "notes": "Real log: kit's naive agent vs the local arena-sim"
+}
