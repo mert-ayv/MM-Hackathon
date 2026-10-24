@@ -5,7 +5,15 @@ cost function (`arena_kit.cost`) - no model involved.
 
 import math
 
-from arena_kit.cost import OPS, RELATIONSHIP_GOALS, closing_terms, complete_offer, must_haves_ok, total_cost
+from arena_kit.cost import (
+    OPS,
+    RELATIONSHIP_GOALS,
+    closing_terms,
+    complete_offer,
+    must_haves_ok,
+    supplier_value,
+    total_cost,
+)
 
 # Which way each term pleases the supplier (+1: higher is better for it). Used to break ties: among
 # values that cost us the same, we give the supplier the one it likes.
@@ -60,13 +68,63 @@ def nearest_ok(case, field, value):
     return min(ok, key=lambda o: (abs(o - value), o)) if ok else None
 
 
+def real_ppm_default(case, std=None, supplier=None):
+    """The defect rate the supplier really has, when the caller knows nothing better: `supplier["ppm"]`,
+    else its standard ppm commitment, else the case's highest ppm option (quality suppliers run well above
+    the options they offer: P11 scorecard 2,376 ppm, P12 4,118)."""
+    if supplier and supplier.get("ppm") is not None:
+        return supplier["ppm"]
+    if std and std.get("ppm_commitment"):
+        return std["ppm_commitment"]
+    return max(options(case, "ppm_commitment") or [0])
+
+
+def supplier_value_fn(case, std=None, supplier=None, real_ppm=None):
+    """`terms -> supplier_value` per unit, with chargebacks at the supplier's REAL defect rate (`real_ppm`).
+    A chargeback costs it real_ppm x chargeback x units; a lower ppm *commitment* does not change its real
+    ppm, so it costs it nothing here. Unknown standard terms come from the case (closing_terms)."""
+    est = dict(supplier or {})
+    est["standard"] = closing_terms(case, {}, {**(std or {}), **(est.get("standard") or {})})
+    est.setdefault("interest_rate", 0.08)
+    est["ppm"] = real_ppm if real_ppm is not None else real_ppm_default(case, std, supplier)
+
+    def value(terms):
+        try:
+            return supplier_value(case, {**terms, "unit_price": terms.get("unit_price") or 1.0}, est)
+        except (KeyError, TypeError, ZeroDivisionError):
+            return 0.0
+
+    return value
+
+
 def best_terms(
-    case, base, std=None, supplier=None, fixed=(), tolerance=1.0, exclude=None, value_of=None, cap_contract=False
+    case,
+    base,
+    std=None,
+    supplier=None,
+    fixed=(),
+    tolerance=1.0,
+    exclude=None,
+    value_of=None,
+    cap_contract=False,
+    supplier_ppm=None,
+    supplier_cost_aware=True,
 ):
     """Coordinate descent over the negotiable non-price fields at the price in `base`: the value with
     the lowest C for us; among values within `tolerance` EUR of it, the one the supplier likes most.
-    Free volume and contract length fields: our need and the horizon (more costs, less leaves need uncovered)."""
+    Free volume and contract length fields: our need and the horizon (more costs, less leaves need uncovered).
+
+    Quality terms (ppm commitment, chargeback) are compared at the price that keeps the supplier's value
+    equal: it prices a chargeback at its REAL defect rate (`supplier_ppm`; default `real_ppm_default`), so a
+    chargeback above its standard is chosen only if it saves us more than it costs the supplier. Among
+    options within `tolerance` the one cheapest for the supplier wins, then the lowest ppm commitment
+    (P11: (1,500 ppm, EUR 500) and (300 ppm, EUR 500) both cost us EUR 0, but the supplier charged
+    EUR 2.00-2.50/unit for the chargeback, worth EUR 0.11-0.45/unit to us). `value_of` overrides the
+    supplier's value function; `supplier_cost_aware=False` restores the old pure-C comparison with the
+    "supplier likes" tie-break (the local simulator's C_best yardstick)."""
     b = case["buyer"]
+    if value_of is None and supplier_cost_aware:
+        value_of = supplier_value_fn(case, std, supplier, supplier_ppm)
     t = complete_offer(case, base)
     cap = price_cap(case)
     if (
@@ -86,33 +144,89 @@ def best_terms(
             if field == "unit_price" or field in fixed or not options(case, field):
                 continue
             scored = []
-            here = value_of(t) if value_of and field in VALUE_NEUTRAL_FIELDS and t.get("unit_price") else None
+            neutral = value_of is not None and field in VALUE_NEUTRAL_FIELDS
+            here = value_of(t) if neutral else None
             for v in options(case, field):
                 if v in (exclude or {}).get(field, []):
                     continue
                 if cap_contract and field == "contract_months" and v > round(12 * b["horizon_years"]):
                     continue  # longer than we need: the supplier then insists on an index clause (P08, P18)
                 cand = {**t, field: v}
-                if here is not None:
-                    # the supplier prices what a term costs IT (a chargeback at its real defect rate, faster
-                    # payment at its cost of money): compare options at the price that keeps its value equal
-                    cand["unit_price"] = round(t["unit_price"] + (here - value_of(cand)), 4)
+                its_cost = 0.0  # EUR per unit the move costs the supplier (+) at its real defect rate
+                if neutral:
+                    its_cost = here - value_of(cand)
+                    if t.get("unit_price"):
+                        # the supplier prices what a term costs IT (a chargeback at its real defect rate):
+                        # compare options at the price that keeps its value equal
+                        cand["unit_price"] = round(t["unit_price"] + its_cost, 4)
                 c = total_cost(case, cand, std, supplier)
                 # a price above our price must-have is still being negotiated down: judge the other terms at the cap
                 mh = {**cand, "unit_price": min(cand["unit_price"], cap)} if cap and cand.get("unit_price") else cand
                 if must_haves_ok(case, mh, std):
-                    scored.append((c, v))
+                    scored.append((c, its_cost, v))
             if not scored:
                 continue
-            low = min(c for c, _ in scored)
-            near = [v for c, v in scored if c <= low + tolerance]
-            t[field] = max(near, key=lambda v: _supplier_rank(field, v, case))
+            low = min(c for c, _, _ in scored)
+            near = [(cost, v) for c, cost, v in scored if c <= low + tolerance]
+            if neutral:
+                # cheapest for the supplier; then the lowest ppm commitment (free to it: its real ppm is what it
+                # is), or the chargeback closest to its standard
+                std_cb = (std or {}).get("chargeback_eur_per_complaint") or 0
+
+                def second(v, field=field, std_cb=std_cb):
+                    return _num(v) if field == "ppm_commitment" else abs(_num(v) - std_cb)
+
+                t[field] = min(near, key=lambda x: (round(x[0], 6), second(x[1])))[1]
+            else:
+                t[field] = max((v for _, v in near), key=lambda v: _supplier_rank(field, v, case))
     return t
 
 
-def price_for(case, terms, target_c, std=None, supplier=None, lo=0.0, hi=None):
-    """The unit price at which `terms` cost `target_c` (bisection; C rises with the price)."""
+def _num(v):
+    return v if isinstance(v, int | float) else 0
+
+
+def cost_minimal_price(case, terms, std=None, supplier=None, lo=0.0, hi=None, steps=120):
+    """The unit price with the lowest C on [lo, hi]. Only the relationship term (stabilise and secure_supply,
+    with a supplier estimate) makes C non-monotone in the price: below some price each EUR saved returns as
+    relationship charge. Without it C rises with the price and this is `lo`. Scan, then golden-section."""
     hi = hi or max(terms.get("unit_price") or 1.0, 1.0) * 4
+    if case["buyer"].get("category_goal") not in RELATIONSHIP_GOALS or not supplier:
+        return lo
+
+    def c_at(p):
+        sheet = {**terms, "unit_price": p}
+        try:
+            if supplier_value(case, closing_terms(case, sheet, std), supplier) <= 0:
+                return math.inf  # worth nothing to it: the margin formula breaks down, never a target
+            return total_cost(case, sheet, std, supplier)
+        except (KeyError, TypeError, ZeroDivisionError):
+            return math.inf
+
+    grid = [lo + (hi - lo) * i / steps for i in range(steps + 1)]
+    i = min(range(len(grid)), key=lambda k: (c_at(grid[k]), grid[k]))
+    a, z = grid[max(i - 1, 0)], grid[min(i + 1, steps)]
+    g = (math.sqrt(5) - 1) / 2
+    for _ in range(60):
+        x1, x2 = z - g * (z - a), a + g * (z - a)
+        if c_at(x1) <= c_at(x2):
+            z = x2
+        else:
+            a = x1
+    p = (a + z) / 2
+    return p if c_at(p) <= c_at(grid[i]) else grid[i]
+
+
+def price_for(case, terms, target_c, std=None, supplier=None, lo=0.0, hi=None):
+    """The unit price at which `terms` cost `target_c`, or None if no price gets C that low.
+
+    Bisection on the monotone branch only: in stabilise/secure_supply cases the relationship term makes C
+    rise again below the C-minimal price, so we first find that price (`cost_minimal_price`) and search
+    [p_min, hi]. Before, bisection from 0 could converge to ~0 and callers silently dropped the sheet."""
+    hi = hi or max(terms.get("unit_price") or 1.0, 1.0) * 4
+    lo = cost_minimal_price(case, terms, std, supplier, lo, hi)
+    if total_cost(case, {**terms, "unit_price": lo}, std, supplier) > target_c:
+        return None  # even the C-minimal price costs more than the target
     for _ in range(60):
         mid = (lo + hi) / 2
         if total_cost(case, {**terms, "unit_price": mid}, std, supplier) > target_c:

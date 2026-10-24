@@ -147,8 +147,11 @@ class EmreAgent(CseeAgent):
         if not must_haves_ok(case, t, std):
             return None
         target = total_cost(case, main, std, supplier) * (1 - self.p.trade_gain)
-        t["unit_price"] = levers.price_for(case, t, target, std, supplier)
-        return t if t["unit_price"] > 0 else None
+        price = levers.price_for(case, t, target, std, supplier)
+        if price is None or price <= 0:  # no price gets this sheet to the target C
+            return None
+        t["unit_price"] = price
+        return t
 
     # ---------- the e-mail: say which sheet carries a clause ----------
     def thread_move(self, case, threads, sid):

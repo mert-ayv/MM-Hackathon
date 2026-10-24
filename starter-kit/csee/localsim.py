@@ -192,10 +192,11 @@ class Supplier:
 
     def best_cost(self):
         """C_best for this supplier: our best terms at the price that just meets its floor."""
-        t = levers.best_terms(self.case, {"unit_price": self.floor}, self.std)
+        # the simulator's yardstick: pure C for us, as before (its supplier prices chargebacks its own way)
+        t = levers.best_terms(self.case, {"unit_price": self.floor}, self.std, supplier_cost_aware=False)
         for _ in range(2):
             t["unit_price"] = self.price_for_value(t, self.floor)
-            t = levers.best_terms(self.case, t, self.std)
+            t = levers.best_terms(self.case, t, self.std, supplier_cost_aware=False)
         t["unit_price"] = self.price_for_value(t, self.floor)
         return total_cost(self.case, t, self.std) if must_haves_ok(self.case, t, self.std) else math.inf
 

@@ -216,14 +216,21 @@ class CseeAgent:
         standard = closing_terms(case, st.opening, std)
         return {"full_cost": full, "interest_rate": rate, "standard": standard}
 
-    def value_fn(self, case, sid, std):
-        """What a sheet is worth to the supplier per unit (cash), incl. chargebacks at its REAL defect rate:
-        max(its opening commitment, its latest scorecard ppm)."""
+    def real_ppm(self, case, sid, std=None):
+        """The defect rate the supplier really has: max(its opening / standard commitment, its latest scorecard
+        ppm, its profile's quality.ppm). A chargeback costs it real ppm x chargeback x units (P11: 2,376)."""
         st = self.threads[sid]
-        ppm = st.opening.get("ppm_commitment") or 0
+        ppm = max(st.opening.get("ppm_commitment") or 0, (std or {}).get("ppm_commitment") or 0)
         cards = intel_mod.supplier_facts(case, self.pkg, sid, "sc:")
         if cards:
             ppm = max(ppm, max(cards.items(), key=lambda x: x[1].get("quarter") or "")[1].get("ppm") or 0)
+        quality = st.intel.profile.get("quality") or {}
+        return max(ppm, quality.get("ppm") or 0)
+
+    def value_fn(self, case, sid, std):
+        """What a sheet is worth to the supplier per unit (cash), incl. chargebacks at its REAL defect rate."""
+        st = self.threads[sid]
+        ppm = self.real_ppm(case, sid, std)
         est = self.supplier_estimate(case, sid, std) or {
             "full_cost": 1.0,
             "interest_rate": 0.08,
@@ -530,7 +537,9 @@ class CseeAgent:
             if self.p.sticky_max_cost and stick:
                 # keep only the terms that are cheap for us to concede (D01: its 30 days = 0.7 % of C, stick;
                 # P01: its early start date = several %, don't) - the rest we still negotiate
-                ours_best = levers.best_terms(case, {**theirs}, std, supplier)
+                ours_best = levers.best_terms(
+                    case, {**theirs}, std, supplier, supplier_ppm=self.real_ppm(case, sid, std)
+                )
                 c0 = total_cost(case, ours_best, std, supplier)
                 stick = {
                     f: v
@@ -558,6 +567,7 @@ class CseeAgent:
             fixed.pop("index_clause", None)
             exclude = {"index_clause": [None]}  # a clause it is: the cheapest one for us (widest deadband)
         value_of = self.value_fn(case, sid, std) if self.p.value_neutral_terms else None
+        real_ppm = self.real_ppm(case, sid, std)
         cap = self.p.contract_at_horizon and self.clause_rising(case)
         base = levers.best_terms(
             case,
@@ -568,6 +578,7 @@ class CseeAgent:
             exclude=exclude,
             value_of=value_of,
             cap_contract=cap,
+            supplier_ppm=real_ppm,
         )
         floor = self.floor_price(st)
         rel_goal = b.get("category_goal") in RELATIONSHIP_GOALS
@@ -655,6 +666,7 @@ class CseeAgent:
             exclude=exclude,
             value_of=value_of,
             cap_contract=cap,
+            supplier_ppm=real_ppm,
         )
         ours = {**base, "unit_price": round(p, 2)}
         if self.p.rfq_beat_leader and len(case["suppliers"]) > 1:
@@ -662,7 +674,7 @@ class CseeAgent:
             if leader < math.inf:
                 # ask for a package that beats the best rival; conceding past the rival is pointless
                 cap = levers.price_for(case, ours, leader * (1 - self.p.rfq_margin), std, supplier)
-                if cap <= 0:
+                if cap is None or cap <= 0:
                     st.why = "rfq: cannot beat the leader"
                     return None
                 if cap < ours["unit_price"]:
@@ -727,10 +739,13 @@ class CseeAgent:
             t = complete_offer(case, {**out[0], **change})
             if not must_haves_ok(case, t, std):
                 continue
-            t["unit_price"] = levers.price_for(case, t, target, std, supplier)
+            price = levers.price_for(case, t, target, std, supplier)
+            if price is None or price <= 0:
+                continue  # no price on the monotone branch reaches the target: no trade sheet
+            t["unit_price"] = price
             if self.p.trade_no_rel and full and total_cost(case, t, std, full) > total_cost(case, out[0], std, full):
                 continue  # below its cost: dearer for us with the relationship charge (P17: 29.38 vs cost 35.38)
-            if t["unit_price"] > 0 and t not in out and t["unit_price"] < out[0]["unit_price"] * 1.2:
+            if t not in out and price < out[0]["unit_price"] * 1.2:
                 out.append(t)
         return out
 
