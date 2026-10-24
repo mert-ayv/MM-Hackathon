@@ -25,6 +25,7 @@ class Claim:
     strength: float = 1.0  # how strongly it supports a lower price (for ordering)
     price: float | None = None  # the figure, for rival offers
     tag: str = ""  # e.g. the index series, "ppm"/"otd" (for the profile's arguments_to_avoid)
+    source: str = ""  # "history": from history_claims, cited only with Params.history_claims
 
 
 @dataclass
@@ -291,7 +292,132 @@ def claims_for(case, pkg, supplier_id, asked_price=None, opening_text=""):
         ):
             out.append(Claim(f"We read that {head.rstrip('.')} ({ref}).", [ref], "news", strength=0.6))
             break
+    out += history_claims(case, pkg, supplier_id, asked_price, cards)
     return sorted(out, key=lambda c: -c.strength)
+
+
+def _years_back(known, prefix, supplier_id, years=2):
+    """The date `years` before this supplier's latest record of this kind ("" if none)."""
+    latest = max((f.get("date") or "" for r, f in known.items() if r.startswith(prefix) and isinstance(f, dict)
+                  and f.get("supplier") == supplier_id), default="")
+    return f"{int(latest[:4]) - years}{latest[4:]}" if latest[:4].isdigit() else ""
+
+
+PO_GROUPS, PO_PER_CLAIM = 3, 3  # 2-8 orders of one part per argument; each ID counts once per case
+PO_STRENGTH = (1.9, 1.1, 0.9)  # after notice/should-cost/quality, before forecast/news
+
+
+def history_claims(case, pkg, supplier_id, asked_price=None, cards=()):
+    """Arguments for rounds 2+ (round 1 uses the strongest three): our order history with this supplier,
+    its complaint rate from quality notifications, its delivery record over earlier quarters, and the
+    case's own references we hold no figures for (cited without one, the arena takes the data's value)."""
+    out = []
+    ctype = case.get("type")
+    parts = case.get("parts", [])
+    known = {**(pkg.facts if pkg else {}), **(case.get("facts") or {})}
+    # 1. the prices it sold this part to us at: its cheapest orders of the last two years, per part
+    for part in parts:
+        pos = [
+            (r, f)
+            for r, f in known.items()
+            if r.startswith("po:") and isinstance(f, dict) and f.get("supplier") == supplier_id
+            and f.get("part") == part and f.get("unit_price")
+        ]
+        if len(pos) < 2:
+            continue
+        latest = max(f.get("date") or "" for _, f in pos)
+        cutoff = f"{int(latest[:4]) - 2}{latest[4:]}" if latest[:4].isdigit() else ""
+        recent = [x for x in pos if (x[1].get("date") or "") >= cutoff]
+        pos = sorted(recent if len(recent) >= 2 else pos, key=lambda x: (x[1]["unit_price"], x[0]))
+        if asked_price and pos[0][1]["unit_price"] >= asked_price * 0.99:
+            continue  # it never sold cheaper than it asks now: no argument
+        for g in range(PO_GROUPS):
+            group = pos[g * PO_PER_CLAIM : (g + 1) * PO_PER_CLAIM]
+            if len(group) < 2 or (asked_price and group[0][1]["unit_price"] >= asked_price * 0.99):
+                break
+            listed = ", ".join(f"EUR {f['unit_price']:.2f} ({r})" for r, f in group)
+            out.append(
+                Claim(
+                    f"Our orders of this part with you were priced at {listed}.",
+                    [r for r, _ in group],
+                    "history",
+                    strength=PO_STRENGTH[g] * (1.0 if len(parts) == 1 else 0.8),
+                    tag="po",
+                    source="history",
+                )
+            )
+    # 2. its complaint rate from our quality notifications (quality cases, or a high rate)
+    qns = sorted(
+        (
+            (r, f)
+            for r, f in known.items()
+            if r.startswith("qn:") and isinstance(f, dict) and f.get("supplier") == supplier_id
+            and f.get("part") in parts and f.get("ppm") and (f.get("date") or "") >= _years_back(known, "qn:", supplier_id)
+        ),
+        key=lambda x: (-(x[1]["ppm"]), x[0]),
+    )
+    for g in range(2):
+        group = qns[g * 3 : (g + 1) * 3]
+        if len(group) < 2:
+            break
+        mean = sum(f["ppm"] for _, f in group) / len(group)
+        if mean < 500 and ctype != "quality":
+            break
+        out.append(
+            Claim(
+                f"Your recent complaints on this part averaged {mean:.0f} ppm "
+                f"({', '.join(r for r, _ in group)}).",
+                [r for r, _ in group],
+                "scorecard",
+                strength=(3.0 if ctype == "quality" else 1.4) * (1.0 if g == 0 else 0.6),
+                tag="ppm",
+                source="history",
+            )
+        )
+    # 3. its delivery record over earlier quarters (the latest two are cited on their own)
+    earlier = [(r, f) for r, f in list(cards)[:-2] if f.get("otd_pct") is not None][-4:]
+    if len(earlier) >= 2:
+        mean = sum(f["otd_pct"] for _, f in earlier) / len(earlier)
+        if mean < 92:
+            out.append(
+                Claim(
+                    f"Your on-time delivery averaged {mean:.1f}% over the quarters before that "
+                    f"({', '.join(r for r, _ in earlier)}).",
+                    [r for r, _ in earlier],
+                    "scorecard",
+                    strength=0.9,
+                    tag="otd",
+                    source="history",
+                )
+            )
+    # 4. the case's own references we have no figures for (sandbox, hidden final cases): orders and the
+    #    should-cost estimate argue for us whatever their value; scorecards, forecasts and news may not
+    unknown = [r for r in case.get("refs", []) if r not in known and not (pkg and pkg.lookup(r))]
+    po_refs = [r for r in unknown if r.startswith("po:")][:8]
+    if len(po_refs) >= 2:
+        out.append(
+            Claim(
+                f"Please compare your offer with our recent orders of this part ({', '.join(po_refs)}).",
+                po_refs,
+                "history",
+                strength=1.3,
+                tag="po",
+                source="history",
+            )
+        )
+    for r in unknown:
+        if r.startswith("cost:"):
+            out.append(
+                Claim(
+                    f"Our should-cost analysis for this part ({r}) leaves clear room below your price.",
+                    [r],
+                    "should_cost",
+                    strength=1.8,
+                    source="history",
+                )
+            )
+            break
+    return out
 
 
 def rival_claims(case, threads_standing, me):

@@ -125,3 +125,5 @@ How our agent negotiates, and how each architecture version is tracked. Code: [`
   - more checkable claims in round 2+ (suppliers asked for data in P03/P11/P18, and we sent none);
   - the "<= 2 % desk authority" line (P02/P10);
   - continuing the RFQ auction with an agreed bidder (P05).
+
+| v16 | v14 + more checked arguments for rounds 2+ (`history_claims`, intel.history_claims): this supplier's cheapest orders of the part in the last 2 years (3 per argument, each ID next to its exact price; P02 339.37, P08 5.17, P18 5.26), mean ppm of its quality notifications, delivery over earlier quarters, and case `refs` we hold no data for (orders, should-cost), cited without a figure | **0.99 / 0.75 / 0.871** (v14 0.835; both figure-free arguments came back `verified` - D01/D02 had sent no arguments at all before) | – | – | **candidate**; 72 new practice-case arguments all match facts.json (static check); figured order arguments not yet checked by the arena |

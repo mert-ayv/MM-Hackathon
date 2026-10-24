@@ -38,6 +38,7 @@ AVOID_WORDS = {
     "forecast": ("forecast", "fc:"),
     "notice": ("notice",),
     "news": ("news:",),
+    "history": ("order history", "po:", "past prices", "historical price"),
 }
 
 
@@ -74,6 +75,7 @@ class Params:
     close_gap: float = 0.004  # their C within this share of ours: take it
     trade_gain: float = 0.006  # a trade sheet must save us at least this share of C
     max_claims: int = 2  # data arguments per message (the arena checks at most 3)
+    history_claims: bool = False  # also cite order history, quality notifications, earlier quarters, case refs
     cash_rate: float = 0.14  # a cash-short supplier's cost of money
     reserve_moves: int = 1  # keep this many messages in hand
     # v2 switches (off = the v1 baseline behaviour)
@@ -782,7 +784,7 @@ class CseeAgent:
 
     def pick_claims(self, case, threads, sid):
         st = self.threads[sid]
-        claims = list(st.intel.claims)
+        claims = [c for c in st.intel.claims if self.p.history_claims or c.source != "history"]
         if len(case["suppliers"]) > 1:
             stand = {s: standing(threads[s]) for s in threads}
             rivals = intel_mod.rival_claims(case, stand, sid)
