@@ -114,6 +114,10 @@ def play_case(table, case_id, agent, deadline=None):
                     for m in threads[s]:
                         fetch_documents(table, m)
                 decision = agent.close(case, threads, force=True)
+                if attempt >= 1:  # still refused: the thread's own standing offer, nothing clever
+                    t = table.client.thread(table.session_id, decision["supplier_id"])
+                    if t.get("offer_id") and decision["message"]["action"]["type"] == "accept":
+                        decision["message"]["action"]["term_sheet_id"] = t["offer_id"]
             except Exception:
                 log.exception("%s: re-reading the threads failed", case_id)
                 break

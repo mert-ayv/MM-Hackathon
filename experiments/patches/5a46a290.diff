@@ -1,0 +1,82 @@
+diff --git a/starter-kit/csee/agent.py b/starter-kit/csee/agent.py
+index 408005c..466ff11 100644
+--- a/starter-kit/csee/agent.py
++++ b/starter-kit/csee/agent.py
+@@ -17,7 +17,7 @@ from arena_kit.play import ENDED, latest, live_threads, moves_left, standing
+ 
+ from . import intel as intel_mod
+ from . import levers
+-from .writer import TemplateWriter
++from .writer import SIGN, TemplateWriter, describe
+ 
+ log = logging.getLogger("csee")
+ 
+@@ -69,7 +69,10 @@ class ThreadState:
+     their_prices: list = field(default_factory=list)
+     breakdown: dict | None = None
+     opening: dict = field(default_factory=dict)  # its first offered terms
+-    cited_rival: float | None = None  # the rival price we last cited to this supplier
++    cited_rival: float | None = None
++    alt_requested: str | None = (
++        None  # an alternative sheet of theirs we proposed back  # the rival price we last cited to this supplier
++    )
+     asked_breakdown: bool = False
+     ready: bool = False  # nothing more to gain by writing: wait for the coordinator
+ 
+@@ -77,7 +80,7 @@ class ThreadState:
+ class CseeAgent:
+     def __init__(self, package=None, writer=None, params=None):
+         self.pkg, self.p = package, params or Params()
+-        from .writer import TemplateWriter
++        from .writer import SIGN, TemplateWriter, describe
+ 
+         self.writer = writer or TemplateWriter()
+         self.case_id, self.threads, self.used_ids = None, {}, set()
+@@ -190,6 +193,19 @@ class CseeAgent:
+             st.ready = True
+             return None
+         left = moves_left(case, ev)
++        # Only the FIRST sheet of a reply is standing and acceptable (422 "not a standing offer" otherwise).
++        # Its alternative is better for us: propose it back word for word; the supplier then agrees to it.
++        first_id = (latest(ev).get("term_sheets") or [{}])[0].get("term_sheet_id")
++        if sheet_id and first_id and sheet_id != first_id and left >= 1 and st.alt_requested != sheet_id:
++            st.alt_requested = sheet_id
++            terms = complete_offer(case, theirs)
++            return {
++                "subject": f"Re: {case['title']}"[:300],
++                "body": "Good day,\n\nthank you. We accept your alternative offer as stated: "
++                f"{describe(terms)}. Please confirm it as your offer.\n\n{SIGN}",
++                "term_sheets": [{"terms": terms}],
++                "refs": [],
++            }
+         if status in READY_STATUSES or left <= self.p.reserve_moves or not sheet_id:
+             st.ready = True
+             return None
+@@ -440,10 +456,8 @@ class CseeAgent:
+         for sid in live:
+             std = standard_terms(threads[sid])
+             supplier = self.supplier_estimate(case, sid, std)
+-            if self.p.all_sheets:
+-                offered = [
+-                    (s["term_sheet_id"], s.get("terms") or {}) for s in latest(threads[sid]).get("term_sheets") or []
+-                ]
++            if False:  # only the first sheet is standing: alternatives are won by proposing them back
++                offered = []
+             else:
+                 offered = [standing(threads[sid])]
+             for sheet_id, terms in offered:
+diff --git a/starter-kit/csee/runner.py b/starter-kit/csee/runner.py
+index f2b64e6..bc5fb22 100644
+--- a/starter-kit/csee/runner.py
++++ b/starter-kit/csee/runner.py
+@@ -114,6 +114,10 @@ def play_case(table, case_id, agent, deadline=None):
+                     for m in threads[s]:
+                         fetch_documents(table, m)
+                 decision = agent.close(case, threads, force=True)
++                if attempt >= 1:  # still refused: the thread's own standing offer, nothing clever
++                    t = table.client.thread(table.session_id, decision["supplier_id"])
++                    if t.get("offer_id") and decision["message"]["action"]["type"] == "accept":
++                        decision["message"]["action"]["term_sheet_id"] = t["offer_id"]
+             except Exception:
+                 log.exception("%s: re-reading the threads failed", case_id)
+                 break
