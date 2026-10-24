@@ -186,6 +186,11 @@ class CseeAgent:
             out.add("index")
         return out
 
+    def cash_short(self, sid):
+        st = self.threads[sid]
+        pressures = " ".join(p.get("type", "") for p in st.intel.profile.get("pressures", []))
+        return "cash" in pressures or "cash" in self.signals(sid, st.events)
+
     def supplier_estimate(self, case, sid, std):
         st = self.threads[sid]
         full = (st.breakdown or {}).get("full_cost") or (
@@ -498,7 +503,12 @@ class CseeAgent:
                 }
             fixed.update(stick)
         if self.p.adopt_revealed:
-            fixed.update(self.revealed_fields(case, threads[sid], theirs))
+            revealed = self.revealed_fields(case, threads[sid], theirs)
+            if "payment_days" in revealed and not self.cash_short(sid):
+                # P18: its 30-day alternative looked cheapest at that moment and got locked in; the same supplier
+                # gave 90 days at the same price to another agent. Faster payment only for a supplier short of cash
+                revealed.pop("payment_days")
+            fixed.update(revealed)
         # never adopt a supplier value that breaks one of our must-haves (P10: volume 19,890 < 22,230)
         fixed = {k: v for k, v in fixed.items() if must_haves_ok(case, {**complete_offer(case, theirs), k: v}, std)}
         exclude = {}

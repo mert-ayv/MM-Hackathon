@@ -394,8 +394,11 @@ class EgeAgent(CseeAgent):
             log.info("%s %s: agent wanted %s - the rules still counter", case["case_id"], sid, action)
             return False  # stopping while the rules would still counter is a concession: rule move
         if action == "accept":
-            if sheet_id and theirs.get("unit_price") is not None and must_haves_ok(case, theirs, std) and (
-                total_cost(case, theirs, std) < c_alt
+            if (
+                sheet_id
+                and theirs.get("unit_price") is not None
+                and must_haves_ok(case, theirs, std)
+                and (total_cost(case, theirs, std) < c_alt)
             ):
                 st.ready = True
                 return {"action": {"type": "accept", "term_sheet_id": sheet_id}}

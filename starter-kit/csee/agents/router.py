@@ -18,7 +18,7 @@ ROUTES = {
     "price_increase": "base",
     "renewal": "base",
     "rfq": "base",
-    "raw_material": "emre",
+    "raw_material": "emre/base",  # pinned: emre with v13 switches offered 30 days (raw-material review, P18 -0.048)
     "capacity": "base",
     "quality": "base",
     "bundling": "base",
