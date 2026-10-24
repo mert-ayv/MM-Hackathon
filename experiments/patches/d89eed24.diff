@@ -1,0 +1,25 @@
+diff --git a/starter-kit/csee/agents/emre.py b/starter-kit/csee/agents/emre.py
+index 72e1aea..b5cd529 100644
+--- a/starter-kit/csee/agents/emre.py
++++ b/starter-kit/csee/agents/emre.py
+@@ -11,6 +11,10 @@ For `type == "raw_material"`, on top of base (same opening offer, concessions, a
+   1 argument per e-mail (base sends max_claims + 1 in the first and runs dry); the pool gets more recent
+   index falls of the same cost drivers over disjoint month pairs (each data ID counts once per case).
+ - **A small push after the final offer** (base's `final_push`, 0.5 %, once).
++- **Index falls pass the profile's "avoid" filter.** Its warnings are about twelve-month rises ("steel
++  prices are flat" while the index rose 12 % a year), but base's filter drops every argument on that
++  index by topic, also a true, checked fall over recent months (P08: "it holds and we took it into
++  account"). Every index argument we cite is a fall, so it cannot repeat what the warning is about.
+ 
+ Tried and dropped (practice P08/P18, 24 Oct): an opening offer from data (today's or another supplier's
+ price minus the supplier's usual give) - suppliers answered as before, turned final earlier and higher
+@@ -108,6 +112,9 @@ class EmreAgent(CseeAgent):
+                 st.intel.claims = st.intel.claims + self.more_index_claims(case, sid, threads, st)
+             except Exception:  # an argument we cannot build must never cost the case
+                 log.exception("%s %s: extra index claims failed", case["case_id"], sid)
++            for c in st.intel.claims:
++                if c.kind == "index":  # all falls (base and index_falls cite no rise): no topic filter
++                    c.tag = ""
+ 
+     def more_index_claims(self, case, sid, threads, st):
+         """Index falls of the part's cost drivers, the series the supplier blames and the clause's series."""
