@@ -1,0 +1,46 @@
+diff --git a/starter-kit/csee/agent.py b/starter-kit/csee/agent.py
+index b4d5b31..e54117e 100644
+--- a/starter-kit/csee/agent.py
++++ b/starter-kit/csee/agent.py
+@@ -125,6 +125,7 @@ class ThreadState:
+     breakdown: dict | None = None
+     opening: dict = field(default_factory=dict)  # its first offered terms
+     cited_rival: float | None = None  # the rival price we last cited to this supplier
++    completion_requested: str | None = None  # a sheet of theirs with missing terms we asked to complete
+     alt_requested: str | None = None  # an alternative sheet of theirs we proposed back
+     events: list = field(default_factory=list)  # the thread so far (for the supplier's own signals)
+     anchor_c: tuple | None = None  # (our anchor's C, its opening C): the room of this thread
+@@ -340,6 +341,33 @@ class CseeAgent:
+                 "term_sheets": [{"terms": terms}],
+                 "refs": [],
+             }
++        # Its sheet leaves terms out: at a deal they close on ITS standard terms (sim S03: price-only final offer,
++        # standard contract/payment cost us 0.87 -> 0.29). Before taking it, ask once for its price with our terms.
++        missing = [f for f in case["negotiable"] if f != "unit_price" and f not in theirs]
++        if (
++            missing
++            and sheet_id
++            and theirs.get("unit_price") is not None
++            and left >= 1
++            and st.completion_requested != sheet_id
++            and (closing or self.nothing_to_win(case, threads, sid, theirs, std, left))
++        ):
++            present = tuple(f for f in case["negotiable"] if f in theirs)
++            completed = levers.best_terms(case, {**theirs}, std, None, fixed=present)
++            completed["unit_price"] = theirs["unit_price"]
++            c_as_is, c_completed = total_cost(case, theirs, std), total_cost(case, completed, std)
++            if c_as_is - c_completed > 0.002 * c_as_is and must_haves_ok(case, completed, std):
++                st.completion_requested = sheet_id
++                self.note_decision(
++                    ev, sid, "send", f"its {sheet_id} omits {missing}: ask for its price with our terms", t0
++                )
++                return {
++                    "subject": f"Re: {case['title']}"[:300],
++                    "body": "Good day,\n\nthank you. We can accept your price; please confirm it with these terms: "
++                    f"{describe(completed)}.\n\n{SIGN}",
++                    "term_sheets": [{"terms": completed}],
++                    "refs": [],
++                }
+         if (
+             status == "final_offer"
+             and self.p.final_push
