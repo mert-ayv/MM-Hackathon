@@ -27,3 +27,7 @@ venv/
 
 # Logs
 *.log
+.ruff_cache/
+
+# Arena runner logs
+logs/
