@@ -1,6 +1,6 @@
-"""Ege's agent: Claude negotiates RFQ and bundling cases with tools, a playbook and a plan; the rules set the
-minimum pressure. Every other case type, and any run without an LLM (--no-llm, no ANTHROPIC_API_KEY), plays
-exactly like base. Only Ege edits this file.
+"""Ege's agent: Claude negotiates RFQ, bundling and price-increase cases with tools, a playbook and a plan;
+the rules set the minimum pressure. Every other case type, and any run without an LLM (--no-llm, no
+ANTHROPIC_API_KEY), plays exactly like base. Only Ege edits this file.
 
 Each supplier reply starts one agent turn (Anthropic SDK tool runner). The brief holds the case, the
 supplier's profile, the whole thread, the rivals' offers with their cost C, the arguments the arena will
@@ -42,7 +42,7 @@ from ..writer import ID_RE, SIGN, LLMWriter, TemplateWriter, describe
 
 log = logging.getLogger("csee")
 
-AGENT_TYPES = {"rfq", "bundling"}
+AGENT_TYPES = {"rfq", "bundling", "price_increase"}
 PLAYBOOKS = Path(__file__).parent / "playbooks"
 MOVE_BUDGET_S = 40  # one whole agent turn; the arena allows 60 s per message
 MAX_TURNS = 5  # model calls per move (each tool round trip is one)
