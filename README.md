@@ -100,6 +100,12 @@ model is configured. It reads the complete conversation, retrieves documents and
 keeps evidence-backed supplier hypotheses, and chooses offers, concessions, questions and stopping.
 Base's next move is optional advice and a fallback if the model fails or exceeds its time budget.
 
+Each move uses draft, deterministic cost review, then model confirmation. Material untested term
+values are tracked as test now, defer, or decline. A deferred probe is due at the next buyer decision
+and must appear in a package or be explicitly cancelled with a reason. Its deadline cannot restart.
+Pending probes can be cancelled when accepting a final offer; they never force another counter.
+State is scoped to the current case and supplier.
+
 The deterministic tools calculate package costs, show the breakdown and supplier-cost sensitivity,
 construct factual argument sentences, and check allowed fields, must-haves and acceptable standing
 offers. Relationship costs remain estimates; the cost tool does not predict acceptance or the true

@@ -142,12 +142,22 @@ def confirm_review(payload):
                 "review_id": review["review_id"],
                 "assessment": {
                     "economics": "I compared the calculated packages, standing offer and actual alternative.",
-                    "evidence": "The supplier's willingness is unknown; the cost comparisons are not acceptance predictions.",
+                    "evidence": "Supplier willingness is unknown; cost comparisons are not acceptance predictions.",
                     "levers": {
-                        item["field"]: "This trade remains untested; the risk of another counter outweighs its potential gain."
+                        item[
+                            "field"
+                        ]: "This trade is untested; the risk of another counter outweighs its potential gain."
                         for item in review["report"]["material_levers"]
                     },
-                    "next_step": "Proceed with the chosen move after considering the remaining time and supplier response.",
+                    "next_step": "Proceed with this move after considering the remaining time and supplier response.",
+                    "probes": [
+                        {
+                            "probe_id": probe_id,
+                            "action": "decline",
+                            "reason": "I decline these additional trades in this scripted confirmation scenario.",
+                        }
+                        for probe_id in review["report"]["probe_review"]["required_ids"]
+                    ],
                 },
             },
             "confirm",
@@ -328,6 +338,14 @@ def test_unconfirmed_or_revised_draft_cannot_execute(package):
         "economics": "The draft improves cost relative to the standing offer and the alternative.",
         "evidence": "Supplier acceptance remains unknown despite the mathematical improvement.",
         "next_step": "Test this package with the supplier and inspect the next response.",
+        "probes": [
+            {
+                "probe_id": probe_id,
+                "action": "decline",
+                "reason": "This test checks confirmation mechanics; I decline the additional trades.",
+            }
+            for probe_id in review["report"]["probe_review"]["required_ids"]
+        ],
     }
     confirmed = {**draft, "review_id": review["review_id"], "assessment": assessment}
     move, result = agent.review_submission(case, threads, sid, confirmed, {}, desk, reviews, stop)
@@ -377,7 +395,9 @@ def test_bundle_context_and_arguments_do_not_compare_nut_prices_with_kit_prices(
     legacy = agent.threads[sid].intel.claims
     history = next(claim for claim in legacy if claim.kind == "history")
     _, error = agent.validate(
-        case, threads, sid,
+        case,
+        threads,
+        sid,
         {"action": "counter", "term_sheets": [{"unit_price": 5.5}], "argument_keys": ["bad"], "plan": plan()},
         {"bad": history},
     )

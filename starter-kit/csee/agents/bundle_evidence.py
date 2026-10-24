@@ -12,6 +12,7 @@ a comparison benchmark, never a supplier cost floor, bundled quotation or accept
 import math
 import re
 import sqlite3
+from datetime import date
 
 from ..intel import Claim
 
@@ -24,12 +25,15 @@ BOM_KEYS = ("bom", "bundle_components", "kit_components", "bill_of_materials")
 
 
 def _number(value, positive=False):
-    return (
-        isinstance(value, int | float)
-        and not isinstance(value, bool)
-        and math.isfinite(value)
-        and (value > 0 if positive else value >= 0)
-    )
+    try:
+        return (
+            isinstance(value, int | float)
+            and not isinstance(value, bool)
+            and math.isfinite(value)
+            and (value > 0 if positive else value >= 0)
+        )
+    except OverflowError:
+        return False
 
 
 def _quantity(value):
@@ -46,7 +50,7 @@ def _bom(rows, required):
             raise ValueError("BOM components must contain part_id and quantity_per_kit")
         part = row.get("part_id") or row.get("part")
         qty = row.get("quantity_per_kit")
-        if part not in required or not _number(qty, positive=True):
+        if not isinstance(part, str) or part not in required or not _number(qty, positive=True):
             raise ValueError("BOM contains an unknown part or an invalid per-kit quantity")
         if part in quantities:
             raise ValueError("BOM repeats a component; quantities cannot be inferred or added")
@@ -106,19 +110,30 @@ def _provenance(table, row, fields):
 
 def _price(row, source):
     price, unit = row.get("price"), row.get("price_unit")
+    supplier = row.get("supplier_id") or row.get("supplier")
+    valid_from = row.get("valid_from")
     if (
         not _number(price, positive=True)
         or not _number(unit, positive=True)
         or int(unit) != unit
         or row.get("currency") != "EUR"
+        or not isinstance(supplier, str)
+        or not supplier
     ):
         return None
+    if valid_from is not None:
+        if not isinstance(valid_from, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", valid_from):
+            return None
+        try:
+            date.fromisoformat(valid_from)
+        except ValueError:
+            return None
     return {
-        "supplier_id": row.get("supplier_id") or row.get("supplier"),
+        "supplier_id": supplier,
         "price_eur": price,
         "price_unit": int(unit),
         "eur_per_component": round(price / unit, 8),
-        "valid_from": row.get("valid_from"),
+        "valid_from": valid_from,
         "source": source,
     }
 
@@ -138,14 +153,30 @@ def bundle_context(case, desk):
         "parts": [],
         "supplier_incumbent_spend": [],
         "warnings": [],
+        "verification_scope": "Source-checked arithmetic only; arena checker support for BOM claims is unknown.",
     }
     parts = case.get("parts") or []
-    if case.get("type") != "bundling" or not 1 < len(parts) <= MAX_PARTS or len(set(parts)) != len(parts):
+    if (
+        case.get("type") != "bundling"
+        or not isinstance(parts, list)
+        or not 1 < len(parts) <= MAX_PARTS
+        or not all(isinstance(part, str) and re.fullmatch(PART, part) for part in parts)
+        or len(set(parts)) != len(parts)
+    ):
         report["warnings"].append("Requires a bounded multi-part bundling case with distinct parts.")
         return report
     required = set(parts)
     facts = case.get("facts") or {}
-    explicit = list(dict.fromkeys([case.get("trigger_doc"), *(case.get("refs") or [])]))
+    refs = case.get("refs") or []
+    if (
+        not isinstance(facts, dict)
+        or not isinstance(refs, list)
+        or any(not isinstance(ref, str) for ref in refs)
+        or (case.get("trigger_doc") is not None and not isinstance(case["trigger_doc"], str))
+    ):
+        report["warnings"].append("Bundle source references or facts are malformed; no quantities are inferred.")
+        return report
+    explicit = list(dict.fromkeys([case.get("trigger_doc"), *refs]))
     if len(facts) > MAX_FACTS or len(explicit) > MAX_REFERENCES:
         report["warnings"].append("Case evidence exceeds the bounded bundle review; narrow the source references.")
         return report
@@ -214,7 +245,10 @@ def bundle_context(case, desk):
     ]
     sourcing_rows = [(row, _provenance("sourcing", row, ("part_id", "supplier_id"))) for row in sourcing]
     for ref, row in facts.items():
-        if not isinstance(row, dict) or (row.get("part_id") or row.get("part")) not in required:
+        if not isinstance(row, dict):
+            continue
+        part = row.get("part_id") or row.get("part")
+        if not isinstance(part, str) or part not in required:
             continue
         if row.get("type") == "price_condition" and row.get("valid_to") is None:
             price_rows.append((row, {"id": ref}))
@@ -227,6 +261,11 @@ def bundle_context(case, desk):
                 normalized = _price(row, source)
                 if normalized is not None:
                     benchmarks.append(normalized)
+                else:
+                    report["warnings"].append(
+                        f"Invalid price condition for {part} omitted: require explicit EUR, supplier, positive "
+                        "price unit, and an ISO date when valid_from is supplied."
+                    )
         # Most recent active condition per supplier; never mix currencies or infer a missing price unit.
         benchmarks.sort(key=lambda row: row.get("valid_from") or "", reverse=True)
         latest = {}
@@ -293,7 +332,7 @@ def bundle_context(case, desk):
 
 
 def bundle_claim(report):
-    """Render verified BOM quantities and derived annual demand, without claiming extra volume.
+    """Render source-checked BOM quantities and derived demand, without claiming extra volume.
 
     References establish the BOM; annual quantities additionally use the explicit case demand. This
     is source-backed reasoning, not a promise that the arena's limited fact checker supports BOMs.
@@ -308,7 +347,7 @@ def bundle_claim(report):
         sentence += f"; at the case's annual requirement of {report['annual_kits']:g} kits this represents "
         sentence += ", ".join(annual) + " per year"
     sentence += " (" + ", ".join(refs) + ")."
-    return Claim(sentence, refs, "bundle_scope", strength=1.2, source="derived_bundle")
+    return Claim(sentence, refs, "bundle_scope", strength=1.2, source="source_derived_bundle")
 
 
 def claim_is_comparable(case, claim, desk):
@@ -321,8 +360,12 @@ def claim_is_comparable(case, claim, desk):
         return True
     if claim.kind not in ("history", "price_history", "should_cost"):
         return True
+    if not all(isinstance(ref, str) for ref in claim.ids):
+        return False
     relevant = [ref for ref in claim.ids if ref.startswith(("po:", "cost:", "quote:"))]
     if not relevant:
+        return False
+    if not all(isinstance(part, str) for part in case["parts"]):
         return False
     required = set(case["parts"])
     for ref in relevant:
@@ -337,8 +380,10 @@ def claim_is_comparable(case, claim, desk):
             scope not in ("kit", "bundle")
             or uom not in ("kit", "bundle")
             or not isinstance(parts, list)
+            or not all(isinstance(part, str) for part in parts)
             or set(parts) != required
             or len(parts) != len(required)
+            or not _number(unit, positive=True)
             or unit != 1
         ):
             return False

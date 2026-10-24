@@ -90,7 +90,16 @@ def _payment_trade(case, std, base, changed, estimate):
     new_units = total_units - pre
     pre_spend = pre * (buyer.get("current_unit_price") or old["unit_price"])
     spend = base["breakdown"]["price"]
-    neutral = (spend * old_factor / new_factor - pre_spend) / new_units if new_units > 0 and new_factor else None
+    # Index adjustments and index-risk charges scale with post-effective-date spend as well. Omitting
+    # them would overstate the price a longer payment period can compensate, especially on raw material.
+    index_cash = base["breakdown"].get("index_clause", 0) + base["breakdown"].get("index_risk", 0)
+    index_per_price = index_cash / old["unit_price"]
+    denominator = new_units * new_factor + index_per_price
+    neutral = (
+        (spend * old_factor + index_cash - pre_spend * new_factor) / denominator
+        if new_units > 0 and denominator > 0
+        else None
+    )
     result = {
         "from_payment_days": old["payment_days"],
         "to_payment_days": new["payment_days"],
@@ -99,7 +108,9 @@ def _payment_trade(case, std, base, changed, estimate):
         ),
         "buyer_cash_neutral_unit_price": round(neutral, 4) if neutral is not None else None,
         "buyer_cash_neutral_price_change": round(neutral - old["unit_price"], 4) if neutral is not None else None,
-        "assumption": "Buyer cash arithmetic only; other terms fixed. Supplier acceptance is unknown.",
+        "assumption": (
+            "Buyer cash arithmetic before offer-price rounding; other terms fixed. Supplier acceptance is unknown."
+        ),
     }
     if estimate:
         try:
@@ -307,7 +318,8 @@ def build_review(agent, case, threads, sid, move, arguments):
         "assumptions": [
             "Only the first current standing supplier sheet can be accepted.",
             "Counterfactuals are legal arithmetic comparisons, not predictions or negotiation recommendations.",
-            "Cash-neutral payment prices exclude estimated relationship costs and any supplier acceptance condition.",
+            "Cash-neutral payment prices precede offer rounding and exclude relationship costs "
+            "and acceptance conditions.",
         ],
         "valuation_count": count,
         "truncated": truncated,

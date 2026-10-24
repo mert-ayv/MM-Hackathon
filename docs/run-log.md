@@ -5,6 +5,9 @@ action/sheets), `strategy_tool` (tool name, inputs, result and seconds), `strate
 token counts), `move_rejected` (validation errors), and `strategy_fallback` (why base was used).
 These use the same event envelope below. Readers may ignore unsupported event types. They distinguish
 a successful model turn from a fallback; a plain offline `sim` run does not exercise the strategist.
+`move_review` records draft economic/probe feedback; drafts do not execute. `agent_move` includes
+the confirmed review ID and assessment. `probe_state` records applied probe targets, due turns and
+cancellation reasons. An attempted probe does not establish supplier acceptance.
 
 Every run writes one folder: `runs/<run_id>/`
 

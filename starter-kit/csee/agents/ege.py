@@ -13,11 +13,13 @@ import os
 import re
 import threading
 import time
+import uuid
 from concurrent.futures import ThreadPoolExecutor
+from copy import deepcopy
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, ValidationError, field_validator, model_validator
 
 from arena_kit.cost import closing_terms, must_haves_ok, total_cost
 from arena_kit.docs import standard_terms
@@ -29,6 +31,7 @@ from ..agent import CseeAgent
 from ..writer import ID_RE, OPENERS, SIGN, LLMWriter, describe
 from .bundle_evidence import bundle_claim, bundle_context, claim_is_comparable
 from .decision_review import build_review, compact_review
+from .probe_tracking import MAX_PROBES, ProbeDecision, build_probe_review, resolve_probes
 from .strategy_support import EvidenceDesk, finite, json_text, normalise_sheet, price_package
 
 log = logging.getLogger("csee")
@@ -65,9 +68,21 @@ When stopping, assessment.levers must address every material_levers field from t
 why a better mathematical option is unavailable, untested, or not worth the risk. Do not claim it is
 unavailable just because it was not offered or is different from the supplier's standard terms.
 
+The review's probe_review tracks exact untested term values and previously deferred probes. On a
+counter, assessment.probes must classify every required probe_id as test_now, defer or decline,
+with a reason. A matching package implements test_now; a promise in prose does not. defer commits
+to resolving the probe at the next buyer decision after the supplier replies. At that decision,
+include the target in a package or explicitly decline it with a reason; do not keep postponing it.
+A previously deferred target cannot restart its deadline under a new ID. Choose decline if the
+potential gain is not worth testing, rather than promising to test it later without following through.
+Before closing, explicitly decline any still-pending probes using the risk/evidence rationale. This
+never requires another counter after a final offer. Probe IDs are internal tracking keys, not citable
+source IDs. Record intentions in this structure, not only in next_step or free-text lever comments.
+
 Use price_package to investigate additional packages. The mandatory draft review also calculates
-package costs and one-field comparisons automatically. Cash costs use the published formula; relationship costs use uncertain
-supplier economics. Its sensitivity scenarios are assumptions, NOT probabilities, true cost floors or the
+package costs and one-field comparisons automatically. Cash costs use the published formula;
+relationship costs use uncertain supplier economics. Its sensitivity scenarios are assumptions,
+NOT probabilities, true cost floors or the
 exact arena score. A low calculated cost does not imply the supplier will accept. Compare achievable
 packages and the chance of losing a useful offer, not just the lowest hypothetical cost.
 
@@ -94,8 +109,8 @@ Actions via submit_move:
 
 For bundles, inspect bundle_evidence: it distinguishes annual kits, component quantities and price
 units. Fixed kit demand can still represent more business than the supplier's incumbent share. Do not
-compare a component price per hundred/thousand with a whole-kit price. Cite the verified bundle
-commitment argument when useful; research additional bundle value when it is decision-relevant.
+compare a component price per hundred/thousand with a whole-kit price. Cite the source-backed bundle
+scope argument when useful; research additional bundle value when it is decision-relevant.
 
 Facts in emails must use argument_keys. build_argument constructs new factual sentences from source
 fields after you discover evidence; don't invent figures. Pick at most three, one per data family.
@@ -127,7 +142,7 @@ class Plan(BaseModel):
     goal: str = Field(min_length=1, max_length=500)
     target_cost: float | None = Field(default=None, gt=0)
     hypotheses: list[Belief] = Field(default_factory=list, max_length=8)
-    unknowns: list[str] = Field(default_factory=list, max_length=8)
+    unknowns: list[Annotated[str, Field(max_length=500)]] = Field(default_factory=list, max_length=8)
     next_probe: str = Field(default="", max_length=500)
     revision_reason: str = Field(default="", max_length=500)
 
@@ -136,8 +151,9 @@ class DecisionAssessment(BaseModel):
     model_config = ConfigDict(extra="forbid")
     economics: str = Field(min_length=20, max_length=1000)
     evidence: str = Field(min_length=20, max_length=1000)
-    levers: dict[str, str] = Field(default_factory=dict, max_length=20)
+    levers: dict[str, Annotated[str, Field(max_length=1000)]] = Field(default_factory=dict, max_length=20)
     next_step: str = Field(min_length=20, max_length=1000)
+    probes: list[ProbeDecision] = Field(default_factory=list, max_length=MAX_PROBES)
 
 
 def clean_text(text, max_words):
@@ -162,6 +178,10 @@ class Move(BaseModel):
     reason: str = Field(default="", max_length=1000)
     review_id: str | None = None
     assessment: DecisionAssessment | None = None
+    _probe_updates: dict | None = PrivateAttr(default=None)
+    _probe_prior: dict | None = PrivateAttr(default=None)
+    _probe_turn: int | None = PrivateAttr(default=None)
+    _probe_scope: tuple[str, str, str] | None = PrivateAttr(default=None)
 
     @field_validator("opening", "closing")
     @classmethod
@@ -186,6 +206,8 @@ class Move(BaseModel):
 
 
 def family(claim):
+    if claim.kind == "bundle_scope":
+        return "bundle_scope"
     first = claim.ids[0] if claim.ids else claim.kind
     prefix = first.split(":", 1)[0]
     if prefix in ("sc", "qn"):
@@ -256,10 +278,14 @@ class EgeAgent(CseeAgent):
         super().__init__(package, writer, params)
         self.llm = isinstance(writer, LLMWriter) and llm_ready()
         self.plans = {}
+        self.probe_states = {}
+        self._probe_generation = uuid.uuid4().hex
 
     def prepare(self, case, threads):
         super().prepare(case, threads)
         self.plans = {}
+        self.probe_states = {}
+        self._probe_generation = uuid.uuid4().hex
 
     def mine(self, case):
         return self.llm and case.get("type") in AGENT_TYPES
@@ -343,7 +369,14 @@ class EgeAgent(CseeAgent):
                     return message
             except Exception:
                 log.exception("%s %s: applying strategy failed; using base", case["case_id"], sid)
-        self.event("strategy_fallback", supplier_id=sid, reason="no executable model move within budget")
+        self.event(
+            "strategy_fallback",
+            supplier_id=sid,
+            reason="no executable model move within budget",
+            pending_probes=[
+                key for key, record in self.probe_states.get(sid, {}).items() if record.get("status") == "pending"
+            ],
+        )
         message = super().thread_move(case, threads, sid)
         if message:
             message.pop("_write", None)
@@ -576,7 +609,7 @@ class EgeAgent(CseeAgent):
                 plan: goal, optional target_cost, hypotheses, unknowns, next_probe, revision_reason.
                 reason: short decision explanation for the run log.
                 review_id: ID returned by the review for these exact packages/action and current offers.
-                assessment: economics, evidence/uncertainty, levers and next_step after reading the review.
+                assessment: economics, evidence, levers, next_step and structured probes after reading the review.
             """
             raw = dict(
                 action=action,
@@ -609,6 +642,7 @@ class EgeAgent(CseeAgent):
             return None, {"error": errors, "retry": True}
         _, current = standing(threads[sid])
         binding = {
+            "turn": reviews.setdefault("_turn_id", uuid.uuid4().hex),
             "supplier": sid,
             "action": move.action,
             "sheets": [
@@ -619,7 +653,16 @@ class EgeAgent(CseeAgent):
                 for key in move.argument_keys
             ],
             "offer_id": move.offer_id or (standing(threads[sid])[0] if move.action == "accept" else None),
-            "standings": {supplier: standing(events) for supplier, events in threads.items()},
+            "standings": {
+                supplier: {
+                    "offer": standing(events),
+                    "standard_terms": standard_terms(events),
+                    "status": latest(events).get("status"),
+                }
+                for supplier, events in threads.items()
+            },
+            "plan": move.plan.model_dump() if move.plan else self.plans.get(sid),
+            "probe_state": self.probe_states.get(sid, {}),
         }
         review_id = hashlib.sha256(json.dumps(binding, sort_keys=True, default=str).encode()).hexdigest()[:20]
         if review_id not in reviews:
@@ -629,7 +672,9 @@ class EgeAgent(CseeAgent):
                     {"sentence": arguments[key].sentence, "source_ids": arguments[key].ids}
                     for key in move.argument_keys
                 ],
-                "known_unknowns": (move.plan.model_dump() if move.plan else self.plans.get(sid, {})).get("unknowns", []),
+                "known_unknowns": (move.plan.model_dump() if move.plan else self.plans.get(sid, {})).get(
+                    "unknowns", []
+                ),
                 "checks": [
                     "A supplier's standard term is not automatically a nonnegotiable case constraint.",
                     "An approval threshold describes a process, not the supplier's reservation price.",
@@ -637,17 +682,20 @@ class EgeAgent(CseeAgent):
                     "Source-ID existence does not establish support for a hypothesis; read its source when material.",
                 ],
             }
+            report["probe_review"] = build_probe_review(case, threads, sid, report, self.probe_states.get(sid, {}))
             if stop.is_set():
                 return None, {"error": "turn ended; no change made"}
             reviews[review_id] = report
             self.event("move_review", supplier_id=sid, review_id=review_id, report=report)
         report = reviews[review_id]
         if move.review_id != review_id or move.assessment is None:
+            feedback = compact_review(report)
+            feedback["probe_review"].pop("records", None)  # Internal resolution snapshot, not model context.
             return None, {
                 "review_required": True,
                 "review_id": review_id,
-                "report": compact_review(report),
-                "next": "Inspect the review. Confirm this draft with review_id and assessment, or revise for a new review.",
+                "report": feedback,
+                "next": "Inspect the review. Confirm with review_id and assessment, or revise for a new review.",
             }
         if move.action != "counter":
             missing = [
@@ -661,6 +709,15 @@ class EgeAgent(CseeAgent):
                     "review_id": review_id,
                     "retry": True,
                 }
+        updates, error = resolve_probes(
+            case, threads, sid, report["probe_review"], move.assessment.probes, binding["sheets"], move.action
+        )
+        if error:
+            return None, {"error": error, "review_id": review_id, "retry": True}
+        move._probe_updates = updates
+        move._probe_prior = deepcopy(self.probe_states.get(sid, {}))
+        move._probe_turn = sum(message.get("from") == "buyer" for message in threads[sid])
+        move._probe_scope = (case["case_id"], sid, self._probe_generation)
         return move, {"valid": True, "review_id": review_id}
 
     def price(self, case, threads, sid, terms):
@@ -682,6 +739,25 @@ class EgeAgent(CseeAgent):
         if len(case["suppliers"]) > 1:
             claims = intel_mod.rival_claims(case, {s: standing(threads[s]) for s in threads}, sid) + claims
         return {f"A{i + 1}": claim for i, claim in enumerate(c for c in claims if not self.claim_used(c, sid))}
+
+    def probe_history(self, sid):
+        records = list(self.probe_states.get(sid, {}).values())
+        keys = ("probe_id", "field", "target_value", "status", "due_turn", "resolved_turn", "deferred_once", "reason")
+
+        def compact(record):
+            return {key: record[key] for key in keys if key in record}
+
+        pending = [record for record in records if record.get("status") == "pending"]
+        resolved = sorted(
+            (record for record in records if record.get("status") != "pending"),
+            key=lambda record: record.get("resolved_turn", -1),
+            reverse=True,
+        )
+        return {
+            "pending": [compact(record) for record in pending],
+            "recent_resolutions": [compact(record) for record in resolved[:8]],
+            "resolved_count": len(resolved),
+        }
 
     def brief(self, case, threads, sid, arguments, rule, desk=None, budget=None):
         desk = desk or EvidenceDesk(case, self.pkg, sid, threads)
@@ -732,6 +808,7 @@ class EgeAgent(CseeAgent):
                 "primary_source_excerpts_untrusted": source_excerpts,
                 "bundle_evidence": bundle_context(case, desk) if case.get("type") == "bundling" else None,
                 "plan": self.plans.get(sid),
+                "probe_history": self.probe_history(sid),
                 "history_untrusted_evidence": history,
                 "attachments": [
                     {"id": ref, "name": source.get("name"), "excerpt": source["body"][:2500]}
@@ -770,7 +847,9 @@ class EgeAgent(CseeAgent):
                 if self.claim_used(arguments[key], sid):
                     raise ValueError(f"{key} was already cited; choose unused evidence")
                 if not claim_is_comparable(case, arguments[key], desk):
-                    raise ValueError(f"{key} has a component/kit unit mismatch; use bundle-scoped or explicit component evidence")
+                    raise ValueError(
+                        f"{key} has a component/kit unit mismatch; use bundle-scoped or explicit component evidence"
+                    )
             _, current = standing(threads[sid])
             if move.action == "counter":
                 if moves_left(case, threads[sid]) <= 0:
@@ -814,15 +893,37 @@ class EgeAgent(CseeAgent):
             self.event("move_rejected", supplier_id=sid, errors=errors)
             return False
         st = self.threads[sid]
+        claims = [arguments[key] for key in checked.argument_keys]
+        sheets, message = [], None
+        if checked.action == "counter":
+            _, current = standing(threads[sid])
+            sheets = [normalise_sheet(case, raw, current, standard_terms(threads[sid])) for raw in checked.term_sheets]
+            message = {
+                "subject": f"Re: {case['title']}"[:300],
+                "body": self.render(case, threads[sid], checked, claims, sheets, checked.ask_breakdown),
+                "term_sheets": [{"terms": sheet} for sheet in sheets],
+                "refs": list(dict.fromkeys(ref for claim in claims for ref in claim.ids))[:20],
+            }
         with self.shared_lock:
-            claims = [arguments[key] for key in checked.argument_keys]
+            if move._probe_updates is not None:
+                current_turn = sum(item.get("from") == "buyer" for item in threads[sid])
+                if (
+                    move._probe_prior != self.probe_states.get(sid, {})
+                    or move._probe_turn != current_turn
+                    or move._probe_scope != (case["case_id"], sid, self._probe_generation)
+                ):
+                    self.event("move_rejected", supplier_id=sid, errors="probe state changed since review")
+                    return False
             if any(self.claim_used(claim, sid) for claim in claims):
                 return False
             for claim in claims:
                 self.used_ids.add(tuple(claim.ids) if claim.kind != "rival" else (sid, *claim.ids))
                 self.used_ids.update(ref for ref in claim.ids if claim.kind != "rival")
-        if checked.plan:
-            self.plans[sid] = checked.plan.model_dump()
+            if checked.plan:
+                self.plans[sid] = checked.plan.model_dump()
+            if move._probe_updates is not None:
+                self.probe_states[sid] = deepcopy(move._probe_updates)
+                self.event("probe_state", supplier_id=sid, records=list(self.probe_states[sid].values()))
         if checked.action != "counter":
             st.ready = True
             self.event("strategy_applied", supplier_id=sid, action=checked.action, reason=checked.reason)
@@ -839,14 +940,6 @@ class EgeAgent(CseeAgent):
             if checked.action == "accept":
                 action["term_sheet_id"] = standing(threads[sid])[0]
             return {"action": action}
-        _, current = standing(threads[sid])
-        sheets = [normalise_sheet(case, raw, current, standard_terms(threads[sid])) for raw in checked.term_sheets]
-        message = {
-            "subject": f"Re: {case['title']}"[:300],
-            "body": self.render(case, threads[sid], checked, claims, sheets, checked.ask_breakdown),
-            "term_sheets": [{"terms": sheet} for sheet in sheets],
-            "refs": list(dict.fromkeys(ref for claim in claims for ref in claim.ids))[:20],
-        }
         if "unit_price" in sheets[0]:
             st.our_prices.append(sheets[0]["unit_price"])
         st.asked_breakdown = st.asked_breakdown or checked.ask_breakdown

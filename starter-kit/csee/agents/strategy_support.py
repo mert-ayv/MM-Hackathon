@@ -32,7 +32,7 @@ def normalise_sheet(case, raw, current, standard=None):
     unknown = set(raw) - set(case["negotiable"])
     if unknown:
         raise ValueError(f"not negotiable: {sorted(unknown)}")
-    values = {**current, **raw}
+    values = {**(standard or {}), **current, **raw}
     for field in case["negotiable"]:
         value = values.get(field)
         if field in raw and value is None and field != "index_clause":
