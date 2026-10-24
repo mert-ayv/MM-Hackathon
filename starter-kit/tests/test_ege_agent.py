@@ -137,15 +137,20 @@ def test_stopping_while_rules_counter_is_allowed(pkg):
     for action in ("ready", "accept"):
         move, _ = check_move(c, {"action": action}, args)
         result = agent.apply(c, threads, "sup:70210", move, agent.rule_move(c, threads, "sup:70210"), args)
-        assert result is None if action == "ready" else result["action"]["type"] == "accept"
+        assert result is None  # RFQ awards wait for the other supplier threads and the coordinator.
+        assert agent.threads["sup:70210"].ready
 
 
-def test_accept_after_agreed_is_the_standing_offer(pkg):
+def test_rfq_accept_after_agreed_preserves_the_quote_for_coordinator_comparison(pkg):
     agent, c, threads = p05(pkg, status="agreed")
     args = agent.arguments(c, threads, "sup:70210")
     move, _ = check_move(c, {"action": "accept"}, args)
     msg = agent.apply(c, threads, "sup:70210", move, None, args)
-    assert msg == {"action": {"type": "accept", "term_sheet_id": "offer:70210-0"}}
+    assert msg is None and agent.threads["sup:70210"].ready
+    assert agent.close(c, threads) is None  # Two bidders still have room to negotiate.
+    award = agent.close(c, threads, force=True)
+    assert award["supplier_id"] == "sup:70240"
+    assert award["message"]["action"]["term_sheet_id"] == "offer:70240-0"
 
 
 def test_alternative_sheets_can_trade_cost_for_acceptability(pkg):

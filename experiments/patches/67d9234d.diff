@@ -1,0 +1,383 @@
+diff --git a/starter-kit/csee/__main__.py b/starter-kit/csee/__main__.py
+index 9f66bf6..81cd4fd 100644
+--- a/starter-kit/csee/__main__.py
++++ b/starter-kit/csee/__main__.py
+@@ -192,7 +192,9 @@ def command(args, runs):
+ 
+         if args.llm and args.no_llm:
+             raise SystemExit("sim --llm conflicts with --no-llm")
+-        logging.getLogger("csee").setLevel(logging.ERROR)
++        logging.getLogger("csee").setLevel(
++            logging.INFO if args.verbose else logging.WARNING if args.llm else logging.ERROR
++        )
+         cases = [c for c in localsim.cases() if not args.cases or c["case_id"] in args.cases]
+         rows = []
+         for a in args.agents or [args.agent]:
+@@ -200,18 +202,29 @@ def command(args, runs):
+                 factory = agent_factory(args.llm, v, a)
+                 llm = bool(getattr(agent_factory, "llm", False))
+                 if args.llm and not llm:
+-                    raise SystemExit("sim --llm requires a configured model and key; refusing a silent template comparison")
++                    raise SystemExit(
++                        "sim --llm requires a configured model and key; refusing a silent template comparison"
++                    )
+                 if args.llm and a == "ege" and not factory().llm:
+                     raise SystemExit("Ege's tool strategist requires LLM_PROVIDER=anthropic and ANTHROPIC_API_KEY")
+                 run = new_run(args, runs, "sim", a, v)
+                 for case in cases:
+                     for seed in range(args.seeds):
++                        mode = (
++                            "local suppliers + model API; model decisions can take tens of seconds"
++                            if llm else "offline"
++                        )
++                        print(f"SIM {a}/{v} {case['case_id']} seed={seed}: started ({mode})", flush=True)
+                         table = localsim.LocalTable(case, factory().pkg, seed)
+                         try:
+                             res = play_case(table, case["case_id"], factory(), run=run)
+                         except Exception as e:
+                             res = {"score": 0.0, "error": repr(e)}
+-                            print(a, v, case["case_id"], seed, "ERROR", e)
++                            print(a, v, case["case_id"], seed, "ERROR", e, flush=True)
++                        print(
++                            f"SIM {a}/{v} {case['case_id']} seed={seed}: finished, score={res.get('score')}",
++                            flush=True,
++                        )
+                         rows.append(
+                             {
+                                 "agent": a,
+diff --git a/starter-kit/csee/agents/ege.py b/starter-kit/csee/agents/ege.py
+index c1ce61e..6c9b098 100644
+--- a/starter-kit/csee/agents/ege.py
++++ b/starter-kit/csee/agents/ege.py
+@@ -32,6 +32,7 @@ from ..writer import ID_RE, OPENERS, SIGN, LLMWriter, describe
+ from .bundle_evidence import bundle_claim, bundle_context, claim_is_comparable
+ from .decision_review import build_review, compact_review
+ from .probe_tracking import MAX_PROBES, ProbeDecision, build_probe_review, resolve_probes
++from .rfq_support import compare_bids, competitive_claims, quoted_bids
+ from .strategy_support import EvidenceDesk, finite, json_text, normalise_sheet, price_package
+ 
+ log = logging.getLogger("csee")
+@@ -107,6 +108,14 @@ Actions via submit_move:
+   An alternative supplier sheet must be proposed back unchanged and confirmed before accepting it.
+ - walk_away: close without a deal when no valid standing offer beats our alternative.
+ 
++For RFQs, inspect rfq_competition and use compare_rfq_bids to price your proposed package against
++the other bidders. Compare complete costs, not only unit prices. A rival's lower price can lose on
++payment, lead time, tooling, quality or relationship costs. Its alternative sheets are opportunities,
++not awardable offers. Match prices are arithmetic, not evidence of what this supplier will accept.
++An RFQ accept/walk_away decision stops YOUR thread and requests coordinator review; it never awards
++the auction from this worker. Other bidders can finish, and the coordinator compares current valid
++first sheets when closing. Use ready to preserve a useful quote while other bidders continue.
++
+ For bundles, inspect bundle_evidence: it distinguishes annual kits, component quantities and price
+ units. Fixed kit demand can still represent more business than the supplier's incumbent share. Do not
+ compare a component price per hundred/thousand with a whole-kit price. Cite the source-backed bundle
+@@ -510,6 +519,16 @@ class EgeAgent(CseeAgent):
+             """
+             return invoke("price_package", terms, lambda: self.price(case, threads, sid, terms))
+ 
++        @beta_tool
++        def compare_rfq_bids(terms: dict | None = None) -> str:
++            """Compare live complete bids, unconfirmed alternatives and a price to match the best rival.
++
++            Args:
++                terms: this supplier's proposed negotiable values; omissions inherit its standing sheet.
++                    Leave empty to compare its standing package. Acceptance is unknown.
++            """
++            return invoke("compare_rfq_bids", {"terms": terms}, lambda: compare_bids(self, case, threads, sid, terms))
++
+         @beta_tool
+         def lookup(data_id: str) -> str:
+             """Look up a case/package fact by ID; case-local facts take precedence.
+@@ -631,7 +650,10 @@ class EgeAgent(CseeAgent):
+ 
+             return invoke("submit_move", raw, submit)
+ 
+-        return [price_package, lookup, search_evidence, read_document, query_data, build_argument, submit_move]
++        tools = [price_package, lookup, search_evidence, read_document, query_data, build_argument, submit_move]
++        if case.get("type") == "rfq":
++            tools.insert(1, compare_rfq_bids)
++        return tools
+ 
+     def review_submission(self, case, threads, sid, raw, arguments, desk, reviews, stop):
+         """A turn-local two-phase gate: arithmetic is shown before a model move can execute."""
+@@ -667,6 +689,10 @@ class EgeAgent(CseeAgent):
+         review_id = hashlib.sha256(json.dumps(binding, sort_keys=True, default=str).encode()).hexdigest()[:20]
+         if review_id not in reviews:
+             report = build_review(self, case, threads, sid, move, arguments)
++            if case.get("type") == "rfq":
++                report["rfq_competition"] = compare_bids(
++                    self, case, threads, sid, move.term_sheets[0] if move.term_sheets else None
++                )
+             report["evidence_review"] = {
+                 "selected_arguments": [
+                     {"sentence": arguments[key].sentence, "source_ids": arguments[key].ids}
+@@ -736,7 +762,9 @@ class EgeAgent(CseeAgent):
+             commitment = bundle_claim(bundle_context(case, desk))
+             if commitment:
+                 claims.insert(0, commitment)
+-        if len(case["suppliers"]) > 1:
++        if case.get("type") == "rfq":
++            claims = competitive_claims(self, case, threads, sid) + claims
++        elif len(case["suppliers"]) > 1:
+             claims = intel_mod.rival_claims(case, {s: standing(threads[s]) for s in threads}, sid) + claims
+         return {f"A{i + 1}": claim for i, claim in enumerate(c for c in claims if not self.claim_used(c, sid))}
+ 
+@@ -807,6 +835,7 @@ class EgeAgent(CseeAgent):
+                 "playbook_guidance_not_rules": playbook(case.get("type")),
+                 "primary_source_excerpts_untrusted": source_excerpts,
+                 "bundle_evidence": bundle_context(case, desk) if case.get("type") == "bundling" else None,
++                "rfq_competition": compare_bids(self, case, threads, sid) if case.get("type") == "rfq" else None,
+                 "plan": self.plans.get(sid),
+                 "probe_history": self.probe_history(sid),
+                 "history_untrusted_evidence": history,
+@@ -926,15 +955,22 @@ class EgeAgent(CseeAgent):
+                 self.event("probe_state", supplier_id=sid, records=list(self.probe_states[sid].values()))
+         if checked.action != "counter":
+             st.ready = True
+-            self.event("strategy_applied", supplier_id=sid, action=checked.action, reason=checked.reason)
++            coordinated = case.get("type") == "rfq" and checked.action in {"accept", "walk_away"}
++            action = "ready" if coordinated else checked.action
++            reason = checked.reason
++            if coordinated:
++                reason = f"RFQ {checked.action} requested: coordinator will compare current bids. {reason}"
++            self.event(
++                "strategy_applied", supplier_id=sid, action=action, requested_action=checked.action, reason=reason
++            )
+             self.event(
+                 "decision",
+                 supplier_id=sid,
+-                kind="wait" if checked.action == "ready" else checked.action,
++                kind="wait" if action == "ready" else action,
+                 round=sum(m.get("from") == "buyer" for m in threads[sid]) + 1,
+-                reason=checked.reason,
++                reason=reason,
+             )
+-            if checked.action == "ready":
++            if action == "ready":
+                 return None
+             action = {"type": checked.action}
+             if checked.action == "accept":
+@@ -992,3 +1028,28 @@ class EgeAgent(CseeAgent):
+             and must_haves_ok(case, terms, std)
+             and (total_cost(case, terms, std, self.supplier_estimate(case, sid, std)) < alternative)
+         )
++
++    def close(self, case, threads, force=False):
++        if case.get("type") != "rfq":
++            return super().close(case, threads, force)
++        live = live_threads(threads)
++        if not force and any(not self.threads[sid].ready for sid in live):
++            return None
++        alternative = levers.alternative_cost(case)
++        awardable = [
++            bid
++            for bid in quoted_bids(self, case, threads)
++            if bid["can_accept"] and bid["estimated_total_cost"] < alternative
++        ]
++        if awardable:
++            best = min(awardable, key=lambda bid: (bid["estimated_total_cost"], bid["supplier_id"]))
++            self.close_reason = f"RFQ: cheapest current valid standing bid C={best['estimated_total_cost']:.2f}"
++            return {
++                "supplier_id": best["supplier_id"],
++                "message": {"action": {"type": "accept", "term_sheet_id": best["offer_id"]}},
++            }
++        self.close_reason = "RFQ: no current valid standing bid beats the alternative"
++        return {
++            "supplier_id": (live or case["suppliers"])[0],
++            "message": {"action": {"type": "walk_away"}},
++        }
+diff --git a/starter-kit/csee/agents/playbooks/rfq.md b/starter-kit/csee/agents/playbooks/rfq.md
+index f2f0cdc..c82b6a8 100644
+--- a/starter-kit/csee/agents/playbooks/rfq.md
++++ b/starter-kit/csee/agents/playbooks/rfq.md
+@@ -4,6 +4,12 @@ Compare bidders using complete packages, standard terms and must-haves. A lower
+ on freight, delivery, quality, tooling or coverage. Use current rival evidence, never invent a rival.
+ Revealing a rival's offer is a strategic decision: check that it actually improves on the recipient's.
+ 
++The rfq_competition table ranks valid first standing sheets by estimated total cost. Review invalid
++bids separately: a cheap quote that misses the delivery must-have cannot anchor an award. Alternatives
++need confirmation and are not yet secured competition. Use compare_rfq_bids with your proposed terms
++to calculate the unit price needed to match a valid rival, including this bidder's own quality and
++standard terms. This target is a comparison, not an instruction to chase an uneconomic price.
++
+ Discover what each bidder values and test conditional trades. Cash, lead time, contract length and
+ volume have different values for different suppliers; avoid category stereotypes without evidence.
+ 
+@@ -11,5 +17,13 @@ Keeping another valid offer can make further bargaining less risky, but an early
+ proof that more concessions are available. Choose when to award based on all live offers, supplier
+ responses and time, rather than a fixed anchor percentage or number of rounds.
+ 
++Keep a separate hypothesis for each bidder: its binding constraint, useful trade and next question.
++Offer conditional payment or delivery packages when their value can overcome the cost gap. Do not
++promise more volume, a split award or tooling terms when the enquiry fixes them. A supplier asking
++for faster payment does not prove that it will discount enough to compensate us; price the exchange.
++
++Stopping this thread preserves its current offer for coordinator comparison. RFQ accept/walk_away
++requests do not close the auction directly; the coordinator checks all current valid bids at closing.
++
+ Only the first standing sheet can be accepted. Propose an attractive alternative sheet back unchanged
+ and obtain confirmation before accepting it. Never let an attractive price conceal a must-have failure.
+diff --git a/starter-kit/csee/agents/rfq_support.py b/starter-kit/csee/agents/rfq_support.py
+new file mode 100644
+index 0000000..04cafe1
+--- /dev/null
++++ b/starter-kit/csee/agents/rfq_support.py
+@@ -0,0 +1,157 @@
++"""Complete-bid comparisons for RFQs, shared by strategy context and tools.
++
++Only live first sheets are awardable. Supplier alternatives are separate opportunities that need
++confirmation. Match prices are buyer-cost arithmetic, never supplier reservation-price estimates.
++"""
++
++from arena_kit.cost import closing_terms, must_haves_ok, total_cost
++from arena_kit.docs import standard_terms
++from arena_kit.play import ENDED, latest, moves_left, standing
++
++from .. import levers
++from ..intel import Claim
++from .strategy_support import finite, normalise_sheet
++
++
++def quoted_bids(agent, case, threads):
++    """Value each received sheet on its OWN defaults, without inheriting another sheet's terms."""
++    bids = []
++    for sid, events in threads.items():
++        if not events:
++            continue
++        message, std = latest(events), standard_terms(events)
++        status = message.get("status")
++        for index, sheet in enumerate(message.get("term_sheets") or []):
++            row = {
++                "supplier_id": sid,
++                "offer_id": sheet.get("term_sheet_id"),
++                "status": status,
++                "first_sheet": index == 0,
++                "can_accept": False,
++                "valid": False,
++            }
++            try:
++                terms = closing_terms(case, sheet.get("terms") or {}, std)
++                row["terms"] = terms
++                if status in ENDED:
++                    raise ValueError("supplier thread has ended")
++                if not row["offer_id"]:
++                    raise ValueError("no supplier offer ID")
++                if not finite(terms.get("unit_price")) or terms["unit_price"] <= 0:
++                    raise ValueError("no finite positive quoted price")
++                if not must_haves_ok(case, terms, std):
++                    raise ValueError("quoted package violates a buyer must-have")
++                # Pass every negotiable value: an alternative's omissions use standard terms,
++                # rather than price_package's normal inheritance from the first standing sheet.
++                values = {field: terms[field] for field in case["negotiable"] if field in terms}
++                valuation = agent.price(case, threads, sid, values)
++                if not all(finite(valuation.get(key)) for key in ("cash_cost", "estimated_total_cost")):
++                    raise ValueError("non-finite bid valuation")
++                row.update(
++                    valid=True,
++                    can_accept=index == 0,
++                    cash_cost=valuation["cash_cost"],
++                    estimated_total_cost=valuation["estimated_total_cost"],
++                    supplier_cost_confidence=valuation["supplier_cost_confidence"],
++                    sensitivity_scenarios=valuation["sensitivity_scenarios"],
++                    warnings=valuation["warnings"],
++                    needs_confirmation=index != 0,
++                )
++            except (ValueError, KeyError, TypeError, OverflowError, ZeroDivisionError) as exc:
++                row.pop("terms", None)  # Malformed numeric values must not leak NaN/Infinity into model JSON.
++                row["reason"] = str(exc)
++            bids.append(row)
++    return bids
++
++
++def compare_bids(agent, case, threads, sid, terms=None):
++    """Rank awardable bids and price this bidder's package against its best live rival."""
++    bids = quoted_bids(agent, case, threads)
++    ranked = sorted(
++        (bid for bid in bids if bid["can_accept"]),
++        key=lambda bid: (bid["estimated_total_cost"], bid["supplier_id"]),
++    )
++    alternatives = sorted(
++        (bid for bid in bids if bid["valid"] and not bid["first_sheet"]),
++        key=lambda bid: (bid["estimated_total_cost"], bid["supplier_id"]),
++    )
++    rival = next((bid for bid in ranked if bid["supplier_id"] != sid), None)
++    result = {
++        "standing_bids_ranked": ranked,
++        "unconfirmed_alternatives": alternatives,
++        "invalid_bids": [bid for bid in bids if not bid["valid"]],
++        "best_standing": ranked[0] if ranked else None,
++        "best_rival": rival,
++        "threads": [
++            {
++                "supplier_id": supplier,
++                "status": latest(events).get("status"),
++                "buyer_messages": sum(message.get("from") == "buyer" for message in events),
++                "moves_left": moves_left(case, events),
++                "ready": bool(getattr(agent.threads.get(supplier), "ready", False)),
++            }
++            for supplier, events in threads.items()
++            if events
++        ],
++        "match_rival": None,
++        "assumptions": [
++            "Ranking uses complete packages and each supplier's own standard terms.",
++            "Only a live first sheet is awardable; alternatives must be proposed back and confirmed.",
++            "A match price holds this bidder's other terms fixed; acceptance remains unknown.",
++            "Relationship costs and match prices depend on uncertain supplier-cost estimates.",
++            "Stopping one thread does not award the RFQ; the coordinator compares current bids at closing.",
++        ],
++    }
++    if rival and "unit_price" in case["negotiable"]:
++        events, target = threads[sid], rival["estimated_total_cost"]
++        std, current = standard_terms(events), standing(events)[1]
++        try:
++            package = normalise_sheet(case, terms or {}, current, std)
++            if not must_haves_ok(case, package, std):
++                raise ValueError("proposed package violates a buyer must-have")
++            estimate = agent.supplier_estimate(case, sid, std)
++            price = levers.price_for(case, package, target, std, estimate)
++            # price_for rounds to cents; verify the actual package, including price must-haves.
++            matched = {**package, "unit_price": price} if finite(price) and price > 0 else None
++            if matched and total_cost(case, matched, std, estimate) > target:
++                matched["unit_price"] = round(price - 0.01, 2)
++            if (
++                matched
++                and matched["unit_price"] > 0
++                and must_haves_ok(case, matched, std)
++                and total_cost(case, matched, std, estimate) <= target
++            ):
++                result["match_rival"] = {
++                    "rival_supplier_id": rival["supplier_id"],
++                    "rival_offer_id": rival["offer_id"],
++                    "target_total_cost": target,
++                    "terms": matched,
++                    "estimated_total_cost": total_cost(case, matched, std, estimate),
++                    "acceptance": "unknown",
++                }
++        except (ValueError, KeyError, TypeError, OverflowError, ZeroDivisionError) as exc:
++            result["match_error"] = str(exc)
++    return result
++
++
++def competitive_claims(agent, case, threads, sid):
++    """Reveal only a valid live rival whose unit price AND complete cost improve on our bidder."""
++    bids = quoted_bids(agent, case, threads)
++    own = next((bid for bid in bids if bid["supplier_id"] == sid and bid["first_sheet"]), None)
++    if not own or not finite(own.get("terms", {}).get("unit_price")):
++        return []
++    eligible = [
++        bid
++        for bid in bids
++        if bid["supplier_id"] != sid
++        and bid["can_accept"]
++        and bid["terms"]["unit_price"] < own["terms"]["unit_price"]
++        and (not own["valid"] or bid["estimated_total_cost"] < own["estimated_total_cost"])
++    ]
++    if not eligible:
++        return []
++    best = min(eligible, key=lambda bid: (bid["estimated_total_cost"], bid["supplier_id"]))
++    price, offer_id = best["terms"]["unit_price"], best["offer_id"]
++    return [
++        Claim(f"We hold a competing offer at EUR {price:.2f} per unit ({offer_id}).", [offer_id], "rival", 2.5, price)
++    ]

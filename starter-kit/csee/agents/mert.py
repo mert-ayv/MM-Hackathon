@@ -142,7 +142,7 @@ class MertAgent(EmreAgent):
             # Emre can replace the proposed main sheet with its clause sheet.
             # The next round must start at the price actually sent, not a draft.
             already_sent = sum(m.get("from") == "buyer" and bool(m.get("term_sheets")) for m in threads[sid])
-            price = msg["term_sheets"][0]["terms"]["unit_price"]
+            price = closing_terms(case, msg["term_sheets"][0]["terms"], standard_terms(threads[sid]))["unit_price"]
             if len(st.our_prices) <= already_sent:
                 st.our_prices.append(price)
             else:
@@ -1168,7 +1168,7 @@ class PlanMixin:
         terms; else our sheet worth most to it); A[j]: value of its reply j's first sheet (A[0] = opening);
         S[j-1] = A[j-1] - A[j] on the SAME terms (None when its terms changed: our value model is not exact
         across terms, P01 r2 looked like a rise)."""
-        B, A, S, theirs, prev, pending = [], [], [], [], None, None
+        B, A, S, theirs, prev, pending, v_prev = [], [], [], [], None, None, None
         for m in self.threads[sid].events:
             sh = [x.get("terms", x) for x in m.get("term_sheets") or []]
             sh = [t for t in sh if t.get("unit_price") is not None]
@@ -1188,7 +1188,7 @@ class PlanMixin:
                 if vals:
                     B.append(max(vals))
                 pending = None
-            if prev is not None:
+            if prev is not None and v_prev is not None:
                 S.append(v_prev - v if self.same_terms(prev, t) else None)
             A.append(v)
             theirs.append(t["unit_price"])
@@ -1335,7 +1335,9 @@ class PlanMixin:
         # and measures our step on it); every other sheet is worth at most that much to it
         counter = self.last_counter(sid) if any(m.get("from") == "buyer" for m in st.events) else None
         bi = next((i for i, x in enumerate(out) if counter and self.same_terms(x, counter) and x not in levers_sent), 0)
-        if bi:
+        # Parent builders can reprice sheet zero. The raw challenger opts into restoring its plan;
+        # keep the independently validated team planners' existing sheet-zero behaviour.
+        if bi or getattr(self, "restore_main_plan", False):
             p = self.priced(case, sid, sup, out[bi], v_plan)
             if p is not None and csee_must_haves_ok(case, {**out[bi], "unit_price": p}, std):
                 out[bi] = {**out[bi], "unit_price": p}
@@ -1368,8 +1370,57 @@ class PlannerLeverAgent(PlanMixin, MertLeverAgent):
     """mert-lever (clause / named-lever sheets) + the planner (price_increase)."""
 
 
-class PlannerRawAgent(PlanMixin, MertAgent):
-    """mert (raw material: clause/payment alternatives) + the planner."""
+class PlannerRawAgent(PlanMixin, MertSkipHedgeAgent, MertConsistentAgent):
+    """Unrouted raw challenger: hedge-aware evidence, consistent clauses and planned concessions.
+
+    The two raw parents share MertAgent: keep the existing evidence ordering and the already-tested
+    clause-continuity rule without changing the selected raw-material champion.
+    """
+
+    restore_main_plan = True
+
+    def sheets(self, case, sid, ours, std, supplier):
+        out = super().sheets(case, sid, ours, std, supplier)
+        if not self.raw or not getattr(self, "planned", False) or not out or "unit_price" not in case["negotiable"]:
+            return out
+        # Two payment trades can have the same non-price terms. Keep the first (the revealed-rate
+        # trade precedes the generic one), leaving space for a different, useful package.
+        distinct = []
+        for sheet in out:
+            if not any(self.same_terms(sheet, previous) for previous in distinct):
+                distinct.append(sheet)
+        main = distinct[0]
+        if not main.get("index_clause") or "contract_months" not in case["negotiable"]:
+            return distinct
+        longer = [m for m in levers.options(case, "contract_months") if m > main["contract_months"]]
+        if not longer:
+            return distinct
+        # A longer INDEXED contract remains feasible after the supplier rejects long fixed prices.
+        # Price the commitment as a real trade, bounded by both buyer cost and the planned supplier value.
+        trade = {**main, "contract_months": max(longer)}
+        sup = self.sup_model(case, sid, std)
+        values = [self.sval(case, sup, sheet) for sheet in distinct]
+        if any(value is None or not math.isfinite(value) for value in values):
+            return distinct
+        ceiling = max(values)
+        target = total_cost(case, main, std, supplier) * (1 - self.p.trade_gain)
+        buyer_price = levers.price_for(case, trade, target, std, supplier)
+        supplier_price = self.price_at_value(case, sup, trade, ceiling)
+        if buyer_price is None or supplier_price is None:
+            return distinct
+        trade["unit_price"] = math.floor(min(buyer_price, supplier_price) * 100 + 1e-6) / 100
+        if total_cost(case, trade, std, supplier) > target:
+            trade["unit_price"] = round(trade["unit_price"] - .01, 2)
+        previous = [sheet["unit_price"] for sheet in self.last_sent(sid) if self.same_terms(sheet, trade)]
+        if (
+            trade["unit_price"] <= 0
+            or (previous and trade["unit_price"] <= max(previous))
+            or not csee_must_haves_ok(case, trade, std)
+            or total_cost(case, trade, std, supplier) > target
+            or self.sval(case, sup, trade) > ceiling + 1e-9
+        ):
+            return distinct
+        return [main, trade, *[sheet for sheet in distinct[1:] if not self.same_terms(sheet, trade)]][:3]
 
 
 class MertScopedWriter(LLMWriter):

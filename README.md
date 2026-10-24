@@ -93,6 +93,17 @@ Add `--no-llm` to use template e-mails. Without an LLM key it uses templates any
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | **how the agent works + changelog of architecture versions with evidence** |
 | `profiles/` | one JSON profile per supplier: situation, pressures, what it values, arguments to use/avoid |
 
+The raw-material challenger is `mert-plan-raw/v16a` (the router selects `mert-plan-meso-raw-dc/v16a`).
+It keeps a shared index clause once both parties offer it, applies its planned concession to the final
+outgoing package, and prices a longer indexed contract as a separate trade within its concession
+budget. Completed P08/P18 replay states and offline regressions validate construction; a hosted score
+improvement has not yet been measured. Compare locally without model calls or arena sessions:
+
+```bash
+uv run python -m csee --no-llm sim --agents mert-skiphedge mert-plan-raw \
+  --variants v16a --cases case:P08 case:P18 --seeds 3
+```
+
 ### Ege's strategy layer
 
 `--agent ege` uses a tool-calling strategist for price increases, RFQs and bundles when an Anthropic
@@ -106,6 +117,12 @@ and must appear in a package or be explicitly cancelled with a reason. Its deadl
 Pending probes can be cancelled when accepting a final offer; they never force another counter.
 State is scoped to the current case and supplier.
 
+For RFQs, `compare_rfq_bids` ranks complete live bids, separates alternatives needing confirmation,
+and calculates a price to match a rival on total cost at the proposed payment/delivery terms. Rival
+claims use only valid, lower-price and lower-cost standing offers. A strategist's RFQ accept/stop
+decision ends its own bargaining thread; the coordinator compares current valid first sheets before
+awarding. Another bidder's work can continue until the runner closes for completion or time pressure.
+
 The deterministic tools calculate package costs, show the breakdown and supplier-cost sensitivity,
 construct factual argument sentences, and check allowed fields, must-haves and acceptable standing
 offers. Relationship costs remain estimates; the cost tool does not predict acceptance or the true
@@ -117,6 +134,8 @@ Run the actual model against local suppliers with:
 ```bash
 cd starter-kit
 uv run python -m csee --agent ege sim --llm --cases case:P01 case:P02 --seeds 1
+# RFQ strategist against local suppliers, with the RFQ champion's baseline parameter preset:
+uv run python -m csee --agent ege sim --llm --variants v7a --cases case:P05 case:P06 --seeds 1
 ```
 
 This uses **LLM credits, no arena sessions**. Without `sim --llm`, simulation uses template/base

@@ -34,7 +34,7 @@ second window of an index already cited came back "duplicate").
 import dataclasses
 import logging
 
-from arena_kit.cost import complete_offer, must_haves_ok, total_cost
+from arena_kit.cost import closing_terms, complete_offer, must_haves_ok, total_cost
 
 from .. import levers
 from ..intel import _q
@@ -125,7 +125,7 @@ class EmreAgent(CseeAgent):
     # ---------- term sheets: the clause and faster payment as priced alternatives ----------
     def sheets(self, case, sid, ours, std, supplier):
         out = super().sheets(case, sid, ours, std, supplier)
-        if not self.raw:
+        if not self.raw or "unit_price" not in case["negotiable"]:
             return out
         try:
             if not has_clause(out[0]):  # if it insisted on a clause, base already asks for the cheapest one
@@ -153,7 +153,9 @@ class EmreAgent(CseeAgent):
         t = complete_offer(case, {**main, "payment_days": days})
         cut = (rate + ours) / 2 * (main["payment_days"] - days) / 360
         t["unit_price"] = round(main["unit_price"] * (1 - cut), 2)
-        if not must_haves_ok(case, t, std) or total_cost(case, t, std, supplier) >= total_cost(case, main, std, supplier):
+        if not must_haves_ok(case, t, std) or (
+            total_cost(case, t, std, supplier) >= total_cost(case, main, std, supplier)
+        ):
             return None
         return t
 
@@ -186,11 +188,12 @@ class EmreAgent(CseeAgent):
         for i, s in enumerate(sheets):
             which = "Our proposal" if i == 0 else "The alternative"
             c = s.get("index_clause")
+            price = closing_terms(case, s)["unit_price"]
             notes.append(
-                f"{which} at EUR {s['unit_price']:.2f} includes an index clause on {c['series']} "
+                f"{which} at EUR {price:.2f} includes an index clause on {c['series']} "
                 f"({c['material_share']:.0%} material share, {c['deadband_pct']}% deadband)."
                 if c
-                else f"{which} at EUR {s['unit_price']:.2f} is a fixed price without index clause."
+                else f"{which} at EUR {price:.2f} is a fixed price without index clause."
             )
         msg["body"] = msg["body"].replace(SIGN, "\n".join(notes) + "\n\n" + SIGN)
         return msg

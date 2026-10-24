@@ -192,7 +192,9 @@ def command(args, runs):
 
         if args.llm and args.no_llm:
             raise SystemExit("sim --llm conflicts with --no-llm")
-        logging.getLogger("csee").setLevel(logging.ERROR)
+        logging.getLogger("csee").setLevel(
+            logging.INFO if args.verbose else logging.WARNING if args.llm else logging.ERROR
+        )
         cases = [c for c in localsim.cases() if not args.cases or c["case_id"] in args.cases]
         rows = []
         for a in args.agents or [args.agent]:
@@ -200,18 +202,29 @@ def command(args, runs):
                 factory = agent_factory(args.llm, v, a)
                 llm = bool(getattr(agent_factory, "llm", False))
                 if args.llm and not llm:
-                    raise SystemExit("sim --llm requires a configured model and key; refusing a silent template comparison")
+                    raise SystemExit(
+                        "sim --llm requires a configured model and key; refusing a silent template comparison"
+                    )
                 if args.llm and a == "ege" and not factory().llm:
                     raise SystemExit("Ege's tool strategist requires LLM_PROVIDER=anthropic and ANTHROPIC_API_KEY")
                 run = new_run(args, runs, "sim", a, v)
                 for case in cases:
                     for seed in range(args.seeds):
+                        mode = (
+                            "local suppliers + model API; model decisions can take tens of seconds"
+                            if llm else "offline"
+                        )
+                        print(f"SIM {a}/{v} {case['case_id']} seed={seed}: started ({mode})", flush=True)
                         table = localsim.LocalTable(case, factory().pkg, seed)
                         try:
                             res = play_case(table, case["case_id"], factory(), run=run)
                         except Exception as e:
                             res = {"score": 0.0, "error": repr(e)}
-                            print(a, v, case["case_id"], seed, "ERROR", e)
+                            print(a, v, case["case_id"], seed, "ERROR", e, flush=True)
+                        print(
+                            f"SIM {a}/{v} {case['case_id']} seed={seed}: finished, score={res.get('score')}",
+                            flush=True,
+                        )
                         rows.append(
                             {
                                 "agent": a,

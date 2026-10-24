@@ -31,6 +31,7 @@ from arena_kit.play import (
     closing_move,
     fetch_documents,
     quota_used_up,
+    standing,
 )
 
 from . import levers, runlog
@@ -44,6 +45,24 @@ def snapshot(threads):
     changed once they are in `threads` (attachments are read before they go in), so lists of the
     same message dicts are enough."""
     return {s: list(ev) for s, ev in threads.items()}
+
+
+def refreshed_thread(state, previous):
+    """Timeout offers can live outside message history. Keep their authoritative ID AND terms."""
+    events = list(state.get("messages", previous))
+    offer_id, status = state.get("offer_id"), state.get("status")
+    if state.get("closed"):
+        events.append({"from": "arena", "status": "walked_away", "term_sheets": [], "attachments": []})
+    elif offer_id and (not events or standing(events)[0] != offer_id):
+        timeout = next(
+            (item for item in reversed(state.get("timeouts") or []) if item.get("offer_id") == offer_id), None
+        )
+        # Never put a fresh ID on stale prices. An offer with unavailable terms is not awardable.
+        sheets = [{"term_sheet_id": offer_id, "terms": timeout["terms"]}] if timeout and timeout.get("terms") else []
+        events.append(
+            {"from": "arena", "status": status or "open", "term_sheets": sheets, "attachments": []}
+        )
+    return events
 
 
 def play_case(table, case_id, agent, deadline=None, run=None):
@@ -67,6 +86,7 @@ def _quiet(fn, *args, **kwargs):
 
 def _play_case(table, case_id, agent, deadline, clog):
     case, threads = table.open(case_id)
+    last_reply_at = {sid: time.monotonic() for sid in threads}
     clog.session_id = table.session_id
     if getattr(table, "done", None):  # resumed a case that had already ended
         if clog.enabled:
@@ -138,9 +158,11 @@ def _play_case(table, case_id, agent, deadline, clog):
                 result.update(reply["result"])
                 ended.set()
                 return
+            reply_at = time.monotonic()
             fetch_documents(table, reply)
             with lock:
                 threads[sid] += [{**msg, "from": "buyer"}, reply]
+                last_reply_at[sid] = reply_at
                 took = time.monotonic() - t0  # our move + its reply
                 slowest[0] = max(slowest[0], took)
                 agent.threads[sid].round_s.append(took)
@@ -166,17 +188,14 @@ def _play_case(table, case_id, agent, deadline, clog):
     workers = {sid: threading.Thread(target=safe, args=(sid,), daemon=True) for sid in sids}
     for w in workers.values():
         w.start()
-    idle_since = {}  # thread -> when its worker stopped (its last supplier reply)
     while any(w.is_alive() for w in workers.values()) and not ended.is_set() and not near_cap():
         time.sleep(0.5)
         now = time.monotonic()
-        for sid, w in workers.items():
-            if not w.is_alive():
-                idle_since.setdefault(sid, now)
-        # A finished thread's 60 s clock keeps running while others negotiate: after IDLE_CLOSE_S the arena
-        # re-issues its offer (P05: a stale accept), three such timeouts end the thread. If the thread that
-        # waits holds our best deal, close now rather than risk it.
-        waiting = [sid for sid, t in idle_since.items() if now - t > IDLE_CLOSE_S]
+        # The 60 s clock started at the REPLY, before the worker spent time deciding to stop.
+        # Giving it another 40 s after a 23 s model decision already makes the accept late.
+        waiting = [
+            sid for sid, w in workers.items() if not w.is_alive() and now - last_reply_at[sid] > IDLE_CLOSE_S
+        ]
         if waiting:
             with lock:
                 try:
@@ -225,16 +244,11 @@ def _play_case(table, case_id, agent, deadline, clog):
                 if state.get("status") == "ended":
                     break
                 for s in state.get("threads") or {}:
-                    threads[s] = table.client.thread(table.session_id, s).get("messages", threads[s])
+                    threads[s] = refreshed_thread(table.client.thread(table.session_id, s), threads[s])
                     for m in threads[s]:
                         fetch_documents(table, m)
                 decision = agent.close(case, threads, force=True)
                 reason = (getattr(agent, "close_reason", "") or "agent.close") + " (threads re-read)"
-                if attempt >= 1:  # still refused: the thread's own standing offer, nothing clever
-                    t = table.client.thread(table.session_id, decision["supplier_id"])
-                    if t.get("offer_id") and decision["message"]["action"]["type"] == "accept":
-                        decision["message"]["action"]["term_sheet_id"] = t["offer_id"]
-                        reason += "; its thread's standing offer"
             except Exception:
                 log.exception("%s: re-reading the threads failed", case_id)
                 break

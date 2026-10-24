@@ -9,9 +9,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from arena_kit.play import CLOSE_BEFORE_CAP_S
+from arena_kit.client import ArenaError
+from arena_kit.play import CLOSE_BEFORE_CAP_S, standing
 from csee import agents, runlog
-from csee.runner import play_case
+from csee.runner import play_case, refreshed_thread
 
 SUPPLIERS = ["sup:1", "sup:2", "sup:3"]
 CASES = Path(__file__).parents[1] / "csee" / "cases" / "practice.json"
@@ -144,3 +145,82 @@ def test_router_passes_log_and_cap_to_the_routed_agent():
     router.prepare(case, {s: [] for s in case["suppliers"]})
     router.cap_at = lambda: 123.0  # the runner: after prepare
     assert router.inner.log is clog and router.inner.cap_at() == 123.0
+
+
+def test_idle_close_counts_model_decision_time_in_the_reply_deadline(monkeypatch):
+    from csee import runner
+
+    monkeypatch.setattr(runner, "IDLE_CLOSE_S", 1)
+    released = threading.Event()
+
+    class WaitingAgent(SlowAgent):
+        def thread_move(self, case, threads, sid):
+            if sid == SUPPLIERS[0]:
+                time.sleep(1.2)  # Most of the reply deadline was spent deciding to stop.
+            else:
+                released.wait(4)
+            self.threads[sid].ready = True
+            return None
+
+    class WaitingTable(FakeTable):
+        def close(self, sid, msg):
+            out = super().close(sid, msg)
+            released.set()
+            return out
+
+    table = WaitingTable()
+    try:
+        assert play_case(table, "case:T", WaitingAgent())["deal"]
+        assert table.closed[2] < 2.2  # Old code added another idle interval: >= 2.5 s.
+    finally:
+        released.set()
+
+
+@pytest.mark.parametrize("status", [409, 422])
+def test_close_retry_uses_timeout_offer_terms_even_when_message_history_is_old(status):
+    class ReadyAgent(SlowAgent):
+        def thread_move(self, case, threads, sid):
+            self.threads[sid].ready = True
+            return None
+
+        def close(self, case, threads, force=False):
+            sid = SUPPLIERS[0]
+            offer_id, terms = standing(threads[sid])
+            if offer_id == "offer:new-timeout":
+                assert terms["unit_price"] == 11  # A timeout can change the actual package too.
+            return {"supplier_id": sid, "message": {"action": {"type": "accept", "term_sheet_id": offer_id}}}
+
+    class RetryingTable(FakeTable):
+        def __init__(self):
+            super().__init__()
+            self.client, self.attempts = self, []
+
+        def close(self, sid, msg):
+            self.attempts.append(msg["action"]["term_sheet_id"])
+            if len(self.attempts) == 1:
+                raise ArenaError(status, "offer expired")
+            assert self.attempts[-1] == "offer:new-timeout"
+            return {"deal": True}
+
+        def session(self, session_id):
+            return {"status": "open", "threads": {s: {} for s in SUPPLIERS}}
+
+        def thread(self, session_id, sid):
+            old = quote(sid)
+            current = "offer:new-timeout" if sid == SUPPLIERS[0] else old["term_sheets"][0]["term_sheet_id"]
+            return {
+                "messages": [old],
+                "offer_id": current,
+                "status": "open",
+                "timeouts": [{"offer_id": current, "terms": {"unit_price": 11}}],
+            }
+
+    table = RetryingTable()
+    assert play_case(table, "case:T", ReadyAgent())["deal"]
+    assert len(table.attempts) == 2
+
+
+def test_refresh_never_attaches_a_new_offer_id_to_unconfirmed_old_terms():
+    old = quote(SUPPLIERS[0])
+    events = refreshed_thread({"offer_id": "offer:new-without-terms", "status": "open"}, [old])
+    assert standing(events) == (None, {})
