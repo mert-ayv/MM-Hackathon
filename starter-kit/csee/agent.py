@@ -43,6 +43,10 @@ class Params:
     all_sheets: bool = True  # weigh every term sheet the supplier sends, not only its first
     clause_when_insisted: bool = True  # supplier insists on an index clause: ask for its cheapest form
     fullcost_discount: float = 0.95  # should-cost runs high (error ~5%): scale it for the relationship term
+    # v4 switches (D01 patience lesson, P05 floor bug, RFQ)
+    floor_guard: bool = False  # ignore a floor estimate at or above ~97% of its own price (outside relationship goals)
+    rfq_beat_leader: bool = False  # RFQ: non-leaders must beat the leader by rfq_margin; never pay above the leader
+    rfq_margin: float = 0.02
 
 
 @dataclass
@@ -94,6 +98,18 @@ class CseeAgent:
         # so fill every field from its opening offer and the case (supplier_value needs them all)
         standard = closing_terms(case, st.opening, std)
         return {"full_cost": full, "interest_rate": rate, "standard": standard}
+
+    def leader_cost(self, case, threads, exclude=None):
+        """The lowest C any other live supplier offers right now (inf if none)."""
+        best = math.inf
+        for s in live_threads(threads):
+            if s == exclude:
+                continue
+            std = standard_terms(threads[s])
+            sheet_id, terms = self.their_sheet(case, threads[s], std, self.supplier_estimate(case, s, std))
+            if sheet_id and terms.get("unit_price") is not None:
+                best = min(best, total_cost(case, terms, std))
+        return best
 
     def their_sheet(self, case, events, std, supplier=None):
         """(term_sheet_id, terms) the supplier offers that is cheapest for us (must-haves kept), or with
@@ -190,7 +206,11 @@ class CseeAgent:
             p = p_s * (1 - self.p.anchor_below_open)
             if b.get("current_unit_price") and case.get("type") in ("price_increase", "raw_material", "renewal"):
                 p = min(p, b["current_unit_price"])
-            if floor:
+            if floor and not (
+                self.p.floor_guard
+                and b.get("category_goal") not in RELATIONSHIP_GOALS
+                and floor >= p_s * 0.97  # an estimate above its own ask is wrong, not a floor
+            ):
                 p = max(p, floor)
             if b.get("category_goal") in RELATIONSHIP_GOALS and supplier:
                 p_rel = levers.relationship_optimal_price(case, base, std, supplier, supplier["full_cost"], p_s)
@@ -212,6 +232,14 @@ class CseeAgent:
                 step *= self.p.hold_above_floor  # we know there is room above its cost: hold
             p = p_b + max(step, 0)
         ours = {**base, "unit_price": round(p, 2)}
+        if self.p.rfq_beat_leader and len(case["suppliers"]) > 1:
+            leader = self.leader_cost(case, threads, exclude=sid)
+            if leader < math.inf:
+                # ask for a package that beats the best rival; conceding past the rival is pointless
+                cap = levers.price_for(case, ours, leader * (1 - self.p.rfq_margin), std, supplier)
+                if cap <= 0:
+                    return None
+                ours["unit_price"] = round(min(ours["unit_price"], cap), 2)
         # their sheet already as cheap as ours (on all terms): nothing to win by writing
         c_theirs = total_cost(case, theirs, std, supplier)
         c_ours = total_cost(case, ours, std, supplier)

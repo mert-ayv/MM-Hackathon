@@ -33,6 +33,13 @@ VARIANTS = {
         "clause_when_insisted": True,
         "fullcost_discount": 0.95,
     },
+    "v4": {
+        "adopt_insisted": True,
+        "rival_only_lower": True,
+        "cash_trade_always": True,
+        "floor_guard": True,
+        "rfq_beat_leader": True,
+    },
 }
 
 
@@ -45,6 +52,8 @@ DESCRIPTIONS = {
     "v2": "base + D02 sandbox lessons: adopt terms the supplier held twice, cite a rival only if lower, "
     "always offer a faster-payment sheet, concede at most half the supplier's step, anchor 18% below.",
     "v3": "v2 + the replay fixes (now in base) = base + v2's concession tactics.",
+    "v4": "base tactics (12% anchor, steady concessions keep the supplier conceding: D01) + v2's adopt-held-terms, "
+    "lower-rival-only, cash sheet + floor guard (P05 anchored 0.5% below the opening) + RFQ: beat the leader.",
 }
 
 
