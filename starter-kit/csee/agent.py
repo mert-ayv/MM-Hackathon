@@ -296,6 +296,9 @@ class CseeAgent:
                 case, {**theirs, "unit_price": round(theirs["unit_price"] * (1 - self.p.final_push), 2)}
             )
             st.our_prices.append(ask["unit_price"])
+            self.note_decision(
+                ev, sid, "send", f"final offer: one small push ({self.p.final_push:.1%}), leader only", t0
+            )
             return {
                 "subject": f"Re: {case['title']}"[:300],
                 "body": "Good day,\n\nthank you for your offer. We are very close. If you can meet us at "
