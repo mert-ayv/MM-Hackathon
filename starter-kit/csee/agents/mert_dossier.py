@@ -82,3 +82,19 @@ class PlannerDossierClaims(DossierClaimsMixin, PlannerAgent):
 
 class PlanMesoRawDossierClaims(DossierClaimsMixin, PlanMesoRaw):
     pass
+
+
+# soft-anchor challengers (Sat 21:15). P10: Ravensteiner goes final at reply 1 every time against our 12 % anchor
+# (43 % of the room left); P18: five agents all end at 0.552, final at reply 3 after a 22 % raw anchor. The engine's
+# final rule fires on a wide gap from an early reply, so a softer first ask may keep them open longer.
+from dataclasses import replace as _replace  # noqa: E402
+
+from .mert import PlanParams  # noqa: E402
+
+
+class PlannerSoftClaims(PlannerDossierClaims):
+    plan = _replace(PlanParams(), anchor=0.06, anchor_rel=0.06)
+
+
+class PlanMesoRawSoftClaims(PlanMesoRawDossierClaims):
+    plan = _replace(PlanParams(), anchor_raw=0.12)

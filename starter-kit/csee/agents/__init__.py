@@ -76,6 +76,8 @@ from .mert_dossier import (
     PlannerDossier,
     PlannerDossierClaims,
     PlanMesoRawDossierClaims,
+    PlannerSoftClaims,
+    PlanMesoRawSoftClaims,
     SkipHedgeDossier,
 )
 from .router import RouterAgent, RouterPlanAgent
@@ -117,6 +119,8 @@ AGENTS = {
     "mert-plan-meso-raw-d": PlanMesoRawDossier,
     "mert-plan-dc": PlannerDossierClaims,  # claims hook only
     "mert-plan-meso-raw-dc": PlanMesoRawDossierClaims,  # claims hook only
+    "mert-plan-soft": PlannerSoftClaims,  # 6 % anchor (P10 challenger)
+    "mert-plan-meso-raw-soft": PlanMesoRawSoftClaims,  # 12 % raw anchor (P18 challenger)
     "router": RouterAgent,
     "router-plan": RouterPlanAgent,  # A/B candidate: the planner on every non-RFQ type
 }
