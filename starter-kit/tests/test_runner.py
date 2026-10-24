@@ -259,3 +259,44 @@ def test_refresh_never_attaches_a_new_offer_id_to_unconfirmed_old_terms():
     old = quote(SUPPLIERS[0])
     events = refreshed_thread({"offer_id": "offer:new-without-terms", "status": "open"}, [old])
     assert standing(events) == (None, {})
+
+
+def test_close_keeps_the_accept_when_the_re_read_loses_the_offers_terms():
+    """A re-issued offer whose timeout entry has no terms: refreshed_thread() leaves the thread without a standing
+    sheet, a real agent then sees nothing to accept and walks. The runner keeps the accept on that offer."""
+
+    class RealisticAgent(SlowAgent):
+        def thread_move(self, case, threads, sid):
+            self.threads[sid].ready = True
+            return None
+
+        def close(self, case, threads, force=False):
+            sid = SUPPLIERS[0]
+            offer_id, terms = standing(threads[sid])
+            if offer_id:
+                return {"supplier_id": sid, "message": {"action": {"type": "accept", "term_sheet_id": offer_id}}}
+            return {"supplier_id": sid, "message": {"action": {"type": "walk_away"}}}
+
+    class ReissuedTable(FakeTable):
+        def __init__(self):
+            super().__init__()
+            self.client, self.actions = self, []
+
+        def close(self, sid, msg):
+            a = msg["action"]
+            self.actions.append(a.get("term_sheet_id") or a["type"])
+            if a["type"] == "accept" and a["term_sheet_id"] == "offer:reissued":
+                return {"deal": True}
+            if a["type"] == "walk_away":
+                return {"deal": False}
+            raise ArenaError(422, "not a standing offer in this session")
+
+        def session(self, session_id):
+            return {"status": "open", "threads": {s: {} for s in SUPPLIERS}}
+
+        def thread(self, session_id, sid):
+            return {"messages": [quote(sid)], "offer_id": "offer:reissued", "status": "open", "timeouts": []}
+
+    table = ReissuedTable()
+    assert play_case(table, "case:T", RealisticAgent())["deal"]
+    assert "walk_away" not in table.actions
