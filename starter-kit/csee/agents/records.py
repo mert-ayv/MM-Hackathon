@@ -157,6 +157,7 @@ import re as _re
 
 from csee import intel as _intel
 from csee.writer import SIGN as _SIGN
+from csee.writer import before_signature as _before_signature
 
 CASH_ASK = _re.compile(r"faster payment|pay(?:ing)? (?:us )?faster|paid faster|cash flow|cash is|Zahlungsziel", _re.I)
 
@@ -211,7 +212,7 @@ class PaymentPledgeMixin:
             return msg
 
         def add(body):
-            return body.replace(_SIGN, line + "\n\n" + _SIGN) if _SIGN in body else body.rstrip() + "\n\n" + line
+            return _before_signature(body, line)
 
         msg["body"] = add(msg["body"])
         w = msg.get("_write")

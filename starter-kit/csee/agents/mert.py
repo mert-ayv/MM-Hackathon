@@ -21,7 +21,7 @@ from arena_kit.play import latest
 from .. import intel, levers
 from ..agent import CseeAgent
 from ..agent import must_haves_ok as csee_must_haves_ok
-from ..writer import SIGN, LLMWriter
+from ..writer import SIGN, LLMWriter, before_signature
 from .emre import EmreAgent
 
 CONTINUATION_REASON = "open supplier still conceding: hold last package"
@@ -229,9 +229,7 @@ class MertDialogueAgent(MertAgent):
         addition = "\n\n".join(notes)
 
         def explain(body):
-            if SIGN in body:
-                return body.replace(SIGN, addition + "\n\n" + SIGN)
-            return body.rstrip() + "\n\n" + addition
+            return before_signature(body, addition)
 
         msg["body"] = explain(msg["body"])
         write = msg.get("_write")
@@ -516,7 +514,7 @@ class MertRawAgent(MertConsistentAgent):
             return msg
 
         def add(body):
-            return body.replace(SIGN, line + "\n\n" + SIGN) if SIGN in body else body.rstrip() + "\n\n" + line
+            return before_signature(body, line)
 
         msg["body"] = add(msg["body"])
         write = msg.get("_write")
@@ -997,9 +995,7 @@ class LeverMixin:
         addition = "\n".join(lines)
 
         def explain(body):
-            if SIGN in body:
-                return body.replace(SIGN, addition + "\n\n" + SIGN)
-            return body.rstrip() + "\n\n" + addition
+            return before_signature(body, addition)
 
         msg["body"] = explain(msg["body"])
         write = msg.get("_write")

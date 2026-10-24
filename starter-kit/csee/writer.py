@@ -14,6 +14,19 @@ from arena_kit.play import latest
 
 log = logging.getLogger("csee")
 SIGN = "Best regards\nHollerau Pumpenwerke GmbH, Purchasing"
+GREETING_RE = re.compile(r"^(best|kind|warm|with best|many thanks|thanks|yours|sincerely|regards|mit freundlichen)", re.I)
+
+
+def before_signature(body, text):
+    """Insert `text` before the closing greeting, whatever greeting the model chose ("Kind regards" ...). Lever and
+    pledge lines used to land after an AI-written signature (7 logged e-mails; the jury reads every replay)."""
+    lines = body.rstrip().split("\n")
+    sign = max((i for i, ln in enumerate(lines) if "Hollerau Pumpenwerke" in ln), default=None)
+    if sign is None:
+        return body.rstrip() + "\n\n" + text
+    at = sign - 1 if sign > 0 and GREETING_RE.match(lines[sign - 1].strip()) else sign
+    head = "\n".join(lines[:at]).rstrip()
+    return head + "\n\n" + text + "\n\n" + "\n".join(lines[at:])
 OPENERS = {
     "price_increase": "Thank you for your letter. We cannot accept an increase of this size.",
     "raw_material": "Thank you for your offer. We have reviewed the base price and the surcharge carefully.",
