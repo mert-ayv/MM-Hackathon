@@ -7,9 +7,10 @@ whole case when to accept which standing sheet, or to walk away.
 """
 
 import logging
-import re
-import time
 import math
+import re
+import threading
+import time
 from dataclasses import dataclass, field
 
 from arena_kit.cost import RELATIONSHIP_GOALS, closing_terms, complete_offer, must_haves_ok, total_cost
@@ -17,7 +18,7 @@ from arena_kit.docs import standard_terms
 from arena_kit.play import ENDED, latest, live_threads, moves_left, standing
 
 from . import intel as intel_mod
-from . import levers
+from . import levers, runlog
 from .writer import SIGN, TemplateWriter, describe
 
 log = logging.getLogger("csee")
@@ -110,15 +111,23 @@ class ThreadState:
     round_s: list = field(default_factory=list)  # seconds per round (our move + its reply), for the wave cap
     asked_breakdown: bool = False
     ready: bool = False  # nothing more to gain by writing: wait for the coordinator
+    why: str = ""  # which branch of next_terms decided the last move (for the run log only)
 
 
 class CseeAgent:
+    """The runner's contract (who calls what, which lock is held) is in `csee/agents/__init__.py`."""
+
+    log = runlog.NULL  # the run log: the runner sets a runlog.CaseLog before prepare()
+
     def __init__(self, package=None, writer=None, params=None):
         self.pkg, self.p = package, params or Params()
 
         self.writer = writer or TemplateWriter()
         self.case_id, self.threads, self.used_ids = None, {}, set()
+        self.close_reason = ""  # why close() chose what it returned (run log)
         self.cap_at = None  # set by the runner in the Live Final: when the safety close happens (time.time())
+        # state shared across supplier threads (used_ids): thread_move runs concurrently per supplier
+        self.shared_lock = threading.RLock()
 
     # ---------- preparation ----------
     def prepare(self, case, threads):
@@ -226,6 +235,7 @@ class CseeAgent:
     # ---------- one thread ----------
     def thread_move(self, case, threads, sid):
         """The next e-mail to this supplier, or None when this thread is ready for the coordinator."""
+        t0 = time.monotonic()
         if self.case_id != case["case_id"]:
             self.prepare(case, threads)
         st, ev = self.threads[sid], threads[sid]
@@ -247,6 +257,7 @@ class CseeAgent:
             st.their_prices.append(theirs["unit_price"])
         if status in ENDED:
             st.ready = True
+            self.note_decision(ev, sid, "wait", f"thread ended ({status})", t0)
             return None
         left = moves_left(case, ev)
         # Only the FIRST sheet of a reply is standing and acceptable (422 "not a standing offer" otherwise).
@@ -263,6 +274,7 @@ class CseeAgent:
         ):
             st.alt_requested = sheet_id
             terms = complete_offer(case, theirs)
+            self.note_decision(ev, sid, "send", f"propose its alternative {sheet_id} back word for word", t0)
             return {
                 "subject": f"Re: {case['title']}"[:300],
                 "body": "Good day,\n\nthank you. We accept your alternative offer as stated: "
@@ -296,17 +308,30 @@ class CseeAgent:
             status = "open"
         if status in READY_STATUSES or left <= self.p.reserve_moves or not sheet_id:
             st.ready = True
+            why = (
+                f"supplier status {status}"
+                if status in READY_STATUSES
+                else f"{left} moves left (reserve {self.p.reserve_moves})"
+                if left <= self.p.reserve_moves
+                else "no term sheet offered"
+            )
+            self.note_decision(ev, sid, "wait", why, t0)
             return None
         supplier = self.supplier_estimate(case, sid, std)
+        st.why = ""
         ours = self.next_terms(case, threads, sid, theirs, std, supplier, left)
         if ours is None:
             st.ready = True
+            self.note_decision(ev, sid, "wait", st.why or "next_terms: nothing to win by writing", t0)
             return None
         sheets = self.sheets(case, sid, ours, std, supplier)
         st.our_prices.append(sheets[0]["unit_price"])
         claims = self.pick_claims(case, threads, sid)
         ask_breakdown = not st.asked_breakdown and not st.breakdown
         st.asked_breakdown = st.asked_breakdown or ask_breakdown
+        if self.log.enabled:
+            self.note_plan(case, threads, sid, sheets, claims, std, supplier)
+        self.note_decision(ev, sid, "send", st.why or "next_terms", t0, candidate_id=f"{sid}:main")
         draft = TemplateWriter().write(case, self, sid, ev, sheets, claims, ask_breakdown)
         msg = {
             "subject": f"Re: {case['title']}"[:300],
@@ -350,6 +375,51 @@ class CseeAgent:
         fit = int(max(cap - time.time(), 0) // per_round)
         return min(left, fit)
 
+    # ---------- run log (docs/run-log.md): observes, never decides ----------
+    def note_decision(self, events, sid, kind, reason, t0=None, candidate_id=None, **extra):
+        if not self.log.enabled:
+            return
+        try:
+            self.log.event(
+                "decision",
+                round=sum(m.get("from") == "buyer" for m in events) + 1,
+                supplier_id=sid,
+                kind=kind,
+                candidate_id=candidate_id,
+                reason=reason,
+                decided_in_s=round(time.monotonic() - t0, 3) if t0 is not None else None,
+                **extra,
+            )
+        except Exception as e:
+            log.warning("run log decision: %s", e)
+
+    def note_plan(self, case, threads, sid, sheets, claims, std, supplier):
+        try:
+            priced = [runlog.priced(case, s, std, supplier) for s in sheets]
+            labels = ["main"] + [
+                "trade: " + ", ".join(k for k in s if s.get(k) != sheets[0].get(k) and k != "unit_price")
+                for s in sheets[1:]
+            ]
+            cites = [{"id": i, "text": c.sentence} for c in claims for i in c.ids]
+            self.log.event(
+                "plan",
+                round=sum(m.get("from") == "buyer" for m in threads[sid]) + 1,
+                supplier_id=sid,
+                target=priced[0],
+                walk_away_c=runlog.finite(self.reservation(case, threads)),
+                candidates=[
+                    {
+                        "id": f"{sid}:main",
+                        "label": " | ".join(labels),
+                        "sheets": priced,
+                        "claims": cites,
+                        "rationale": self.threads[sid].why,
+                    }
+                ],
+            )
+        except Exception as e:
+            log.warning("run log plan: %s", e)
+
     def floor_price(self, st):
         full = (st.breakdown or {}).get("full_cost") or st.intel.full_cost
         return full * (1 + self.p.floor_margin) if full else None
@@ -359,6 +429,7 @@ class CseeAgent:
         b = case["buyer"]
         p_s = theirs.get("unit_price")
         if p_s is None:
+            st.why = "their sheet has no price"
             return None
         fixed = self.insisted_fields(case, threads[sid]) if self.p.adopt_insisted else {}
         if self.p.sticky_terms and st.our_prices:
@@ -405,6 +476,7 @@ class CseeAgent:
                 if p_rel:
                     p = max(p, p_rel * 0.99)
             p = min(p, p_s * 0.995)
+            st.why = f"anchor at {p:.2f} (their ask {p_s:.2f}, floor {floor and round(floor, 2)})"
         else:
             p_b = st.our_prices[-1]
             gap = p_s - p_b
@@ -421,6 +493,11 @@ class CseeAgent:
             if self.p.hold_on_internal and INTERNAL.search(latest(threads[sid]).get("body") or ""):
                 step = 0.0  # it is asking its boss for a further step: give it nothing to answer
             p = p_b + max(step, 0)
+            st.why = (
+                f"concede {max(step, 0):.2f} of gap {gap:.2f} ({'late' if late else 'early'}, their step "
+                f"{their_step:.2f})"
+                + (", holding above floor" if self.p.hold_above_floor and floor and p_b > floor * 1.08 else "")
+            )
         # the best terms depend on the price (e.g. above the fallback price a short contract looks
         # "cheaper"): choose them at the price we ask, not at the supplier's (Fable review #3)
         expected = round(p + 0.5 * max(p_s - p, 0), 2)  # where the deal will likely land
@@ -434,12 +511,16 @@ class CseeAgent:
                 # ask for a package that beats the best rival; conceding past the rival is pointless
                 cap = levers.price_for(case, ours, leader * (1 - self.p.rfq_margin), std, supplier)
                 if cap <= 0:
+                    st.why = "rfq: cannot beat the leader"
                     return None
+                if cap < ours["unit_price"]:
+                    st.why += f"; capped at {cap:.2f} to beat the leader"
                 ours["unit_price"] = round(min(ours["unit_price"], cap), 2)
         # their sheet already as cheap as ours (on all terms): nothing to win by writing
         c_theirs = total_cost(case, theirs, std, supplier)
         c_ours = total_cost(case, ours, std, supplier)
         if c_theirs <= c_ours * (1 + self.p.close_gap):
+            st.why = f"their C {c_theirs:.0f} within close_gap of ours {c_ours:.0f}: ready"
             return None
         return ours
 
@@ -537,18 +618,19 @@ class CseeAgent:
             f"{a.get('argument', '')} {a.get('why', '')}" for a in st.intel.profile.get("arguments_to_avoid", [])
         ).lower()
         out = []
-        for c in claims:
-            key = tuple(c.ids) if c.kind != "rival" else (sid, *c.ids)
-            if key in self.used_ids or any(i in self.used_ids for i in c.ids if c.kind != "rival"):
-                continue
-            if avoided(c, avoid):
-                continue
-            out.append(c)
-            self.used_ids.add(key)
-            self.used_ids.update(i for i in c.ids if c.kind != "rival")
-            first = not any(m.get("from") == "buyer" for m in threads[sid])
-            if len(out) >= (self.p.max_claims + 1 if first else self.p.max_claims):
-                break
+        with self.shared_lock:  # check-and-claim: two threads must not cite the same ID
+            for c in claims:
+                key = tuple(c.ids) if c.kind != "rival" else (sid, *c.ids)
+                if key in self.used_ids or any(i in self.used_ids for i in c.ids if c.kind != "rival"):
+                    continue
+                if avoided(c, avoid):
+                    continue
+                out.append(c)
+                self.used_ids.add(key)
+                self.used_ids.update(i for i in c.ids if c.kind != "rival")
+                first = not any(m.get("from") == "buyer" for m in threads[sid])
+                if len(out) >= (self.p.max_claims + 1 if first else self.p.max_claims):
+                    break
         return out
 
     @staticmethod
@@ -605,9 +687,11 @@ class CseeAgent:
 
     # ---------- the whole case ----------
     def close(self, case, threads, force=False):
-        """Accept the cheapest valid standing sheet, walk away, or None to keep negotiating."""
+        """Accept the cheapest valid standing sheet, walk away, or None to keep negotiating. Read-only (the
+        runner also calls it as a probe); `close_reason` says why, for the runner's `decision` event."""
         live = live_threads(threads)
         if not live:
+            self.close_reason = "no live thread"
             return {"supplier_id": case["suppliers"][0], "message": {"action": {"type": "walk_away"}}}
         if not force and not all(self.threads.get(s) and self.threads[s].ready for s in live):
             return None
@@ -627,8 +711,10 @@ class CseeAgent:
                 if c < c_alt and (best is None or c < best[0]):
                     best = (c, sid, sheet_id)
         if best is None:
+            self.close_reason = f"no valid sheet beats the alternative (C_alt {c_alt:.0f})"
             return {"supplier_id": live[0], "message": {"action": {"type": "walk_away"}}}
         log.info("%s: accept %s %s at C=%.0f (alt %.0f)", case["case_id"], best[1], best[2], best[0], c_alt)
+        self.close_reason = f"cheapest valid standing sheet C={best[0]:.0f} < C_alt {c_alt:.0f}"
         return {"supplier_id": best[1], "message": {"action": {"type": "accept", "term_sheet_id": best[2]}}}
 
     # ---------- the kit's sequential interface (arena_kit.play.play) ----------

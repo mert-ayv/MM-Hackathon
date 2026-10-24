@@ -15,6 +15,8 @@ Practice costs quota (200 / 24h for the whole team): `run`/`play` on practice ca
 and refuse to go below the reserve of 30 sessions. Test on `bench` (free) first.
 
 Every play/run is logged to experiments/<date>-<author>.jsonl with --agent, --variant, commit and --note.
+Every command that plays (play, run, final, sim, bench) also writes a run log for the dashboard:
+runs/<YYYYMMDD-HHMMSS>-<agent>-<set>/ (docs/run-log.md); --no-runlog turns it off.
 
 Without an LLM key (ANTHROPIC_API_KEY or LLM_API_KEY) the agent writes from templates.
 """
@@ -29,7 +31,7 @@ from arena_kit.cli import load_env, summary
 from arena_kit.client import ArenaClient
 from arena_kit.play import hosted
 
-from . import agents, evaluate, ledger, variants
+from . import agents, evaluate, ledger, runlog, variants
 from .runner import play_all, play_case, play_waves
 
 
@@ -62,6 +64,7 @@ def main(argv=None):
     ap.add_argument("--agent", default="base", choices=list(agents.AGENTS), help="a team agent from csee/agents/")
     ap.add_argument("--variant", default="base", help="a preset from csee/variants.py")
     ap.add_argument("--note", default="", help="free text stored with every ledger row")
+    ap.add_argument("--no-runlog", action="store_true", help="don't write the run log (runs/<run_id>/)")
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("play")
     p.add_argument("case_id")
@@ -95,7 +98,40 @@ def main(argv=None):
         level=logging.INFO if args.verbose else logging.WARNING,
         format="%(asctime)s %(threadName)s %(message)s",
     )
+    runs = {}
+    try:
+        command(args, runs)
+    finally:
+        for run in runs.values():
+            run.end()
+        if runs:
+            print("run log:", ", ".join(str(r.dir) for r in runs.values()))
 
+
+def new_run(args, runs, set_, agent=None, variant=None):
+    """The run log for one agent/variant in this invocation (None with --no-runlog, or if it can't be made)."""
+    agent, variant = agent or args.agent, variant or args.variant
+    if args.no_runlog:
+        return None
+    if (agent, variant) not in runs:
+        label = agent if variant == "base" else f"{agent}-{variant}"
+        try:
+            runs[agent, variant] = runlog.Run(
+                label,
+                set_,
+                args.note,
+                agent_name=agent,
+                variant=variant,
+                llm=getattr(agent_factory, "llm", False),
+                command=args.cmd,
+            )
+        except Exception as e:  # the log is never worth a failed run
+            logging.getLogger("csee").warning("run log off: %s", e)
+            return None
+    return runs[agent, variant]
+
+
+def command(args, runs):
     if args.cmd == "play":
         from arena_kit.play import RemoteTable
 
@@ -103,8 +139,9 @@ def main(argv=None):
         if args.case_id.startswith("case:P"):
             guard_quota(client, 1, args.confirm)
         factory = agent_factory(not args.no_llm, args.variant, args.agent)
-        result = play_case(RemoteTable(client), args.case_id, factory())
-        log_row(args, args.case_id, "practice" if "case:P" in args.case_id else "sandbox", result)
+        set_ = "practice" if "case:P" in args.case_id else "sandbox"
+        result = play_case(RemoteTable(client), args.case_id, factory(), run=new_run(args, runs, set_))
+        log_row(args, args.case_id, set_, result)
         print(json.dumps(summary(result), indent=2, ensure_ascii=False))
         if result.get("replay_url") or result.get("session_id"):
             print("replay:", result.get("replay_url"))
@@ -113,14 +150,15 @@ def main(argv=None):
         ids = args.cases or [c["case_id"] for c in hosted(client.cases(args.set))]
         if args.set == "practice":
             guard_quota(client, len(ids), args.confirm)
-        out = play_all(client, ids, agent_factory(not args.no_llm, args.variant, args.agent), min(args.parallel, 10))
+        factory = agent_factory(not args.no_llm, args.variant, args.agent)
+        out = play_all(client, ids, factory, min(args.parallel, 10), run=new_run(args, runs, args.set))
         for cid, res in out.items():
             log_row(args, cid, args.set, res)
             print(cid, json.dumps(summary(res)) if isinstance(res, dict) else f"ERROR {res}")
     elif args.cmd == "final":
         client = ArenaClient()
         factory = agent_factory(not args.no_llm, args.variant, args.agent)
-        out = play_waves(client, factory, args.waves, min(args.parallel, 10))
+        out = play_waves(client, factory, args.waves, min(args.parallel, 10), run=new_run(args, runs, "final"))
         for cid, res in out.items():
             log_row(args, cid, "final", res)
             print(cid, json.dumps(summary(res)) if isinstance(res, dict) else f"ERROR {res}")
@@ -135,11 +173,12 @@ def main(argv=None):
         for a in args.agents or [args.agent]:
             for v in args.variants:
                 factory = agent_factory(False, v, a)
+                run = new_run(args, runs, "sim", a, v)
                 for case in cases:
                     for seed in range(args.seeds):
                         table = localsim.LocalTable(case, factory().pkg, seed)
                         try:
-                            res = play_case(table, case["case_id"], factory())
+                            res = play_case(table, case["case_id"], factory(), run=run)
                         except Exception as e:
                             res = {"score": 0.0, "error": repr(e)}
                             print(a, v, case["case_id"], seed, "ERROR", e)
@@ -168,11 +207,12 @@ def main(argv=None):
 
         factories = {(a, v): agent_factory(not args.no_llm, v, a) for a in names for v in args.variants}
         llm = getattr(agent_factory, "llm", False)
+        bench_runs = {(a, v): new_run(args, runs, "sandbox", a, v) for a in names for v in args.variants}
 
         def one(job):
             a, v, cid = job
             try:
-                res = play_case(RemoteTable(client), cid, factories[a, v]())
+                res = play_case(RemoteTable(client), cid, factories[a, v](), run=bench_runs[a, v])
             except Exception as e:  # keep the bench going
                 res = e
             ledger.record(cid, "sandbox", res, v, variants.describe(v), llm, args.note, agent=a)

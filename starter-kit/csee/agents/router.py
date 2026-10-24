@@ -36,6 +36,10 @@ def resolve(route, params):
 
 
 class RouterAgent:
+    # set on the router by the runner (`agent.log` before prepare, `agent.cap_at` after): the agent playing
+    # the case must see them, so they are passed on - __getattr__ only forwards reads
+    FORWARD = ("log", "cap_at")
+
     def __init__(self, package=None, writer=None, params=None):
         self.pkg, self.writer, self.params = package, writer, params
         self.inner, self.case_id = None, None
@@ -45,6 +49,9 @@ class RouterAgent:
             route = ROUTES.get(case.get("type"), FALLBACK)
             cls, params = resolve(route, self.params)
             self.inner, self.case_id = cls(self.pkg, self.writer, params), case["case_id"]
+            for name in self.FORWARD:
+                if name in self.__dict__:
+                    setattr(self.inner, name, self.__dict__[name])
             log.info("%s (%s): %s", case["case_id"], case.get("type"), route)
         return self.inner
 
@@ -59,6 +66,11 @@ class RouterAgent:
 
     def decide(self, case, threads):
         return self._route(case).decide(case, threads)
+
+    def __setattr__(self, name, value):
+        object.__setattr__(self, name, value)
+        if name in self.FORWARD and self.__dict__.get("inner") is not None:
+            setattr(self.inner, name, value)
 
     def __getattr__(self, name):  # threads, p, ... of the agent playing the case
         inner = self.__dict__.get("inner")

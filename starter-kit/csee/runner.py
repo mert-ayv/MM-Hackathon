@@ -4,6 +4,14 @@ The 60-second clock runs per thread from the supplier's reply. The kit's `play()
 after another, so in an RFQ a second supplier's clock runs while we wait for the first one's reply
 (up to a minute) - a timeout. Here each thread has its own worker that answers as soon as its supplier
 has replied; one coordinator closes the case when every thread is ready, or before a wave's cap.
+
+Concurrency: the shared `lock` guards `threads` (the e-mails) and is held only to check, snapshot and
+apply. A worker's decision (`agent.thread_move`, which may call an LLM for 10-30 s) and the model's
+wording (`msg["_write"]`, within WRITE_BUDGET_S) run outside it on a snapshot of `threads`, so a slow
+decision in one thread never holds up the others. `agent.close` runs under the lock. The contract for
+agent authors is in `csee/agents/__init__.py`.
+
+Every event of a case goes to the run log (`csee/runlog.py`, `docs/run-log.md`) when a `run` is given.
 """
 
 import functools
@@ -13,8 +21,12 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 
 from arena_kit.client import ArenaError
+from arena_kit.cost import must_haves_ok
+from arena_kit.docs import standard_terms
 from arena_kit.play import (
     CLOSE_BEFORE_CAP_S,
+    MOVE_LIMIT_S,
+    ROUND_MARGIN_S,
     RemoteTable,
     closing_move,
     fetch_documents,
@@ -22,48 +34,101 @@ from arena_kit.play import (
     quota_used_up,
 )
 
+from . import levers, runlog
+
 log = logging.getLogger("csee")
 
 
-def play_case(table, case_id, agent, deadline=None):
+def snapshot(threads):
+    """A private copy for a decision outside the lock: a new dict of new lists. Messages are never
+    changed once they are in `threads` (attachments are read before they go in), so lists of the
+    same message dicts are enough."""
+    return {s: list(ev) for s, ev in threads.items()}
+
+
+def play_case(table, case_id, agent, deadline=None, run=None):
+    """Play one case to its end. `deadline`: a Live Final wave's cap (time.time(), or a function returning
+    it). `run`: a `runlog.Run` to log every event of this case to (None: no log)."""
+    clog = run.case(case_id) if run else runlog.NULL
+    try:
+        return _play_case(table, case_id, agent, deadline, clog)
+    except Exception as e:
+        _quiet(clog.event, "error", supplier_id=None, status=getattr(e, "status", None), detail=repr(e))
+        raise
+
+
+def _quiet(fn, *args, **kwargs):
+    """Logging must never break or stop a negotiation."""
+    try:
+        fn(*args, **kwargs)
+    except Exception as e:
+        log.warning("run log: %s", e)
+
+
+def _play_case(table, case_id, agent, deadline, clog):
     case, threads = table.open(case_id)
+    clog.session_id = table.session_id
     if getattr(table, "done", None):  # resumed a case that had already ended
+        if clog.enabled:
+            _quiet(log_result, clog, table, case, threads, table.done, None, None, resumed=True)
         return table.done
     for events in threads.values():
         for m in events:
             fetch_documents(table, m)
+    agent.log = clog
     agent.prepare(case, threads)
-    # the wave's cap, for a time-aware concession pace (practice and sandbox: none)
-    agent.cap_at = (lambda: (deadline() if callable(deadline) else deadline) - CLOSE_BEFORE_CAP_S) if deadline else None
-    lock, ended, result = threading.Lock(), threading.Event(), {}
+    if clog.enabled:
+        _quiet(log_opened, clog, case, threads, agent)
+    lock, ended, closing, result = threading.Lock(), threading.Event(), threading.Event(), {}
+    slowest = [0.0]  # the longest round so far, any thread: decision + the supplier's reply
+
+    def margin():  # close this long before the cap, as the kit: longer if rounds are slow
+        return max(CLOSE_BEFORE_CAP_S, slowest[0] + ROUND_MARGIN_S)
 
     def near_cap():
         cap = deadline() if callable(deadline) else deadline
-        return bool(cap) and time.time() > cap - CLOSE_BEFORE_CAP_S
+        return bool(cap) and time.time() > cap - margin()
+
+    # when the safety close happens, for a time-aware concession pace (practice and sandbox: none)
+    agent.cap_at = (lambda: (deadline() if callable(deadline) else deadline) - margin()) if deadline else None
+
+    def stop():
+        return ended.is_set() or closing.is_set() or near_cap()
 
     def worker(sid):
         while not ended.is_set():
-            with lock:
-                if sid not in live_threads(threads) or near_cap():
+            with lock:  # check and snapshot only
+                if sid not in live_threads(threads) or stop():
                     return
-                t0 = time.monotonic()
-                msg = agent.thread_move(case, threads, sid)
-                took = time.monotonic() - t0
-            if took > 40:
+                view = snapshot(threads)
+            t0 = time.monotonic()
+            msg = agent.thread_move(case, view, sid)  # slow (LLM): outside the lock
+            took = time.monotonic() - t0
+            if took > MOVE_LIMIT_S * 0.75:
                 log.warning("%s %s: decision took %.0fs", case_id, sid, took)
             if msg is None:
                 return
             write = msg.pop("_write", None)
-            if write:
+            if write:  # the model's wording, within its budget; the template body otherwise
                 msg["body"] = timed_write(write, msg["body"], case_id, sid)
+            with lock:
+                if stop():  # the coordinator is closing the case: this message is too late
+                    log.info("%s %s: closing - message dropped", case_id, sid)
+                    return
+                n_sent = sum(m.get("from") == "buyer" for m in threads[sid])
+            if clog.enabled:
+                _quiet(log_sent, clog, case, view, agent, sid, msg, n_sent + 1)
+            t_send = time.monotonic()
             try:
                 reply = table.send(sid, msg)
             except ArenaError as e:
+                _quiet(clog.event, "error", supplier_id=sid, status=e.status, detail=e.detail)
                 if e.status != 409:
                     log.error("%s %s: %s %s", case_id, sid, e.status, e.detail)
                     agent.threads[sid].ready = True
                     return
                 reply = table.missed(sid, e)
+            latency = time.monotonic() - t_send
             if "result" in reply:
                 result.update(reply["result"])
                 ended.set()
@@ -71,7 +136,12 @@ def play_case(table, case_id, agent, deadline=None):
             fetch_documents(table, reply)
             with lock:
                 threads[sid] += [{**msg, "from": "buyer"}, reply]
-                agent.threads[sid].round_s.append(time.monotonic() - t0)  # our move + its reply
+                took = time.monotonic() - t0  # our move + its reply
+                slowest[0] = max(slowest[0], took)
+                agent.threads[sid].round_s.append(took)
+                events = list(threads[sid])
+            if clog.enabled:
+                _quiet(log_reply, clog, case, events, agent, sid, reply, n_sent + 1, latency)
             log.info(
                 "%s %s %s %s", case_id, sid, reply.get("status"), (reply.get("term_sheets") or [{}])[0].get("terms")
             )
@@ -79,8 +149,9 @@ def play_case(table, case_id, agent, deadline=None):
     def safe(sid):
         try:
             worker(sid)
-        except Exception:  # one broken thread must not stop the case
+        except Exception as e:  # one broken thread must not stop the case
             log.exception("%s %s: worker failed", case_id, sid)
+            _quiet(clog.event, "error", supplier_id=sid, status=None, detail=repr(e))
             agent.threads[sid].ready = True
 
     sids = live_threads(threads)
@@ -110,23 +181,35 @@ def play_case(table, case_id, agent, deadline=None):
                 )
                 break
     if result:
-        return {**result, "session_id": table.session_id}
+        out = {**result, "session_id": table.session_id}
+        if clog.enabled:
+            with lock:
+                view = snapshot(threads)
+            _quiet(log_result, clog, table, case, view, out, None, None)
+        return out
+    t_close = time.monotonic()
     with lock:
+        closing.set()  # a worker still deciding drops its message
         try:
             decision = agent.close(case, threads, force=True)
-        except Exception:
+            reason = getattr(agent, "close_reason", "") or "agent.close"
+        except Exception as e:
             log.exception("%s: agent.close failed - kit closing move", case_id)
-            decision = closing_move(case, threads)
+            _quiet(clog.event, "error", supplier_id=None, status=None, detail=f"agent.close failed: {e!r}")
+            decision, reason = closing_move(case, threads), "kit closing_move (agent.close failed)"
     out = None
     for attempt in range(3):
         sid, msg = decision["supplier_id"], decision["message"]
         log.info("%s: closing %s %s", case_id, sid, msg["action"])
+        if clog.enabled:
+            _quiet(log_close, clog, threads, sid, msg["action"], reason, t_close, attempt, near_cap())
         try:
             out = table.close(sid, msg)
             break
         except ArenaError as e:
             # e.g. a stale sheet after a late supplier reply: re-read the threads, decide again
             log.warning("%s: close failed (%s %s), attempt %d", case_id, e.status, e.detail, attempt + 1)
+            _quiet(clog.event, "error", supplier_id=sid, status=e.status, detail=e.detail)
             if e.status not in (409, 422) or not hasattr(table, "client"):
                 break
             try:
@@ -138,16 +221,21 @@ def play_case(table, case_id, agent, deadline=None):
                     for m in threads[s]:
                         fetch_documents(table, m)
                 decision = agent.close(case, threads, force=True)
+                reason = (getattr(agent, "close_reason", "") or "agent.close") + " (threads re-read)"
                 if attempt >= 1:  # still refused: the thread's own standing offer, nothing clever
                     t = table.client.thread(table.session_id, decision["supplier_id"])
                     if t.get("offer_id") and decision["message"]["action"]["type"] == "accept":
                         decision["message"]["action"]["term_sheet_id"] = t["offer_id"]
+                        reason += "; its thread's standing offer"
             except Exception:
                 log.exception("%s: re-reading the threads failed", case_id)
                 break
     if out is None:
         out = table.result()
-    return {**out, "session_id": table.session_id}
+    out = {**out, "session_id": table.session_id}
+    if clog.enabled:
+        _quiet(log_result, clog, table, case, threads, out, msg["action"], sid)
+    return out
 
 
 IDLE_CLOSE_S = 40  # a ready thread holding the best deal must not wait out its 60 s clock
@@ -165,14 +253,144 @@ def timed_write(write, draft, case_id, sid):
         return draft
 
 
-def play_all(client, case_ids, new_agent, parallel=8):
+# ---------- run-log events (docs/run-log.md); each call is wrapped in _quiet ----------
+
+
+def _estimate(agent, case, sid, std):
+    try:
+        return agent.supplier_estimate(case, sid, std)
+    except Exception:
+        return None
+
+
+def _name(agent, sid):
+    try:
+        return agent.threads[sid].intel.profile.get("name") or sid
+    except Exception:
+        return sid
+
+
+def log_opened(clog, case, threads, agent):
+    opening = {}
+    for sid, ev in threads.items():
+        first = next((m for m in ev if m.get("from") != "buyer"), {})
+        sheet = (first.get("term_sheets") or [{}])[0]
+        std = standard_terms(ev)
+        opening[sid] = {
+            "offer_id": sheet.get("term_sheet_id"),
+            "supplier_name": _name(agent, sid),
+            "priced": runlog.priced(case, sheet.get("terms") or {}, std, _estimate(agent, case, sid, std)),
+            "standard_terms": std,
+            "body": first.get("body"),
+        }
+    clog.event("case_opened", case=case, opening=opening, c_alt=runlog.finite(levers.alternative_cost(case)))
+
+
+def log_close(clog, threads, sid, action, reason, t0, attempt, cap_near):
+    clog.event(
+        "decision",
+        round=sum(m.get("from") == "buyer" for m in threads.get(sid, [])) + 1,
+        supplier_id=sid,
+        kind=action.get("type"),
+        candidate_id=action.get("term_sheet_id"),
+        reason=reason + (" - wave cap near" if cap_near else "") + (f" - retry {attempt}" if attempt else ""),
+        decided_in_s=round(time.monotonic() - t0, 3),
+    )
+
+
+def log_sent(clog, case, view, agent, sid, msg, round_):
+    std = standard_terms(view[sid])
+    supplier = _estimate(agent, case, sid, std)
+    clog.event(
+        "message_sent",
+        round=round_,
+        supplier_id=sid,
+        subject=msg.get("subject"),
+        body=msg.get("body"),
+        sheets=[runlog.priced(case, s.get("terms", s), std, supplier) for s in msg.get("term_sheets") or []],
+        refs=msg.get("refs") or [],
+        claims=runlog.message_claims(msg),
+    )
+
+
+def log_reply(clog, case, events, agent, sid, reply, round_, latency):
+    std = standard_terms(events)
+    sheet = (reply.get("term_sheets") or [{}])[0]
+    clog.event(
+        "reply",
+        round=round_,
+        supplier_id=sid,
+        **{"from": reply.get("from")},
+        status=reply.get("status"),
+        subject=reply.get("subject"),
+        body=reply.get("body"),
+        standing={
+            "offer_id": sheet.get("term_sheet_id"),
+            "priced": runlog.priced(case, sheet.get("terms") or {}, std, _estimate(agent, case, sid, std))
+            if sheet.get("terms")
+            else None,
+        },
+        claim_results=reply.get("claim_results") or [],
+        missing_fields=reply.get("missing_fields") or [],
+        signals=reply.get("signals"),
+        attachments=[
+            {"attachment_id": a.get("attachment_id"), "name": a.get("name"), "type": a.get("type")}
+            for a in reply.get("attachments") or []
+        ],
+        latency_s=round(latency, 3),
+    )
+
+
+def log_result(clog, table, case, threads, out, action, closed_sid, resumed=False):
+    """The result, then - after the end only, GETs, no quota - end_reason, trace and back office.
+    `action`/`closed_sid`: our closing move, if we closed the case."""
+    accepted = (action or {}).get("type") == "accept"
+    sid = out.get("supplier_id") or (closed_sid if accepted else None)
+    terms = out.get("terms")
+    std = standard_terms(threads.get(sid, [])) if sid else {}
+    state, client = {}, getattr(table, "client", None)
+    if client and table.session_id:
+        try:
+            state = client.session(table.session_id) or {}
+        except Exception:  # e.g. 403 in the final
+            state = {}
+    res_state = state.get("result") or {}
+    fields = {
+        "deal": out.get("deal"),
+        "supplier_id": sid,
+        "offer_id": out.get("offer_id") or (action or {}).get("term_sheet_id"),
+        "terms": terms,
+        "c_open": out.get("c_open"),
+        "c_deal": out.get("c_deal"),
+        "c_alt": runlog.finite(out.get("c_alt", levers.alternative_cost(case))),
+        "c_best": out.get("c_best"),
+        "score": out.get("score"),
+        "cost_breakdown": runlog.priced(case, terms, std)["breakdown"] if terms else None,
+        "end_reason": out.get("end_reason") or state.get("end_reason") or res_state.get("end_reason"),
+        "replay_url": out.get("replay_url") or res_state.get("replay_url") or state.get("replay_url"),
+        "must_haves_ok": must_haves_ok(case, terms, std) if terms else None,
+    }
+    if resumed:
+        fields["resumed"] = True
+    clog.event("result", **fields)
+    trace = res_state.get("trace") or state.get("trace")
+    if trace:
+        clog.event("trace", trace=trace)
+    if client and table.session_id:
+        try:
+            clog.event("backoffice", messages=client.backoffice(table.session_id))
+        except Exception:  # 403 in the final: expected
+            pass
+
+
+def play_all(client, case_ids, new_agent, parallel=8, run=None):
     used_up = threading.Event()
 
     def one(case_id):
         if used_up.is_set():
             return case_id, ArenaError(429, "not started: the practice quota is used up")
         try:
-            return case_id, play_case(RemoteTable(client), case_id, new_agent())
+            return case_id, play_case(RemoteTable(client), case_id, new_agent(), run=run)
         except ArenaError as e:
             if quota_used_up(e):
                 used_up.set()
@@ -186,13 +404,13 @@ def play_all(client, case_ids, new_agent, parallel=8):
         return dict(pool.map(one, case_ids))
 
 
-def play_waves(client, new_agent, waves=5, parallel=10, poll=3.0):
+def play_waves(client, new_agent, waves=5, parallel=10, poll=3.0, run=None):
     """The Live Final, as the kit's `play_waves`, with the parallel-thread `play_case`."""
     started, closed, caps = {}, set(), {}
 
     def one(case, deadline):
         try:
-            return play_case(RemoteTable(client, case), case["case_id"], new_agent(), deadline)
+            return play_case(RemoteTable(client, case), case["case_id"], new_agent(), deadline, run=run)
         except Exception as e:
             log.exception("%s failed", case["case_id"])
             return e

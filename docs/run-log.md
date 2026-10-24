@@ -58,3 +58,23 @@ supplier estimate from the dossier (absent: 0).
 and no `message_sent`. `supplier_name` is the company name, not the `from` role. `agent` may contain dashes.
 
 Unknown `type`s must be ignored by readers. New fields may be added; existing ones don't change meaning.
+
+## csee implementation notes (`starter-kit/csee/runlog.py`)
+
+The csee runner (`starter-kit/csee/runner.py`) writes this format for every command that plays (`play`, `run`, `final`,
+`sim`, `bench`); `--no-runlog` turns it off. Within the contract above:
+
+- `run_id` = `YYYYMMDD-HHMMSS-<agent>-<set>`, e.g. `20261024-153012-base-sim`, `…-annika-a-practice`. `agent` is the
+  team agent, plus `-<variant>` when the variant isn't `base`. Read `agent` and `set` from `run.json`, not from the id.
+- `run.json` also has `agent_name`, `variant`, `llm` and `command`.
+- One invocation of `sim`/`bench` plays a case several times (seeds, repeats): the first session is
+  `case_P01.jsonl`, the next `case_P01-2.jsonl`, and so on. Each file is still one case session.
+- `decision.kind` also takes `wait`: the agent sends nothing more to this supplier (thread ready); `reason` says why.
+  `decision` for `accept` / `walk_away` comes from the agent's `close`; its `candidate_id` is the accepted sheet id.
+- `plan` has one candidate: the message's sheets (main sheet first, then trades); `rationale` is the branch of
+  `next_terms` that set the price.
+- `message_sent.claims` lists the message's data IDs in the order the arena indexes them (`refs`, then IDs in the
+  body), each with the body line that cites it.
+- `result`, `trace` and `backoffice` are fetched with `GET /sessions/{sid}` and `GET /sessions/{sid}/backoffice` after
+  the case has ended (no quota); a failed fetch (403 in the final) is skipped. The local simulator has no session API,
+  so its `result.end_reason` is null and there is no `trace` / `backoffice`.
