@@ -93,4 +93,11 @@ How our agent negotiates, and how each architecture version is tracked. Code: [`
 \* sim recalibrated to 626 real supplier moves before this row (final offer around reply 4, 3 personalities), so sim numbers above and below that line are not comparable.
 
 **Lessons so far:** suppliers converge on our anchor; they turn final around their 4th reply, so the anchor and first moves decide; steady visible concessions buy more rounds than stubbornness; changing terms lets them re-price (13 % of real moves went *up*); only a reply's first sheet is acceptable; a far push after a final offer can make a supplier walk.
+| v12 | v9 with sticky only for quality terms, value-neutral chargeback/ppm, contract at horizon | 0.86 / 0.74 / 0.796 | 0.275 | – | lost v9's D01 gain (sticky payment helped there) |
+| v13 | v9 with sticky terms only when they cost <= 0.8 % of C + v12's quality/contract fixes | 0.97 / 0.70 / 0.835 (with AI writer 0.97 / 0.72 / 0.846) | 0.276 | **P02 0.44 (was 0), P03 0.92 (= house), P10 0.67, P11 0.71 (house 0.31), P18 0.42**; board mean 0.50 -> 0.69 | **current champion candidate** |
+| v14 | v13 + relationship-goal anchor at the supplier's real cost (should-cost x0.98), trade sheets without the relationship term (all were dropped), close only within 10 % of the room | 0.97 / 0.70 / 0.835 (= v13, as predicted: the sandbox has no should-cost) | 0.385 vs v13 0.31 on rel/price-increase cases | – (bot calibrated on real P02: 0.41 -> 0.83-0.91) | candidate for P01/P02-type cases |
+
+**Routing for the final (`csee/agents/router.py`):** raw material -> `emre/base` (P08 0.55, P18 0.47: best measured; pinned so v13 switches can't leak in); payment days from a supplier's alternative sheet are adopted only for cash-short suppliers (P18 lost 0.048 to a locked-in 30 days). Bets for Emre's agent: `docs/notes/raw-material-review.md`.
+
+**Final-mode estimate:** every run now records what it would have scored at the final's cutoffs (390/330/270 s, `csee/final_est.py`; `csee board --final`, `csee finalest`). The v13 validation cases took 49-215 s, so time was not binding in practice.
 
