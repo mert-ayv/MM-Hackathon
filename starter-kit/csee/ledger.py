@@ -6,6 +6,7 @@ Commit and push it; `python -m csee board` compares every variant across the who
 """
 
 import getpass
+import os
 import json
 import statistics
 import subprocess
@@ -24,7 +25,8 @@ def _git(*args):
 
 
 def author():
-    name = _git("config", "user.name") or getpass.getuser()
+    """CSEE_AUTHOR (e.g. in .env) if set, else the git user name."""
+    name = os.environ.get("CSEE_AUTHOR") or _git("config", "user.name") or getpass.getuser()
     return "".join(ch for ch in name.lower().replace(" ", "-") if ch.isalnum() or ch == "-") or "unknown"
 
 

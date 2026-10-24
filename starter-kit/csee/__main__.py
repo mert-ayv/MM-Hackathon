@@ -67,6 +67,10 @@ def main(argv=None):
     r.add_argument("--cases", nargs="*", help="only these case ids")
     r.add_argument("--confirm", action="store_true", help="practice only: yes, spend the quota")
     p.add_argument("--confirm", action="store_true", help="practice only: yes, spend the quota")
+    sm = sub.add_parser("sim", help="FREE + offline: local supplier simulator on all practice case files")
+    sm.add_argument("--variants", nargs="+", default=["base"])
+    sm.add_argument("--seeds", type=int, default=3)
+    sm.add_argument("--cases", nargs="*")
     bn = sub.add_parser("bench", help="FREE: sandbox cases, several times per variant")
     bn.add_argument("--variants", nargs="+", default=["base"])
     bn.add_argument("--repeat", type=int, default=3)
@@ -113,6 +117,37 @@ def main(argv=None):
         for cid, res in out.items():
             log_row(args, cid, "final", res)
             print(cid, json.dumps(summary(res)) if isinstance(res, dict) else f"ERROR {res}")
+    elif args.cmd == "sim":
+        import statistics
+
+        from . import localsim
+
+        logging.getLogger("csee").setLevel(logging.ERROR)
+        cases = [c for c in localsim.cases() if not args.cases or c["case_id"] in args.cases]
+        rows = []
+        for v in args.variants:
+            factory = agent_factory(False, v)
+            for case in cases:
+                for seed in range(args.seeds):
+                    table = localsim.LocalTable(case, factory().pkg, seed)
+                    try:
+                        res = play_case(table, case["case_id"], factory())
+                    except Exception as e:
+                        res = {"score": 0.0, "error": repr(e)}
+                        print(v, case["case_id"], seed, "ERROR", e)
+                    rows.append(
+                        {
+                            "variant": v,
+                            "commit": ledger.commit(),
+                            "llm": False,
+                            "set": "localsim",
+                            "case_id": case["case_id"],
+                            "score": res.get("score") or 0.0,
+                        }
+                    )
+        print(ledger.board(rows, None, "localsim"))
+        for v in args.variants:
+            print(v, "mean", round(statistics.mean(r["score"] for r in rows if r["variant"] == v), 3))
     elif args.cmd == "bench":
         client = ArenaClient()
         ids = [c["case_id"] for c in client.cases("sandbox")]
