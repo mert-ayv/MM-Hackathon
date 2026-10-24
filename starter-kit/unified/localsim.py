@@ -16,12 +16,15 @@ import random
 from pathlib import Path
 
 from arena_kit.client import ArenaError
-from arena_kit.cost import closing_terms, complete_offer, must_haves_ok, score, total_cost
+from arena_kit.cost import RELATIONSHIP_GOALS, closing_terms, complete_offer, must_haves_ok, score, total_cost
 
 from . import intel as intel_mod
 from . import levers
 
 CASES = Path(__file__).parent / "cases" / "practice.json"
+# the arena's supplier cost behind its relationship charge: should-cost x 0.977-0.990 in all 11 charged practice
+# deals (P01, P02, P03, back-calculated from cost_breakdown.relationship, 24 Oct)
+ARENA_COST = 0.98
 OPEN_ASK = {
     "price_increase": 0.08,
     "renewal": 0.04,
@@ -68,6 +71,12 @@ class Supplier:
             "tooling_eur": 0,
             "index_clause": None,
         }
+        # how the arena scores stabilise/secure_supply deals: a relationship charge below its real cost
+        self.arena = (
+            {"full_cost": full * ARENA_COST, "interest_rate": 0.08, "standard": self.std}
+            if full and b.get("category_goal") in RELATIONSHIP_GOALS
+            else None
+        )
         opts = case.get("term_options", {})
         self.want_clause = bool(opts.get("index_clause")) and rng.random() < 0.6
         self.hold_payment = self.cash_short or rng.random() < 0.3
@@ -200,7 +209,17 @@ class Supplier:
             t["unit_price"] = self.price_for_value(t, self.floor)
             t = levers.best_terms(self.case, t, self.std, supplier_cost_aware=False)
         t["unit_price"] = self.price_for_value(t, self.floor)
-        return total_cost(self.case, t, self.std) if must_haves_ok(self.case, t, self.std) else math.inf
+        if not must_haves_ok(self.case, t, self.std):
+            return math.inf
+        if self.arena:  # with the relationship charge the cheapest deal may sit above its floor
+            t["unit_price"] = levers.cost_minimal_price(
+                self.case, t, self.std, self.arena, lo=t["unit_price"], hi=self.p0 * 1.5
+            )
+        return self.cost(t)
+
+    def cost(self, terms):
+        """C as the arena scores it (with the relationship charge in stabilise/secure_supply cases)."""
+        return total_cost(self.case, terms, self.std, self.arena)
 
 
 class LocalTable:
@@ -214,9 +233,7 @@ class LocalTable:
 
     def open(self, case_id):
         self.threads = {s: [sp.opening()] for s, sp in self.sup.items()}
-        self.c_open = min(
-            total_cost(self.case, self.threads[s][0]["term_sheets"][0]["terms"], sp.std) for s, sp in self.sup.items()
-        )
+        self.c_open = min(sp.cost(self.threads[s][0]["term_sheets"][0]["terms"]) for s, sp in self.sup.items())
         return self.case, json.loads(json.dumps(self.threads))
 
     def send(self, supplier_id, message):
@@ -232,7 +249,7 @@ class LocalTable:
             if act["term_sheet_id"] != sp.standing_id:  # as on the arena: only the first sheet stands
                 raise ArenaError(422, "not a standing offer in this session")
             terms = sp.offered.get(act["term_sheet_id"])
-            c = total_cost(self.case, terms, sp.std)
+            c = sp.cost(terms)
             ok = must_haves_ok(self.case, terms, sp.std)
             s = score(self.c_open, c, c_best) if ok and c <= self.c_open else 0.0
             self.result_ = {

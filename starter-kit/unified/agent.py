@@ -76,7 +76,9 @@ class Params:
     trade_gain: float = 0.006  # a trade sheet must save us at least this share of C
     reserve_moves: int = 1  # keep this many messages in hand
     cash_rate: float = 0.14  # a cash-short supplier's cost of money
-    fullcost_discount: float = 0.95  # should-cost runs high (error ~5%): scale it for the relationship term
+    # the supplier's real cost for the relationship term: the arena's charge back-calculates to should-cost
+    # x 0.977-0.990 in all 11 charged practice deals (P01/P02/P03, 24 Oct); 0.95 let us squeeze P02 to 0.39
+    fullcost_discount: float = 0.98
     rel_anchor: bool = True  # stabilise/secure_supply: anchor at the relationship-optimal price, not should-cost
     rel_full: float = 0.98  # own-plant should-cost runs ~2 % above the real full cost (P01 130.04 vs 132.64)
     trade_no_rel: bool = True  # price trade sheets without the relationship term (price_for bisection breaks with it)
