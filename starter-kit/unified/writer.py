@@ -94,7 +94,7 @@ facts allow. Sign as "Hollerau Pumpenwerke GmbH, Purchasing"."""
         stable = "\n".join(
             [
                 f"CASE: {case.get('title')} ({case.get('type')}, goal {case['buyer'].get('category_goal')})",
-                f"PROFILE: {json.dumps({k: profile.get(k) for k in ('name', 'situation', 'what_it_values', 'persona', 'arguments_to_avoid')}, ensure_ascii=False)[:2500]}",
+                f"PROFILE: {json.dumps({k: profile.get(k) for k in ('name', 'situation', 'what_it_values', 'persona')}, ensure_ascii=False)[:2500]}",
             ]
         )
         user = "\n".join(

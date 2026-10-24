@@ -41,7 +41,7 @@ class Supplier:
     def __init__(self, case, sid, pkg, rng):
         self.case, self.sid, self.rng = case, sid, rng
         b = case["buyer"]
-        from .fallback import profile_for
+        from .profile import profile_for
 
         profile = profile_for(sid, case, pkg)  # from the data package, like the agent's own profile
         pressures = " ".join(p.get("type", "") for p in profile.get("pressures", []))

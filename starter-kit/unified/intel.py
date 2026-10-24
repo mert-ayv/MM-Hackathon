@@ -18,7 +18,7 @@ COUNTRY_COST = {"DE": 1.0, "AT": 1.05, "CH": 1.1, "CZ": 0.82, "PL": 0.82, "HU": 
 class Claim:
     sentence: str  # one argument, figure and IDs in the same sentence
     ids: list
-    kind: str  # index | should_cost | rival | scorecard | notice | forecast | news | history
+    kind: str  # index | should_cost | rival | scorecard | notice | forecast | history
     strength: float = 1.0  # how strongly it supports a lower price (for ordering)
     price: float | None = None  # the figure, for rival offers
     tag: str = ""  # e.g. the index series, "ppm"/"otd" (for the profile's arguments_to_avoid)
@@ -124,21 +124,17 @@ def estimate_full_cost(case, pkg, supplier_id, country):
 
 def build(case, pkg, supplier_id, opening_price=None, opening_text="", opening=None):
     """Everything we know about one supplier in this case, before the first counter-offer."""
-    from .fallback import profile_for
+    from .profile import profile_for
 
     # from the data package and the case only (no hand-written profiles): practice plays like the final
     intel = Intel(supplier_id, profile_for(supplier_id, case, pkg, opening or opening_text))
     rows = _q(pkg, "SELECT country FROM suppliers WHERE id = ?", (supplier_id,))
     intel.country = (rows[0]["country"] if rows else None) or intel.profile.get("country") or "DE"
     intel.full_cost, intel.full_cost_source = estimate_full_cost(case, pkg, supplier_id, intel.country)
-    if intel.full_cost is None and intel.profile.get("floor_feed"):
-        intel.full_cost, intel.full_cost_source = intel.profile["floor_estimate"], intel.profile["floor_source"]
     intel.claims = claims_for(case, pkg, supplier_id, opening_price, opening_text)
     return intel
 
 
-NEWS_HELPS_US = {"free_capacity", "short_time_work", "new_plant", "looking_for_customers", "short_time"}
-NEWS_HELPS_THEM = {"full_order_book", "big_order", "allocation", "chip_shortage", "noise", "renamed"}
 DRIVER_RE = re.compile(r"([A-Z][A-Z0-9-]{2,}) rose [\d.]+ ?% in twelve months")
 
 
@@ -267,19 +263,7 @@ def claims_for(case, pkg, supplier_id, asked_price=None, opening_text=""):
                     )
                 )
                 break
-    # 6. news that this supplier needs work (never news that helps it: full order books, allocation)
-    news = supplier_facts(case, pkg, supplier_id, "news:")
-    rows = {n["id"]: n for n in _q(pkg, "SELECT id, topic, headline FROM news WHERE supplier_id = ?", (supplier_id,))}
-    for ref in sorted(news, reverse=True):
-        n = {**news[ref], **rows.get(ref, {})}
-        topic, head = (n.get("topic") or "").lower(), n.get("headline") or ""
-        if topic in NEWS_HELPS_THEM:
-            continue
-        if topic in NEWS_HELPS_US or re.search(
-            r"new customers|short-time|idle|spare capacity|second shift", head, re.I
-        ):
-            out.append(Claim(f"We read that {head.rstrip('.')} ({ref}).", [ref], "news", strength=0.6))
-            break
+    # (no news claims: suppliers brushed them off, and the agent drops them)
     out += history_claims(case, pkg, supplier_id, asked_price, cards)
     return sorted(out, key=lambda c: -c.strength)
 
@@ -340,7 +324,9 @@ def history_claims(case, pkg, supplier_id, asked_price=None, cards=()):
             (r, f)
             for r, f in known.items()
             if r.startswith("qn:") and isinstance(f, dict) and f.get("supplier") == supplier_id
-            and f.get("part") in parts and f.get("ppm") and (f.get("date") or "") >= _years_back(known, "qn:", supplier_id)
+            and f.get("part") in parts
+            and f.get("ppm")
+            and (f.get("date") or "") >= _years_back(known, "qn:", supplier_id)
         ),
         key=lambda x: (-(x[1]["ppm"]), x[0]),
     )
