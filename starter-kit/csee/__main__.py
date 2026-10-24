@@ -32,6 +32,7 @@ from arena_kit.client import ArenaClient
 from arena_kit.play import hosted
 
 from . import agents, evaluate, ledger, runlog, variants
+from .datapkg import shared
 from .runner import play_all, play_case, play_waves
 
 
@@ -52,7 +53,7 @@ def agent_factory(use_llm=True, variant="base", agent="base"):
     if data:
         from arena_kit.data import DataPackage
 
-        package = DataPackage(data)
+        package = shared(DataPackage(data))  # one SQLite connection for all cases: serialize access
         package.lookup("")  # build the ID index once, before agents share it
     else:  # no should-cost, no floors, no data claims: the agent still plays, but much weaker
         logging.getLogger("csee").warning(
@@ -60,11 +61,10 @@ def agent_factory(use_llm=True, variant="base", agent="base"):
         )
     writer = None
     if use_llm and (os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("LLM_API_KEY")):
-        from arena_kit.agents.llm import llm_from_env
-
+        from .llm import complete_from_env
         from .writer import LLMWriter
 
-        writer = LLMWriter(llm_from_env())
+        writer = LLMWriter(complete_from_env())  # prompt caching on the stable prefix
     params = variants.params(variant)
     agent_factory.llm = writer is not None
     return lambda: cls(package, writer, params)

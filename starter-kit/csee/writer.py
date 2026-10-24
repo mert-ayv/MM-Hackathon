@@ -90,11 +90,16 @@ facts allow. Sign as "Hollerau Pumpenwerke GmbH, Purchasing"."""
         draft = self.fallback.write(case, agent, sid, events, sheets, claims, ask_breakdown)
         profile = agent.threads[sid].intel.profile
         last = latest(events)
+        # the same on every move of this thread: first, so it can be a cached prompt prefix (csee/llm.py)
+        stable = "\n".join(
+            [
+                f"CASE: {case.get('title')} ({case.get('type')}, goal {case['buyer'].get('category_goal')})",
+                f"PROFILE: {json.dumps({k: profile.get(k) for k in ('name', 'situation', 'what_it_values', 'persona', 'arguments_to_avoid')}, ensure_ascii=False)[:2500]}",
+            ]
+        )
         user = "\n".join(
             [
                 *([f"WHAT TO STRESS (our plan for this e-mail): {focus[:400]}"] if focus else []),
-                f"CASE: {case.get('title')} ({case.get('type')}, goal {case['buyer'].get('category_goal')})",
-                f"PROFILE: {json.dumps({k: profile.get(k) for k in ('name', 'situation', 'what_it_values', 'persona', 'arguments_to_avoid')}, ensure_ascii=False)[:2500]}",
                 f"THEIR LAST E-MAIL:\n{(last.get('body') or '')[:1500]}",
                 f"PACKAGES TO PROPOSE: {json.dumps(sheets)}",
                 "CLAIMS (verbatim):\n" + "\n".join(c.sentence for c in claims),
@@ -104,7 +109,10 @@ facts allow. Sign as "Hollerau Pumpenwerke GmbH, Purchasing"."""
         )
         t0 = time.monotonic()
         try:
-            text = self.complete(self.SYSTEM, user).strip()
+            if getattr(self.complete, "parts", False):
+                text = self.complete(self.SYSTEM, [stable, user]).strip()
+            else:
+                text = self.complete(self.SYSTEM, stable + "\n" + user).strip()
         except Exception as e:
             log.warning("writer model failed (%s): template used", e)
             return draft
