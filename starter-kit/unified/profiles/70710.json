@@ -1,0 +1,49 @@
+{
+ "supplier_id": "sup:70710",
+ "name": "Edelstahl-Service Donautal GmbH",
+ "category": "raw material",
+ "country": "DE",
+ "owner_type": "group",
+ "group_parent": null,
+ "staff": 350,
+ "turnover_eur": 165000000,
+ "our_spend_fy2026_eur": 493832,
+ "our_share_of_their_turnover_pct": 0.3,
+ "parts": [
+  {"part_id": "part:370010", "name": "Round bar 1.4404 dia 30 mm, peeled", "current_price": 5.45, "price_unit": 1, "quota_pct": 80, "qualified_alternatives": ["sup:70740"], "should_cost_id": null, "should_cost_unit": null},
+  {"part_id": "part:370021", "name": "Sheet 1.4301 2 mm, 2B, cut to size", "current_price": null, "price_unit": 1, "quota_pct": 0, "qualified_alternatives": ["sup:70730"], "should_cost_id": null, "should_cost_unit": null}
+ ],
+ "contract": {"id": "ctr:4600070710", "valid_to": "2026-12-31", "payment_days": 30, "incoterm": "DAP", "notice_days": 60, "index_clauses": [{"id": "ctr:4600070710#3.2", "series": "AS-14404", "material_share": 0.45, "deadband_pct": 0}]},
+ "standard_terms_hint": {"payment_days": 30, "incoterm": "DAP", "lead_time_days": 10, "skonto": null},
+ "quality": {"latest_scorecard_id": "sc:70710@2026Q3", "otd_pct": 88.0, "ppm": 75, "colour": "green", "trend": "OTD 83.5%->89.2%, ppm 95->72 (mean 2024Q3-25Q2 vs 2025Q4-26Q3)", "open_8d_overdue": 0},
+ "payment_behaviour": {"avg_days_late_by_us": 1.9, "note": "last 12m: 3 of 23 invoices paid >3 days late, max 7 days. Avg 1.9 days late; fine."},
+ "financial_health": {"equity_ratio_pct": 33.9, "credit_index": 177, "credit_index_12m_ago": 177, "signal": "Group stockholder, credit 177 unchanged; healthy."},
+ "negotiation_history": {"events": 3, "avg_asked_pct": 0.7, "avg_settled_pct": -2.4, "settle_to_ask_ratio": -0.02, "notes": ["Renewals settle ~2.6 pp below ask; 2026 asked 3.2, settled 1.4 (EV-2026-70710-370010).", "Index steps all formula-correct: Q2-26 5.43, Q3-26 5.45 (EV-2026-70710-370010-Q3)."]},
+ "situation": "Stainless stockholder (EUR 165 m group), 80% of the 1.4404 bar at EUR 5.45/kg under an AS-14404 clause (share 0.45, no deadband). Frame ends 2026-12-31 and it proposes a new price basis with an AS-14404 clause (P08). Its nickel/alloys are bought forward to March 2027. AS-14404 has fallen 5.5% from its June peak (3182.7 -> 3007.8 EUR/t); under the current clause the Oct-2026 price is ~EUR 5.38, yet it quotes 5.45. Implied base price ex surcharge ~EUR 2.44/kg (5.45 - 3.01). Cheapest 1.4404 source (Werdenfels now 5.84).",
+ "pressures": [
+  {"type": "other", "evidence": "Alloys hedged to March 2027; surcharge moves don't hit its costs until then.", "ids": ["doc:20260706-70710-M1", "quote:7300008"]},
+  {"type": "other", "evidence": "Wants a fresh base + AS-14404 surcharge clause for the coming period.", "ids": ["doc:20260912-70710-P08"]}
+ ],
+ "what_it_values": ["surcharge pass-through after March 2027", "keeping the 80% share", "transparency (owner offered open book)"],
+ "likely_tradeables": [
+  {"lever": "index_clause", "give": "accept AS-14404 clause", "get": "base month = latest low (Sep-26), share <=0.45, deadband >=3%, base price ~2.44/kg", "why": "surcharge already falling; deadband like Werdenfels' 3%", "ids": ["ctr:4600070710#3.2", "ctr:4600070740#3.2", "idx:AS-14404@2026-09"]},
+  {"lever": "unit_price", "give": "fixed price through March 2027 (its hedge)", "get": "start at <=5.38 (Q4 formula)", "why": "hedged, so fixing costs it nothing", "ids": ["doc:20260706-70710-M1"]},
+  {"lever": "volume_per_year", "give": "up to 100% of 1.4404 / add 1.4301 sheet (qualified)", "get": "lower base price", "why": "stockholder margin on volume", "ids": ["fc:370010@2026-09"]}
+ ],
+ "arguments_that_should_land": [
+  {"argument": "AS-14404 fell 5.5% from June to September 2026.", "ids": ["idx:AS-14404@2026-06", "idx:AS-14404@2026-09"], "why": "verified, pushes base down"},
+  {"argument": "Under ctr:4600070710#3.2 the Q4-2026 price is 5.38 (AS-14404 Nov-25 2852.8 -> Aug-26 3022.0).", "ids": ["ctr:4600070710#3.2", "idx:AS-14404@2025-11", "idx:AS-14404@2026-08"], "why": "their own clause"},
+  {"argument": "Take up the owner's offer to show the calculation split base vs surcharge.", "ids": ["doc:20260421-70710-M2"], "why": "exposes base margin"}
+ ],
+ "arguments_to_avoid": [
+  {"argument": "Nickel market is down yoy", "why": "AS-14404 +5.9% yoy; contradicted"},
+  {"argument": "Werdenfels quote:7200008 (6.06)", "why": "rival is more expensive"}
+ ],
+ "persona": {"who_writes": "Owner / sales", "style": "formal letters, open-book offer", "decision_making": "group; owner-level flexibility", "relationship_notes": "won 2025 RFQ; green A, OTD 89%"},
+ "noise": ["doc:20251225-70710-N (holiday shutdown)", "news:20260822-24 (trade fair)"],
+ "key_quotes": [
+  {"id": "doc:20260706-70710-M1", "quote": "our nickel and alloys requirement is covered at fixed prices until March 2027."},
+  {"id": "doc:20260912-70710-P08", "quote": "including a price adjustment clause based on AS-14404"}
+ ],
+ "confidence": "high"
+}

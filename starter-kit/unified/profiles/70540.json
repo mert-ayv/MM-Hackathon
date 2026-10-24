@@ -1,0 +1,48 @@
+{
+ "supplier_id": "sup:70540",
+ "name": "Konvertek Antriebselektronik GmbH",
+ "category": "electrical",
+ "country": "AT",
+ "owner_type": "group",
+ "group_parent": null,
+ "staff": 800,
+ "turnover_eur": 196000000,
+ "our_spend_fy2026_eur": 1267102,
+ "our_share_of_their_turnover_pct": 0.65,
+ "parts": [
+  {"part_id": "part:350020", "name": "Frequency converter 7.5 kW, IP55", "current_price": null, "price_unit": 1, "quota_pct": 0, "qualified_alternatives": ["sup:70530"], "should_cost_id": null, "should_cost_unit": null},
+  {"part_id": "part:350021", "name": "Frequency converter 15 kW, IP55", "current_price": 684.92, "price_unit": 1, "quota_pct": 100, "qualified_alternatives": ["sup:70530"], "should_cost_id": "cost:350021", "should_cost_unit": 692.92}
+ ],
+ "contract": {"id": "ctr:4600070540", "valid_to": "2027-06-30", "payment_days": 30, "incoterm": "DAP", "notice_days": 90, "index_clauses": []},
+ "standard_terms_hint": {"payment_days": 30, "incoterm": "DAP", "lead_time_days": 84, "skonto": null},
+ "quality": {"latest_scorecard_id": "sc:70540@2026Q3", "otd_pct": 81.5, "ppm": 0, "colour": "green", "trend": "OTD 77.5%->83.1%, ppm 561->276 (mean 2024Q3-25Q2 vs 2025Q4-26Q3)", "open_8d_overdue": 0},
+ "payment_behaviour": {"avg_days_late_by_us": 2.1, "note": "last 12m: 6 of 25 invoices paid >3 days late, max 6 days. Avg 2.1 days late; minor."},
+ "financial_health": {"equity_ratio_pct": 38.4, "credit_index": 178, "credit_index_12m_ago": 178, "signal": "Group, credit 178 unchanged; healthy."},
+ "negotiation_history": {"events": 3, "avg_asked_pct": 2.33, "avg_settled_pct": 0.0, "settle_to_ask_ratio": 0.0, "notes": ["Never moved price: three renewals all settled 0.0% (EV-2026-70540-350021) despite asks of 1.0-3.2%."]},
+ "situation": "Austrian converter maker (EUR 196 m) supplying the 15 kW converter at EUR 684.92, unchanged since 2023. Its price list applies to all customers without exception until June 2027 (contract also ends 2027-06-30); it offers to discuss logistics and payment instead. It reported power-semiconductor shortages and long lead times (84 days). Prices sit at should-cost (EUR 692.92).",
+ "pressures": [
+  {"type": "capacity", "evidence": "Shortage of power semiconductors; lead times extended.", "ids": ["news:20260302-01"]},
+  {"type": "other", "evidence": "Rigid list price until June 2027; open on logistics and payment.", "ids": ["doc:20260906-70540-M1", "quote:7300067"]},
+  {"type": "volume", "evidence": "Reviewing small accounts, focus on volume customers.", "ids": ["doc:20260223-70540-M2"]}
+ ],
+ "what_it_values": ["list-price discipline", "securing semiconductor allocation / planning visibility", "volume customers"],
+ "likely_tradeables": [
+  {"lever": "lead_time_days", "give": "firm rolling forecast / longer call-off", "get": "lead time below 84 days", "why": "logistics is its stated negotiable", "ids": ["doc:20260906-70540-M1"]},
+  {"lever": "payment_days", "give": "volume commitment", "get": "45-60 days", "why": "payment explicitly open", "ids": ["doc:20260906-70540-M1"]},
+  {"lever": "contract_months", "give": "renewal from July 2027", "get": "price hold beyond June 2027", "why": "list frozen anyway; lock it longer", "ids": ["ctr:4600070540#8.1"]}
+ ],
+ "arguments_that_should_land": [
+  {"argument": "Forecast for the 15 kW converter is up 5.4%.", "ids": ["fc:350021@2026-09"], "why": "volume focus"},
+  {"argument": "OTD averaged 83.1% over the last four quarters.", "ids": ["sc:70540@2025Q4", "sc:70540@2026Q1", "sc:70540@2026Q2", "sc:70540@2026Q3"], "why": "supports lead-time/reliability asks"}
+ ],
+ "arguments_to_avoid": [
+  {"argument": "Any unit-price reduction", "why": "list applies 'without exception'; history 0.0% every time"},
+  {"argument": "Its quote:7200003 for the 7.5 kW (EUR 466.99)", "why": "irrelevant to the 15 kW; reveals it is not competitive there"}
+ ],
+ "persona": {"who_writes": "Sales director / KAM", "style": "terse, policy-driven", "decision_making": "list price fixed centrally; committee >2%", "relationship_notes": "since 2021 sole active on 15 kW; Selvbrunn qualified"},
+ "noise": ["doc:20251005-70540-N (holiday shutdown)"],
+ "key_quotes": [
+  {"id": "doc:20260906-70540-M1", "quote": "Our price list applies to all customers without exception until June 2027."}
+ ],
+ "confidence": "medium"
+}

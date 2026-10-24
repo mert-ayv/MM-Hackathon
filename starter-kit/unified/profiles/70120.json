@@ -1,0 +1,192 @@
+{
+ "supplier_id": "sup:70120",
+ "name": "Eisengießerei Velkenreith GmbH",
+ "category": "castings",
+ "country": "DE",
+ "owner_type": "family",
+ "group_parent": null,
+ "staff": 240,
+ "turnover_eur": 34200000,
+ "our_spend_fy2026_eur": 488308,
+ "our_share_of_their_turnover_pct": 1.4,
+ "parts": [
+  {
+   "part_id": "part:310030",
+   "name": "Impeller HN 200",
+   "current_price": 34.26,
+   "price_unit": 1,
+   "quota_pct": 70,
+   "qualified_alternatives": [
+    "sup:70140",
+    "sup:70190"
+   ],
+   "should_cost_id": "cost:310030",
+   "should_cost_unit": 35.98
+  },
+  {
+   "part_id": "part:310031",
+   "name": "Impeller HN 250",
+   "current_price": 54.42,
+   "price_unit": 1,
+   "quota_pct": 100,
+   "qualified_alternatives": [],
+   "should_cost_id": null,
+   "should_cost_unit": null
+  }
+ ],
+ "contract": {
+  "id": "ctr:4600070120",
+  "valid_to": "2026-12-31",
+  "payment_days": 45,
+  "incoterm": "FCA",
+  "notice_days": 90,
+  "index_clauses": []
+ },
+ "standard_terms_hint": {
+  "payment_days": 45,
+  "incoterm": "FCA",
+  "lead_time_days": 49,
+  "skonto": null
+ },
+ "quality": {
+  "latest_scorecard_id": "sc:70120@2026Q3",
+  "otd_pct": 74.5,
+  "ppm": 734,
+  "colour": "amber",
+  "trend": "OTD falling for a year (89.6 % 2025Q4 -> 74.5 %), amber two quarters running",
+  "open_8d_overdue": 0
+ },
+ "payment_behaviour": {
+  "avg_days_late_by_us": 5.9,
+  "note": "avg 50.9 days on 45 net; 4.8 days late in last 12m; no complaint about it on file"
+ },
+ "financial_health": {
+  "equity_ratio_pct": 38.5,
+  "credit_index": 239,
+  "credit_index_12m_ago": 239,
+  "signal": "solid; VDA 6.3 grade A; no distress signal in notes"
+ },
+ "negotiation_history": {
+  "events": 6,
+  "avg_asked_pct": 0.45,
+  "avg_settled_pct": -1.83,
+  "settle_to_ask_ratio": -0.17,
+  "notes": [
+   "310030 settled below full cost three times ('to keep the volume')",
+   "310031 (sole source) settled 0.0 % on asks of +2.0 and +3.2 %"
+  ]
+ },
+ "situation": "Healthy family iron foundry, 70 % of HN 200 impellers and sole source for HN 250. 310030 is priced about 5 % under its own should-cost (cost:310030) while Kalwisz delivers the same part at 30.14, so there is little price room. Delivery is the weak spot: OTD down to 74.5 %. The framework expires 2026-12-31, and Velkenreith is invited to the HX 80-200 volute RFQ (P06) against Tarsevi, which is new work it will want.",
+ "pressures": [
+  {
+   "type": "volume",
+   "evidence": "competes for HX 80-200 volute casing (4,200 pc/yr) against Tarsevi",
+   "ids": [
+    "doc:20260926-70120-P06"
+   ]
+  },
+  {
+   "type": "competition",
+   "evidence": "Kalwisz supplies 30 % of 310030 at 30.14 vs 34.26",
+   "ids": [
+    "quote:7100010"
+   ]
+  },
+  {
+   "type": "quality",
+   "evidence": "OTD 74.5 %, amber 2026Q2 and 2026Q3",
+   "ids": [
+    "sc:70120@2026Q3",
+    "sc:70120@2026Q2"
+   ]
+  }
+ ],
+ "what_it_values": [
+  "partnership / recognition",
+  "new HX business and continuity of HN volume",
+  "keeping its 70 % share of 310030",
+  "price stability over cuts"
+ ],
+ "likely_tradeables": [
+  {
+   "lever": "contract_months",
+   "give": "24-month renewal (contract expires 2026-12-31) and keep 70 % share",
+   "get": "flat price + OTD recovery commitment",
+   "why": "owner wants partnership, not cash",
+   "ids": [
+    "ctr:4600070120#8.1",
+    "doc:20260719-70120-M1"
+   ]
+  },
+  {
+   "lever": "lead_time_days",
+   "give": "keep the price flat",
+   "get": "committed lead time at or below 49 days with OTD plan",
+   "why": "OTD is its weakest metric",
+   "ids": [
+    "sc:70120@2026Q3"
+   ]
+  },
+  {
+   "lever": "payment_days",
+   "give": "pay on time at 45 (we average 5.9 days late)",
+   "get": "goodwill / no increase",
+   "why": "cheap give for us",
+   "ids": []
+  }
+ ],
+ "arguments_that_should_land": [
+  {
+   "argument": "Rolling OTD is 74.5 % against a 95 % target, amber two quarters in a row.",
+   "ids": [
+    "sc:70120@2026Q3",
+    "ctr:4600070120#6.1"
+   ],
+   "why": "factual, its own weak spot; justifies asking for a delivery commitment rather than a cut"
+  },
+  {
+   "argument": "HN 200 impeller is benchmarked at 30.14 at our second source (quote 32.90 in 2025).",
+   "ids": [
+    "quote:7100010"
+   ],
+   "why": "caps any increase request on 310030"
+  },
+  {
+   "argument": "In the HX RFQ a low-cost bidder with idle capacity is also quoting.",
+   "ids": [
+    "doc:20260926-70120-P06"
+   ],
+   "why": "real competition for new work"
+  }
+ ],
+ "arguments_to_avoid": [
+  {
+   "argument": "Pressing 310030 down hard",
+   "why": "already ~5 % under its own should-cost; stabilise goal"
+  },
+  {
+   "argument": "Threatening to dual-source 310031",
+   "why": "no qualified alternative exists for HN 250"
+  },
+  {
+   "argument": "Energy-cost-down arguments",
+   "why": "industrial power is -3.7 % yoy but spot power/gas rose sharply; low payoff"
+  }
+ ],
+ "persona": {
+  "who_writes": "inside sales (new contact since 2025-10), owner in the background",
+  "style": "polite, relationship-based",
+  "decision_making": "owner-led family firm",
+  "relationship_notes": "owner reminds us he held prices in 2022 and expects partnership"
+ },
+ "noise": [
+  "doc:20251127-70120-N new contact person"
+ ],
+ "key_quotes": [
+  {
+   "id": "doc:20260719-70120-M1",
+   "quote": "he expects partnership in return"
+  }
+ ],
+ "confidence": "medium"
+}

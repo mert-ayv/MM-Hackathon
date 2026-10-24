@@ -1,0 +1,47 @@
+{
+ "supplier_id": "sup:70630",
+ "name": "Normteile Brucker KG",
+ "category": "C-parts",
+ "country": "DE",
+ "owner_type": "family",
+ "group_parent": null,
+ "staff": 60,
+ "turnover_eur": 29100000,
+ "our_spend_fy2026_eur": 81302,
+ "our_share_of_their_turnover_pct": 0.28,
+ "parts": [
+  {"part_id": "part:360013", "name": "Stud bolt M10 A2-70", "current_price": 29.23, "price_unit": 100, "quota_pct": 100, "qualified_alternatives": [], "should_cost_id": null, "should_cost_unit": null},
+  {"part_id": "part:360030", "name": "Washer ISO 7089 M12, zinc", "current_price": 12.64, "price_unit": 1000, "quota_pct": 50, "qualified_alternatives": ["sup:70610"], "should_cost_id": null, "should_cost_unit": null}
+ ],
+ "contract": {"id": "ctr:4600070630", "valid_to": "2027-06-30", "payment_days": 30, "incoterm": "DAP", "notice_days": 90, "index_clauses": []},
+ "standard_terms_hint": {"payment_days": 30, "incoterm": "DAP", "lead_time_days": 7, "skonto": null},
+ "quality": {"latest_scorecard_id": "sc:70630@2026Q3", "otd_pct": 88.0, "ppm": 257, "colour": "green", "trend": "OTD 89.3%->88.8%, ppm 168->259 (mean 2024Q3-25Q2 vs 2025Q4-26Q3)", "open_8d_overdue": 0},
+ "payment_behaviour": {"avg_days_late_by_us": 4.0, "note": "last 12m: 29 of 45 invoices paid >3 days late, max 10 days. Avg 4.0 days late; 29 of 45 invoices >3 days late."},
+ "financial_health": {"equity_ratio_pct": 36.2, "credit_index": 185, "credit_index_12m_ago": 185, "signal": "Family KG, credit 185 unchanged; healthy."},
+ "negotiation_history": {"events": 6, "avg_asked_pct": -0.08, "avg_settled_pct": -2.15, "settle_to_ask_ratio": 0.0, "notes": ["Stud bolt price cut every year (-6.3, -2.8, -3.8%); washer never moved (EV-2026-70630-360030 settled 0.0)."]},
+ "situation": "Family standard-parts distributor (EUR 29 m) supplying the A2-70 stud bolt (sole) and 50% of washers. Its 2027 price list applies to all customers without exception until December 2027 and reductions are frozen; only multi-year volume agreements change prices. It is open on payment terms and call-off flexibility. Quality is mediocre (19 QNs in 12 m, porosity on washers, one QN open).",
+ "pressures": [
+  {"type": "other", "evidence": "Price list fixed to Dec 2027; no discounts on standard items.", "ids": ["doc:20260706-70630-M3", "doc:20260724-70630-M1", "quote:7300052"]},
+  {"type": "quality", "evidence": "ppm 168 -> 259; qn:20005021 open.", "ids": ["sc:70630@2026Q3", "qn:20005021"]}
+ ],
+ "what_it_values": ["multi-year volume agreements", "list-price discipline", "payment and call-off terms it can flex"],
+ "likely_tradeables": [
+  {"lever": "contract_months", "give": "multi-year agreement + forecast (+11.5% stud bolts)", "get": "price below list", "why": "'only multi-year volume agreements change prices'", "ids": ["doc:20260327-70630-M2", "fc:360013@2026-09"]},
+  {"lever": "payment_days", "give": "on-time payment", "get": "45-60 days", "why": "open on payment terms", "ids": ["doc:20260724-70630-M1"]},
+  {"lever": "volume_per_year", "give": "washers 100% (Leitner has 50%)", "get": "lower washer price", "why": "volume-for-price rule", "ids": ["doc:20260327-70630-M2"]}
+ ],
+ "arguments_that_should_land": [
+  {"argument": "Fastener producer prices +1.7% yoy; no basis for increases.", "ids": ["idx:PPI-C2594@2025-08", "idx:PPI-C2594@2026-08"], "why": "true"},
+  {"argument": "Mean ppm 259 over the last four quarters.", "ids": ["sc:70630@2025Q4", "sc:70630@2026Q1", "sc:70630@2026Q2", "sc:70630@2026Q3"], "why": "quality terms"}
+ ],
+ "arguments_to_avoid": [
+  {"argument": "Ask a discount on a one-year basis", "why": "'not our reality' - list fixed"},
+  {"argument": "Stainless alloy surcharge on the stud bolt", "why": "AS-14301 +8.6% yoy supports them"}
+ ],
+ "persona": {"who_writes": "Sales director", "style": "policy statements", "decision_making": "family KG; committee >2%", "relationship_notes": "since 2023, steady"},
+ "noise": ["doc:20251222-70630-N (returnable boxes)", "news:20260706-17 (apprentice award)"],
+ "key_quotes": [
+  {"id": "doc:20260327-70630-M2", "quote": "only multi-year volume agreements change prices."}
+ ],
+ "confidence": "medium"
+}
