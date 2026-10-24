@@ -1,0 +1,133 @@
+diff --git a/starter-kit/csee/agent.py b/starter-kit/csee/agent.py
+index 7a7aba5..408005c 100644
+--- a/starter-kit/csee/agent.py
++++ b/starter-kit/csee/agent.py
+@@ -7,6 +7,7 @@ whole case when to accept which standing sheet, or to walk away.
+ """
+ 
+ import logging
++import re
+ import math
+ from dataclasses import dataclass, field
+ 
+@@ -21,6 +22,12 @@ from .writer import TemplateWriter
+ log = logging.getLogger("csee")
+ 
+ READY_STATUSES = {"agreed", "final_offer"}
++# the person at the desk is asking for approval: 16 of 19 such replies were followed by a further step
++INTERNAL = re.compile(
++    r"clarify (this )?internally|come back to you on price|check (this )?internally|"
++    r"needs? (the )?approval|discuss (it|this) with (our )?management",
++    re.I,
++)
+ 
+ 
+ @dataclass
+@@ -48,6 +55,11 @@ class Params:
+     floor_guard: bool = False  # ignore a floor estimate at or above ~97% of its own price (outside relationship goals)
+     rfq_beat_leader: bool = False  # RFQ: non-leaders must beat the leader by rfq_margin; never pay above the leader
+     rfq_margin: float = 0.02
++    # v5 switches (Fable review strategy bets)
++    anchor_leverage: float = 0.0  # >0: anchor this far below the opening outside relationship goals, no floor
++    rfq_anchor_vs_leader: float = 0.0  # >0: RFQ first ask at most (1 - x) x the cheapest rival's opening price
++    adopt_revealed: bool = False  # keep a term at the supplier's value when its own sheets show that is cheaper
++    hold_on_internal: bool = False  # "we will come back to you on price": hold our price one round
+ 
+ 
+ @dataclass
+@@ -215,13 +227,31 @@ class CseeAgent:
+         if p_s is None:
+             return None
+         fixed = self.insisted_fields(case, threads[sid]) if self.p.adopt_insisted else {}
++        if self.p.adopt_revealed:
++            fixed.update(self.revealed_fields(case, threads[sid], theirs))
+         exclude = {}
+         if self.p.clause_when_insisted and self.clause_insisted(threads[sid]):
+             fixed.pop("index_clause", None)
+             exclude = {"index_clause": [None]}  # a clause it is: the cheapest one for us (widest deadband)
+         base = levers.best_terms(case, {**theirs, **fixed}, std, supplier, fixed=tuple(fixed), exclude=exclude)
+         floor = self.floor_price(st)
+-        if not st.our_prices:  # the anchor
++        rel_goal = b.get("category_goal") in RELATIONSHIP_GOALS
++        if not st.our_prices and self.p.anchor_leverage and not rel_goal:
++            # suppliers converge on our anchor, not their floor (deal = first ask + 2-8 %): anchor low,
++            # and an estimated floor must not lift it (should-cost is not Tacto's floor)
++            p = p_s * (1 - self.p.anchor_leverage)
++            if b.get("current_unit_price") and case.get("type") in ("price_increase", "raw_material", "renewal"):
++                p = min(p, b["current_unit_price"])
++            if self.p.rfq_anchor_vs_leader and len(case["suppliers"]) > 1:
++                rivals = [
++                    standing(threads[s])[1].get("unit_price")
++                    for s in case["suppliers"]
++                    if s != sid and threads.get(s) and standing(threads[s])[1].get("unit_price")
++                ]
++                if rivals:
++                    p = min(p, min(rivals) * (1 - self.p.rfq_anchor_vs_leader))
++            p = min(p, p_s * 0.995)
++        elif not st.our_prices:  # the anchor
+             p = p_s * (1 - self.p.anchor_below_open)
+             if b.get("current_unit_price") and case.get("type") in ("price_increase", "raw_material", "renewal"):
+                 p = min(p, b["current_unit_price"])
+@@ -249,6 +279,8 @@ class CseeAgent:
+                 step = min(step, max(their_step * self.p.follow_share, 0.05 * gap))
+             if self.p.hold_above_floor and floor and p_b > floor * 1.08:
+                 step *= self.p.hold_above_floor  # we know there is room above its cost: hold
++            if self.p.hold_on_internal and INTERNAL.search(latest(threads[sid]).get("body") or ""):
++                step = 0.0  # it is asking its boss for a further step: give it nothing to answer
+             p = p_b + max(step, 0)
+         # the best terms depend on the price (e.g. above the fallback price a short contract looks
+         # "cheaper"): choose them at the price we ask, not at the supplier's (Fable review #3)
+@@ -343,6 +375,22 @@ class CseeAgent:
+                 break
+         return out
+ 
++    @staticmethod
++    def revealed_fields(case, events, chosen):
++        """Its alternative sheets price each term (P10: 42 vs 54 days lead time = EUR 1.90/unit). The sheet
++        cheapest for us is `chosen`; keep the non-price terms where it differs from its other sheets, so
++        best_terms does not flip them back to the value that costs more overall."""
++        sheets = [s.get("terms") or {} for s in latest(events).get("term_sheets") or []]
++        if len(sheets) < 2:
++            return {}
++        out = {}
++        for f in case["negotiable"]:
++            if f == "unit_price" or f not in chosen:
++                continue
++            if any(f in s and s[f] != chosen[f] for s in sheets if s is not chosen):
++                out[f] = chosen[f]
++        return out
++
+     @staticmethod
+     def clause_insisted(events):
+         """The supplier put an index clause into its sheets twice after we asked for none."""
+diff --git a/starter-kit/csee/variants.py b/starter-kit/csee/variants.py
+index 2940f48..7dcef17 100644
+--- a/starter-kit/csee/variants.py
++++ b/starter-kit/csee/variants.py
+@@ -40,6 +40,16 @@ VARIANTS = {
+         "floor_guard": True,
+         "rfq_beat_leader": True,
+     },
++    "v5": {
++        "adopt_insisted": True,
++        "rival_only_lower": True,
++        "cash_trade_always": True,
++        "follow_share": 0.5,
++        "anchor_leverage": 0.22,
++        "rfq_anchor_vs_leader": 0.08,
++        "adopt_revealed": True,
++        "hold_on_internal": True,
++    },
+ }
+ 
+ 
+@@ -52,6 +62,9 @@ DESCRIPTIONS = {
+     "v2": "base + D02 sandbox lessons: adopt terms the supplier held twice, cite a rival only if lower, "
+     "always offer a faster-payment sheet, concede at most half the supplier's step, anchor 18% below.",
+     "v3": "v2 + the replay fixes (now in base) = base + v2's concession tactics.",
++    "v5": "Fable review bets: anchor 22% below outside relationship goals with no floor; RFQ first ask <= 92% "
++    "of the cheapest rival; keep terms the supplier's own alternative sheets show are cheaper for us; hold "
++    "price while it asks its boss; v2's held-terms, lower-rival, cash sheet; concede at most half its step.",
+     "v4": "base tactics (12% anchor, steady concessions keep the supplier conceding: D01) + v2's adopt-held-terms, "
+     "lower-rival-only, cash sheet + floor guard (P05 anchored 0.5% below the opening) + RFQ: beat the leader.",
+ }
