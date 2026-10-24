@@ -85,12 +85,14 @@ facts allow. Sign as "Hollerau Pumpenwerke GmbH, Purchasing"."""
     def __init__(self, complete, budget_s=25.0):
         self.complete, self.budget_s, self.fallback = complete, budget_s, TemplateWriter()
 
-    def write(self, case, agent, sid, events, sheets, claims, ask_breakdown):
+    def write(self, case, agent, sid, events, sheets, claims, ask_breakdown, focus=""):
+        """`focus`: optional, what a strategist wants this e-mail to stress (agents/ege.py); base passes none."""
         draft = self.fallback.write(case, agent, sid, events, sheets, claims, ask_breakdown)
         profile = agent.threads[sid].intel.profile
         last = latest(events)
         user = "\n".join(
             [
+                *([f"WHAT TO STRESS (our plan for this e-mail): {focus[:400]}"] if focus else []),
                 f"CASE: {case.get('title')} ({case.get('type')}, goal {case['buyer'].get('category_goal')})",
                 f"PROFILE: {json.dumps({k: profile.get(k) for k in ('name', 'situation', 'what_it_values', 'persona', 'arguments_to_avoid')}, ensure_ascii=False)[:2500]}",
                 f"THEIR LAST E-MAIL:\n{(last.get('body') or '')[:1500]}",
