@@ -51,6 +51,9 @@ def play_case(table, case_id, agent, deadline=None):
                 log.warning("%s %s: decision took %.0fs", case_id, sid, took)
             if msg is None:
                 return
+            write = msg.pop("_write", None)
+            if write:
+                msg["body"] = timed_write(write, msg["body"], case_id, sid)
             try:
                 reply = table.send(sid, msg)
             except ArenaError as e:
@@ -90,14 +93,47 @@ def play_case(table, case_id, agent, deadline=None):
         except Exception:
             log.exception("%s: agent.close failed - kit closing move", case_id)
             decision = closing_move(case, threads)
-    sid, msg = decision["supplier_id"], decision["message"]
-    log.info("%s: closing %s %s", case_id, sid, msg["action"])
-    try:
-        out = table.close(sid, msg)
-    except ArenaError as e:
-        log.warning("%s: close failed (%s %s)", case_id, e.status, e.detail)
+    out = None
+    for attempt in range(3):
+        sid, msg = decision["supplier_id"], decision["message"]
+        log.info("%s: closing %s %s", case_id, sid, msg["action"])
+        try:
+            out = table.close(sid, msg)
+            break
+        except ArenaError as e:
+            # e.g. a stale sheet after a late supplier reply: re-read the threads, decide again
+            log.warning("%s: close failed (%s %s), attempt %d", case_id, e.status, e.detail, attempt + 1)
+            if e.status not in (409, 422) or not hasattr(table, "client"):
+                break
+            try:
+                state = table.client.session(table.session_id)
+                if state.get("status") == "ended":
+                    break
+                for s in state.get("threads") or {}:
+                    threads[s] = table.client.thread(table.session_id, s).get("messages", threads[s])
+                    for m in threads[s]:
+                        fetch_documents(table, m)
+                decision = agent.close(case, threads, force=True)
+            except Exception:
+                log.exception("%s: re-reading the threads failed", case_id)
+                break
+    if out is None:
         out = table.result()
     return {**out, "session_id": table.session_id}
+
+
+WRITE_BUDGET_S = 15  # the model's share of our 60 s per message; the template is the fallback
+_writers = ThreadPoolExecutor(max_workers=16, thread_name_prefix="writer")
+
+
+def timed_write(write, draft, case_id, sid):
+    """The model's wording within WRITE_BUDGET_S, else the template draft - a reply is never late."""
+    future = _writers.submit(write)
+    try:
+        return future.result(timeout=WRITE_BUDGET_S) or draft
+    except Exception as e:  # timeout or model error
+        log.warning("%s %s: writer %s - template used", case_id, sid, type(e).__name__)
+        return draft
 
 
 def play_all(client, case_ids, new_agent, parallel=8):

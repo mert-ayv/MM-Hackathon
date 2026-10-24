@@ -133,9 +133,7 @@ class Supplier:
             best = {**best, "index_clause": clauses[0] if clauses else None}
         if self.value(best) >= self.ask_value - 1e-9 and best in sheets:
             return self.reply_msg("agreed", [best], "We agree.")
-        if self.final:
-            if self.rng.random() < 0.5:
-                return self.reply_msg("walked_away", [], "We cannot go further. Goodbye.")
+        if self.final:  # replays: 0 walk-aways in ~350 supplier messages - it repeats its final offer
             return self.reply_msg("final_offer", [self.standing], "Our final offer stands.")
         gap = self.ask_value - self.value(best)
         step = min(0.6 * gap, self.band) if self.gap_closer else min(0.01 * self.p0, gap)

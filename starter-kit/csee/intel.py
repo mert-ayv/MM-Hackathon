@@ -122,7 +122,7 @@ def claims_for(case, pkg, supplier_id, asked_price=None):
             continue
         pct, a, b = ch
         weight = d.get("weight") or 0
-        if pct < 3.0:  # only drivers that argue for us: flat or falling
+        if pct <= 0.0:  # only falling drivers argue for us; a rise "confirms their case" (Fable review)
             name = series_name(pkg, s)
             out.append(
                 Claim(
@@ -179,7 +179,12 @@ def claims_for(case, pkg, supplier_id, asked_price=None):
             )
         )
     # 5. news about this supplier looking for work
-    for n in _q(pkg, "SELECT id, topic, headline FROM news WHERE supplier_id = ? ORDER BY date DESC", (supplier_id,)):
+    news = _q(pkg, "SELECT id, topic, headline FROM news WHERE supplier_id = ? ORDER BY date DESC", (supplier_id,))
+    for ref in pkg.ids("news:") if pkg else []:  # the Sunday release lives in CSV/facts, not in SQLite
+        fact = pkg.lookup(ref) or {}
+        if fact.get("supplier") == supplier_id and ref not in {n["id"] for n in news}:
+            news.append({"id": ref, "topic": fact.get("topic") or "", "headline": fact.get("headline") or ""})
+    for n in news:
         if re.search(
             r"customer|order|capacity|utili|short.?time|kurzarbeit|work",
             (n["headline"] or "") + (n["topic"] or ""),
@@ -217,5 +222,6 @@ def parse_cost_breakdown(text):
                 continue
     if not out:
         return None
-    full = sum(v for k, v in out.items() if k not in ("margin", "profit", "unit price"))
+    skip = ("margin", "profit", "unit price", "price", "total", "sum", "full cost")
+    full = sum(v for k, v in out.items() if not any(w in k for w in skip))
     return {"elements": out, "full_cost": full, "margin": out.get("margin") or out.get("profit")}

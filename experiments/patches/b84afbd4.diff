@@ -1,0 +1,237 @@
+diff --git a/starter-kit/csee/agent.py b/starter-kit/csee/agent.py
+index cf2ae38..7a7aba5 100644
+--- a/starter-kit/csee/agent.py
++++ b/starter-kit/csee/agent.py
+@@ -16,6 +16,7 @@ from arena_kit.play import ENDED, latest, live_threads, moves_left, standing
+ 
+ from . import intel as intel_mod
+ from . import levers
++from .writer import TemplateWriter
+ 
+ log = logging.getLogger("csee")
+ 
+@@ -74,8 +75,17 @@ class CseeAgent:
+         self.case_id, self.threads, self.used_ids = case["case_id"], {}, set()
+         for sid in case["suppliers"]:
+             _, terms = standing(threads[sid]) if threads.get(sid) else (None, {})
+-            info = intel_mod.build(case, self.pkg, sid, terms.get("unit_price"))
+-            self.threads[sid] = ThreadState(info, opening=dict(terms))
++            first = next((m for m in threads.get(sid, []) if m.get("from") != "buyer" and m.get("term_sheets")), None)
++            opening = dict(first["term_sheets"][0]["terms"]) if first else dict(terms)
++            info = intel_mod.build(case, self.pkg, sid, opening.get("unit_price"))
++            st = self.threads[sid] = ThreadState(info, opening=opening)
++            for m in threads.get(sid, []):  # a resumed case: continue from our earlier asks, never re-anchor
++                if m.get("from") == "buyer" and m.get("term_sheets"):
++                    st.our_prices.append(m["term_sheets"][0].get("terms", m["term_sheets"][0]).get("unit_price"))
++                elif m.get("term_sheets"):
++                    st.their_prices.append(m["term_sheets"][0]["terms"].get("unit_price"))
++                if m.get("from") == "buyer" and "breakdown" in (m.get("body") or "").lower():
++                    st.asked_breakdown = True
+             log.info(
+                 "%s %s: full cost %s (%s), %d claims",
+                 case["case_id"],
+@@ -155,7 +165,11 @@ class CseeAgent:
+         sheet_id, theirs = self.their_sheet(case, ev, std, self.supplier_estimate(case, sid, std))
+         for att in last.get("attachments") or []:
+             if "breakdown" in (att.get("name") or "").lower() and att.get("text"):
+-                st.breakdown = intel_mod.parse_cost_breakdown(att["text"]) or st.breakdown
++                parsed = intel_mod.parse_cost_breakdown(att["text"])
++                price = (standing(ev)[1] or {}).get("unit_price")
++                if parsed and parsed.get("full_cost") and (not price or parsed["full_cost"] <= 0.98 * price):
++                    st.breakdown = parsed  # a "full cost" at or above its own price is a parsing error
++                log.info("%s %s: cost breakdown %s", case["case_id"], sid, parsed)
+         if theirs.get("unit_price") is not None and (
+             not st.their_prices or st.their_prices[-1] != theirs["unit_price"]
+         ):
+@@ -177,13 +191,18 @@ class CseeAgent:
+         claims = self.pick_claims(case, threads, sid)
+         ask_breakdown = not st.asked_breakdown and not st.breakdown
+         st.asked_breakdown = st.asked_breakdown or ask_breakdown
+-        body = self.writer.write(case, self, sid, ev, sheets, claims, ask_breakdown)
+-        return {
++        draft = TemplateWriter().write(case, self, sid, ev, sheets, claims, ask_breakdown)
++        msg = {
+             "subject": f"Re: {case['title']}"[:300],
+-            "body": body,
++            "body": draft,
+             "term_sheets": [{"terms": s} for s in sheets],
+             "refs": [i for c in claims for i in c.ids][:20],
+         }
++        if not isinstance(self.writer, TemplateWriter):
++            # the model writes outside the case lock (runner), so one slow thread never blocks the others
++            events = list(ev)
++            msg["_write"] = lambda: self.writer.write(case, self, sid, events, sheets, claims, ask_breakdown)
++        return msg
+ 
+     def floor_price(self, st):
+         full = (st.breakdown or {}).get("full_cost") or st.intel.full_cost
+@@ -231,6 +250,11 @@ class CseeAgent:
+             if self.p.hold_above_floor and floor and p_b > floor * 1.08:
+                 step *= self.p.hold_above_floor  # we know there is room above its cost: hold
+             p = p_b + max(step, 0)
++        # the best terms depend on the price (e.g. above the fallback price a short contract looks
++        # "cheaper"): choose them at the price we ask, not at the supplier's (Fable review #3)
++        base = levers.best_terms(
++            case, {**base, **fixed, "unit_price": round(p, 2)}, std, supplier, fixed=tuple(fixed), exclude=exclude
++        )
+         ours = {**base, "unit_price": round(p, 2)}
+         if self.p.rfq_beat_leader and len(case["suppliers"]) > 1:
+             leader = self.leader_cost(case, threads, exclude=sid)
+@@ -393,5 +417,11 @@ class CseeAgent:
+             if latest(threads[sid]).get("from") != "buyer" and not self.threads[sid].ready:
+                 msg = self.thread_move(case, threads, sid)
+                 if msg:
++                    write = msg.pop("_write", None)
++                    if write:
++                        try:
++                            msg["body"] = write() or msg["body"]
++                        except Exception as e:
++                            log.warning("writer failed (%s): template kept", e)
+                     return {"supplier_id": sid, "message": msg}
+         return self.close(case, threads, force=True)
+diff --git a/starter-kit/csee/intel.py b/starter-kit/csee/intel.py
+index 64496f1..a1e1320 100644
+--- a/starter-kit/csee/intel.py
++++ b/starter-kit/csee/intel.py
+@@ -122,7 +122,7 @@ def claims_for(case, pkg, supplier_id, asked_price=None):
+             continue
+         pct, a, b = ch
+         weight = d.get("weight") or 0
+-        if pct < 3.0:  # only drivers that argue for us: flat or falling
++        if pct <= 0.0:  # only falling drivers argue for us; a rise "confirms their case" (Fable review)
+             name = series_name(pkg, s)
+             out.append(
+                 Claim(
+@@ -179,7 +179,12 @@ def claims_for(case, pkg, supplier_id, asked_price=None):
+             )
+         )
+     # 5. news about this supplier looking for work
+-    for n in _q(pkg, "SELECT id, topic, headline FROM news WHERE supplier_id = ? ORDER BY date DESC", (supplier_id,)):
++    news = _q(pkg, "SELECT id, topic, headline FROM news WHERE supplier_id = ? ORDER BY date DESC", (supplier_id,))
++    for ref in pkg.ids("news:") if pkg else []:  # the Sunday release lives in CSV/facts, not in SQLite
++        fact = pkg.lookup(ref) or {}
++        if fact.get("supplier") == supplier_id and ref not in {n["id"] for n in news}:
++            news.append({"id": ref, "topic": fact.get("topic") or "", "headline": fact.get("headline") or ""})
++    for n in news:
+         if re.search(
+             r"customer|order|capacity|utili|short.?time|kurzarbeit|work",
+             (n["headline"] or "") + (n["topic"] or ""),
+@@ -217,5 +222,6 @@ def parse_cost_breakdown(text):
+                 continue
+     if not out:
+         return None
+-    full = sum(v for k, v in out.items() if k not in ("margin", "profit", "unit price"))
++    skip = ("margin", "profit", "unit price", "price", "total", "sum", "full cost")
++    full = sum(v for k, v in out.items() if not any(w in k for w in skip))
+     return {"elements": out, "full_cost": full, "margin": out.get("margin") or out.get("profit")}
+diff --git a/starter-kit/csee/localsim.py b/starter-kit/csee/localsim.py
+index 8e2f709..eb7130f 100644
+--- a/starter-kit/csee/localsim.py
++++ b/starter-kit/csee/localsim.py
+@@ -133,9 +133,7 @@ class Supplier:
+             best = {**best, "index_clause": clauses[0] if clauses else None}
+         if self.value(best) >= self.ask_value - 1e-9 and best in sheets:
+             return self.reply_msg("agreed", [best], "We agree.")
+-        if self.final:
+-            if self.rng.random() < 0.5:
+-                return self.reply_msg("walked_away", [], "We cannot go further. Goodbye.")
++        if self.final:  # replays: 0 walk-aways in ~350 supplier messages - it repeats its final offer
+             return self.reply_msg("final_offer", [self.standing], "Our final offer stands.")
+         gap = self.ask_value - self.value(best)
+         step = min(0.6 * gap, self.band) if self.gap_closer else min(0.01 * self.p0, gap)
+diff --git a/starter-kit/csee/runner.py b/starter-kit/csee/runner.py
+index a780925..f2b64e6 100644
+--- a/starter-kit/csee/runner.py
++++ b/starter-kit/csee/runner.py
+@@ -51,6 +51,9 @@ def play_case(table, case_id, agent, deadline=None):
+                 log.warning("%s %s: decision took %.0fs", case_id, sid, took)
+             if msg is None:
+                 return
++            write = msg.pop("_write", None)
++            if write:
++                msg["body"] = timed_write(write, msg["body"], case_id, sid)
+             try:
+                 reply = table.send(sid, msg)
+             except ArenaError as e:
+@@ -90,16 +93,49 @@ def play_case(table, case_id, agent, deadline=None):
+         except Exception:
+             log.exception("%s: agent.close failed - kit closing move", case_id)
+             decision = closing_move(case, threads)
+-    sid, msg = decision["supplier_id"], decision["message"]
+-    log.info("%s: closing %s %s", case_id, sid, msg["action"])
+-    try:
+-        out = table.close(sid, msg)
+-    except ArenaError as e:
+-        log.warning("%s: close failed (%s %s)", case_id, e.status, e.detail)
++    out = None
++    for attempt in range(3):
++        sid, msg = decision["supplier_id"], decision["message"]
++        log.info("%s: closing %s %s", case_id, sid, msg["action"])
++        try:
++            out = table.close(sid, msg)
++            break
++        except ArenaError as e:
++            # e.g. a stale sheet after a late supplier reply: re-read the threads, decide again
++            log.warning("%s: close failed (%s %s), attempt %d", case_id, e.status, e.detail, attempt + 1)
++            if e.status not in (409, 422) or not hasattr(table, "client"):
++                break
++            try:
++                state = table.client.session(table.session_id)
++                if state.get("status") == "ended":
++                    break
++                for s in state.get("threads") or {}:
++                    threads[s] = table.client.thread(table.session_id, s).get("messages", threads[s])
++                    for m in threads[s]:
++                        fetch_documents(table, m)
++                decision = agent.close(case, threads, force=True)
++            except Exception:
++                log.exception("%s: re-reading the threads failed", case_id)
++                break
++    if out is None:
+         out = table.result()
+     return {**out, "session_id": table.session_id}
+ 
+ 
++WRITE_BUDGET_S = 15  # the model's share of our 60 s per message; the template is the fallback
++_writers = ThreadPoolExecutor(max_workers=16, thread_name_prefix="writer")
++
++
++def timed_write(write, draft, case_id, sid):
++    """The model's wording within WRITE_BUDGET_S, else the template draft - a reply is never late."""
++    future = _writers.submit(write)
++    try:
++        return future.result(timeout=WRITE_BUDGET_S) or draft
++    except Exception as e:  # timeout or model error
++        log.warning("%s %s: writer %s - template used", case_id, sid, type(e).__name__)
++        return draft
++
++
+ def play_all(client, case_ids, new_agent, parallel=8):
+     used_up = threading.Event()
+ 
+diff --git a/starter-kit/csee/writer.py b/starter-kit/csee/writer.py
+index 4cbb3f6..afceadc 100644
+--- a/starter-kit/csee/writer.py
++++ b/starter-kit/csee/writer.py
+@@ -8,6 +8,7 @@ import json
+ import logging
+ import time
+ 
++from arena_kit.agents.llm import ID_RE
+ from arena_kit.play import latest
+ 
+ log = logging.getLogger("csee")
+@@ -107,6 +108,13 @@ facts allow. Sign as "Hollerau Pumpenwerke GmbH, Purchasing"."""
+             return draft
+         if time.monotonic() - t0 > self.budget_s or not text:
+             return draft
++        allowed = {i for c in claims for i in c.ids}
++        allowed |= {s["term_sheet_id"] for m in events for s in m.get("term_sheets") or [] if s.get("term_sheet_id")}
++
++        def scrub(m):  # any ID the model added on its own is dropped: unknown IDs cost trust
++            return m.group(0) if m.group(0) in allowed else ""
++
++        text = ID_RE.sub(scrub, text)
+         for c in claims:  # the checked sentences must survive word for word
+             if c.sentence not in text:
+                 text = text.replace(SIGN, "").rstrip() + "\n" + c.sentence + "\n\n" + SIGN

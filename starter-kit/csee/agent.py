@@ -16,6 +16,7 @@ from arena_kit.play import ENDED, latest, live_threads, moves_left, standing
 
 from . import intel as intel_mod
 from . import levers
+from .writer import TemplateWriter
 
 log = logging.getLogger("csee")
 
@@ -74,8 +75,17 @@ class CseeAgent:
         self.case_id, self.threads, self.used_ids = case["case_id"], {}, set()
         for sid in case["suppliers"]:
             _, terms = standing(threads[sid]) if threads.get(sid) else (None, {})
-            info = intel_mod.build(case, self.pkg, sid, terms.get("unit_price"))
-            self.threads[sid] = ThreadState(info, opening=dict(terms))
+            first = next((m for m in threads.get(sid, []) if m.get("from") != "buyer" and m.get("term_sheets")), None)
+            opening = dict(first["term_sheets"][0]["terms"]) if first else dict(terms)
+            info = intel_mod.build(case, self.pkg, sid, opening.get("unit_price"))
+            st = self.threads[sid] = ThreadState(info, opening=opening)
+            for m in threads.get(sid, []):  # a resumed case: continue from our earlier asks, never re-anchor
+                if m.get("from") == "buyer" and m.get("term_sheets"):
+                    st.our_prices.append(m["term_sheets"][0].get("terms", m["term_sheets"][0]).get("unit_price"))
+                elif m.get("term_sheets"):
+                    st.their_prices.append(m["term_sheets"][0]["terms"].get("unit_price"))
+                if m.get("from") == "buyer" and "breakdown" in (m.get("body") or "").lower():
+                    st.asked_breakdown = True
             log.info(
                 "%s %s: full cost %s (%s), %d claims",
                 case["case_id"],
@@ -155,7 +165,11 @@ class CseeAgent:
         sheet_id, theirs = self.their_sheet(case, ev, std, self.supplier_estimate(case, sid, std))
         for att in last.get("attachments") or []:
             if "breakdown" in (att.get("name") or "").lower() and att.get("text"):
-                st.breakdown = intel_mod.parse_cost_breakdown(att["text"]) or st.breakdown
+                parsed = intel_mod.parse_cost_breakdown(att["text"])
+                price = (standing(ev)[1] or {}).get("unit_price")
+                if parsed and parsed.get("full_cost") and (not price or parsed["full_cost"] <= 0.98 * price):
+                    st.breakdown = parsed  # a "full cost" at or above its own price is a parsing error
+                log.info("%s %s: cost breakdown %s", case["case_id"], sid, parsed)
         if theirs.get("unit_price") is not None and (
             not st.their_prices or st.their_prices[-1] != theirs["unit_price"]
         ):
@@ -177,13 +191,18 @@ class CseeAgent:
         claims = self.pick_claims(case, threads, sid)
         ask_breakdown = not st.asked_breakdown and not st.breakdown
         st.asked_breakdown = st.asked_breakdown or ask_breakdown
-        body = self.writer.write(case, self, sid, ev, sheets, claims, ask_breakdown)
-        return {
+        draft = TemplateWriter().write(case, self, sid, ev, sheets, claims, ask_breakdown)
+        msg = {
             "subject": f"Re: {case['title']}"[:300],
-            "body": body,
+            "body": draft,
             "term_sheets": [{"terms": s} for s in sheets],
             "refs": [i for c in claims for i in c.ids][:20],
         }
+        if not isinstance(self.writer, TemplateWriter):
+            # the model writes outside the case lock (runner), so one slow thread never blocks the others
+            events = list(ev)
+            msg["_write"] = lambda: self.writer.write(case, self, sid, events, sheets, claims, ask_breakdown)
+        return msg
 
     def floor_price(self, st):
         full = (st.breakdown or {}).get("full_cost") or st.intel.full_cost
@@ -231,6 +250,11 @@ class CseeAgent:
             if self.p.hold_above_floor and floor and p_b > floor * 1.08:
                 step *= self.p.hold_above_floor  # we know there is room above its cost: hold
             p = p_b + max(step, 0)
+        # the best terms depend on the price (e.g. above the fallback price a short contract looks
+        # "cheaper"): choose them at the price we ask, not at the supplier's (Fable review #3)
+        base = levers.best_terms(
+            case, {**base, **fixed, "unit_price": round(p, 2)}, std, supplier, fixed=tuple(fixed), exclude=exclude
+        )
         ours = {**base, "unit_price": round(p, 2)}
         if self.p.rfq_beat_leader and len(case["suppliers"]) > 1:
             leader = self.leader_cost(case, threads, exclude=sid)
@@ -393,5 +417,11 @@ class CseeAgent:
             if latest(threads[sid]).get("from") != "buyer" and not self.threads[sid].ready:
                 msg = self.thread_move(case, threads, sid)
                 if msg:
+                    write = msg.pop("_write", None)
+                    if write:
+                        try:
+                            msg["body"] = write() or msg["body"]
+                        except Exception as e:
+                            log.warning("writer failed (%s): template kept", e)
                     return {"supplier_id": sid, "message": msg}
         return self.close(case, threads, force=True)

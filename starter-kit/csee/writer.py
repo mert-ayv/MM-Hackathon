@@ -8,6 +8,7 @@ import json
 import logging
 import time
 
+from arena_kit.agents.llm import ID_RE
 from arena_kit.play import latest
 
 log = logging.getLogger("csee")
@@ -107,6 +108,13 @@ facts allow. Sign as "Hollerau Pumpenwerke GmbH, Purchasing"."""
             return draft
         if time.monotonic() - t0 > self.budget_s or not text:
             return draft
+        allowed = {i for c in claims for i in c.ids}
+        allowed |= {s["term_sheet_id"] for m in events for s in m.get("term_sheets") or [] if s.get("term_sheet_id")}
+
+        def scrub(m):  # any ID the model added on its own is dropped: unknown IDs cost trust
+            return m.group(0) if m.group(0) in allowed else ""
+
+        text = ID_RE.sub(scrub, text)
         for c in claims:  # the checked sentences must survive word for word
             if c.sentence not in text:
                 text = text.replace(SIGN, "").rstrip() + "\n" + c.sentence + "\n\n" + SIGN
