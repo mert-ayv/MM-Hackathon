@@ -125,7 +125,7 @@ def test_run_log_on_local_sim(tmp_path):
     assert events[-1]["score"] == out["score"]
     # the same case again in this run gets its own file
     play_case(localsim.LocalTable(case, None, 1), case["case_id"], agents.get("base")(), run=run)
-    assert (run.dir / f"{case['case_id'].replace(':', '_')}-2.jsonl").exists()
+    assert (run.dir / f"{case['case_id'].replace(':', '_')}~2.jsonl").exists()
 
 
 def test_no_run_log_by_default_for_agents():

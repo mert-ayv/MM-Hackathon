@@ -99,12 +99,12 @@ class Run:
 
     def case(self, case_id):
         """A log for one case session. The same case played again in this run (sim seeds, bench repeats)
-        gets its own file: case_P01.jsonl, case_P01-2.jsonl, ..."""
+        gets its own file: case_P01.jsonl, case_P01~2.jsonl, ... (the dashboard's convention)"""
         with self._lock:
             name, n = case_id.replace(":", "_"), 1
             while name in self._files:
                 n += 1
-                name = f"{case_id.replace(':', '_')}-{n}"
+                name = f"{case_id.replace(':', '_')}~{n}"
             self._files.add(name)
             if case_id not in self.meta["cases"]:
                 self.meta["cases"].append(case_id)

@@ -68,7 +68,8 @@ The csee runner (`starter-kit/csee/runner.py`) writes this format for every comm
   team agent, plus `-<variant>` when the variant isn't `base`. Read `agent` and `set` from `run.json`, not from the id.
 - `run.json` also has `agent_name`, `variant`, `llm` and `command`.
 - One invocation of `sim`/`bench` plays a case several times (seeds, repeats): the first session is
-  `case_P01.jsonl`, the next `case_P01-2.jsonl`, and so on. Each file is still one case session.
+  `case_P01.jsonl`, the next `case_P01~2.jsonl`, and so on (the dashboard's repeat convention). Each file is still
+  one case session; its events carry the real `case_id`.
 - `decision.kind` also takes `wait`: the agent sends nothing more to this supplier (thread ready); `reason` says why.
   `decision` for `accept` / `walk_away` comes from the agent's `close`; its `candidate_id` is the accepted sheet id.
 - `plan` has one candidate: the message's sheets (main sheet first, then trades); `rationale` is the branch of
