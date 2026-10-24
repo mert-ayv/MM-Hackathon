@@ -247,3 +247,16 @@ necessary to establish performance; existing runs predate this implementation.
 - **What the logs show:** the planner closes the gap to one tick by reply 5 (its no-cross cap), so its last step is +0.01 again.
 - **What worked instead:** the menu agent kept a wide gap (41.99 vs 45.50) and +0.55 steps, and got 45.00 in the supplier's final.
 - **Why this is not a planner fix:** the planner keeps the gap small on purpose (P02/P18 go final or walk on a 2.5-4 % gap). P11 tolerates 8-15 %. Gap tolerance is per supplier, and only the quality route (menu agent) uses wide-gap pacing.
+
+**Sat 23:30, robustness sweep of the final router.** Setup: 966 hidden-like cases (7 types x all 46 dossier suppliers x 3, with random must-haves, alternatives, relationship goals, round limits and RFQs) plus a 322-case run on the Live-Final clock.
+
+**What it did not find:** no crashes, must-have breaks, late replies, wave-cap losses, or walk-aways while a better deal stood.
+
+**Three loss mechanisms, now fixed** (untimed 0.596 -> 0.606, 27 cases better, 0 worse; timed 0.620 -> 0.635; engine practice table unchanged at 0.765):
+1. **Lever sheets agreed at reply 1.** Before the supplier stepped, lever sheets were priced at the opening ask (an assumed 0.2 %/round give). They now expect 1 %/round, capped by its own-plant should-cost; P02 keeps its reply-1 clause deal. Price increase +0.026.
+2. **Another plant's should-cost taken as this supplier's cost.** It is now ignored when it is >= 97 % of the supplier's own ask (P05: DE base 36.87 vs real floors 26.5-27). RFQ +0.026; dearer bidder taken 8 -> 2.
+3. **close() understated the relationship charge.** For relationship goals it now judges with should-cost x 0.98 (`close_estimate`). Deals dearer than the alternative: 13 -> 10.
+
+**Not fixed:**
+- Supplier walk-aways on wide gaps in the rfq/quality/bundling routes (engine assumption; practice only ever saw walks after a push).
+- RFQ scores in the engine are low for every policy: it has no rival-quote model.

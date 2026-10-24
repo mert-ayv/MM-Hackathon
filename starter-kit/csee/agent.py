@@ -206,6 +206,18 @@ class CseeAgent:
             )
             if self.p.claim_evidence:
                 info.claims = evidence_order(info.claims)
+            ask = opening.get("unit_price")
+            if (
+                info.full_cost
+                and ask
+                and "its own plant" not in (info.full_cost_source or "")
+                and info.full_cost >= 0.97 * ask
+            ):
+                # another plant's should-cost (DE base x country) at or above this supplier's own ask is not its cost
+                # (P05: DE-base 36.87 vs real floors 26.5-27.0). With a relationship goal it lifted our anchor to 0.5 %
+                # below the ask and the bot agreed at reply 1 (sweep: hidden-like RFQs, C above the opening -> 0).
+                info.full_cost_source = f"{info.full_cost_source} ignored: {info.full_cost:.2f} >= 97 % of its ask {ask}"
+                info.full_cost = None
             st = self.threads[sid] = ThreadState(info, opening=opening)
             for m in threads.get(sid, []):  # a resumed case: continue from our earlier asks, never re-anchor
                 if m.get("from") == "buyer" and m.get("term_sheets"):
@@ -939,7 +951,7 @@ class CseeAgent:
         best = None
         for sid in live:
             std = standard_terms(threads[sid])
-            supplier = self.supplier_estimate(case, sid, std)
+            supplier = self.close_estimate(case, sid, std)
             if False:  # only the first sheet is standing: alternatives are won by proposing them back
                 offered = []
             else:
@@ -958,6 +970,24 @@ class CseeAgent:
         log.info("%s: accept %s %s at C=%.0f (alt %.0f)", case["case_id"], best[1], best[2], best[0], c_alt)
         self.close_reason = f"cheapest valid standing sheet C={best[0]:.0f} < C_alt {c_alt:.0f}"
         return {"supplier_id": best[1], "message": {"action": {"type": "accept", "term_sheet_id": best[2]}}}
+
+    def close_estimate(self, case, sid, std):
+        """The supplier estimate for the accept-or-walk decision. Relationship goals: its full cost at should-cost x
+        rel_full (0.98: the fitted real cost on P01/P02/P03), not x fullcost_discount (0.95) - the 0.95 estimate
+        understates the arena's relationship charge, so close() took sheets dearer than the alternative (sweep:
+        13 hidden-like relationship cases, e.g. a final offer at C +2.6 % over the alternative -> 0 instead of the
+        alternative's score). A breakdown the supplier sent stays as it is."""
+        est = self.supplier_estimate(case, sid, std)
+        st = self.threads.get(sid)
+        if (
+            est
+            and st
+            and not st.breakdown
+            and st.intel.full_cost
+            and case["buyer"].get("category_goal") in RELATIONSHIP_GOALS
+        ):
+            est = {**est, "full_cost": max(est["full_cost"], st.intel.full_cost * self.p.rel_full)}
+        return est
 
     # ---------- the kit's sequential interface (arena_kit.play.play) ----------
     def decide(self, case, threads):

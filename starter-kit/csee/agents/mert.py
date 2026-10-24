@@ -608,6 +608,7 @@ KAPPA_CLAUSE = 0.5  # share of the claimed index exposure a clause is worth to t
 CONTRACT_SECURITY = 0.005  # per extra year of contract, share of price (P07/P03/P04: welcomed, never priced alone)
 MARGIN = 0.05  # a lever sheet must beat the expected close by 5 % of the room (opening C - expected C)
 N_FINAL = 5  # bots go final around their 4th-5th reply (practice traces)
+LEVER_PRIOR_STEP = 0.01  # its expected step per remaining reply before it has made one (share of its price)
 MONTHS = {m: i for i, m in enumerate(
     "january february march april may june july august september october november december".split(), 1)}
 NUM = re.compile(r"(\d+(?:[.,]\d+)?)")
@@ -832,9 +833,19 @@ class LeverMixin:
             same = all(a.get(k) == b.get(k) for k in set(a) | set(b) if k != "unit_price")
             if same and a.get("unit_price") and b.get("unit_price"):
                 steps.append(max(a["unit_price"] - b["unit_price"], 0.0))
-        step = sum(steps[-2:]) / len(steps[-2:]) if steps else 0.002 * (theirs.get("unit_price") or 0)
         k = max(0, N_FINAL - len(firsts))
-        return total_cost(case, {**theirs, "unit_price": theirs["unit_price"] - step * k}, std, sup)
+        price = theirs.get("unit_price") or 0
+        if steps:
+            give = sum(steps[-2:]) / len(steps[-2:]) * k
+        else:
+            # no step of its own seen yet (our first message). The old 0.2 % a round let a lever sheet priced at its
+            # indifference to the OPENING ask pass, and the engine agrees to any sheet worth its ask: sweep 13 of 138
+            # hidden-like price-increase cases closed at reply 1 (~0.1 instead of ~0.6). Expect its own-plant
+            # should-cost room (floors track it: P01 0.99, P02 0.97, P03 1.06 x should-cost), else 1 % a round.
+            give = LEVER_PRIOR_STEP * price * k
+            if st.intel.full_cost and "its own plant" in (st.intel.full_cost_source or ""):
+                give = max(0.002 * price * k, min(give, price - st.intel.full_cost * self.REAL_FULL))
+        return total_cost(case, {**theirs, "unit_price": price - give}, std, sup)
 
     def price_lever(self, case, sid, std, sheet, theirs, main):
         """(price, note) for a lever sheet, or None. See the module docstring."""
