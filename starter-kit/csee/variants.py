@@ -149,14 +149,14 @@ VARIANTS = {
 VARIANTS["v15"] = {**VARIANTS["v14"], "final_push": 0.008}
 VARIANTS["v16"] = {**VARIANTS["v14"], "history_claims": True}
 VARIANTS["v18"] = {**VARIANTS["v14"], "anchor_leverage": 0.12}
-VARIANTS["v14a"] = {**VARIANTS["v14"], "alt_quote_claim": True}
-VARIANTS["v16a"] = {**VARIANTS["v16"], "alt_quote_claim": True}
-VARIANTS["v7a"] = {**VARIANTS["v7"], "alt_quote_claim": True}
-VARIANTS["basea"] = {"rival_only_lower": True, "alt_quote_claim": True}
-VARIANTS["v7c"] = {**VARIANTS["v7a"], "concede_early": 0.35}  # hold study: front-load concessions (sandbox A/B)
-VARIANTS["v14c"] = {**VARIANTS["v14a"], "concede_early": 0.35}
+VARIANTS["v14a"] = {"claim_evidence": True, **VARIANTS["v14"], "alt_quote_claim": True}
+VARIANTS["v16a"] = {"claim_evidence": True, **VARIANTS["v16"], "alt_quote_claim": True}
+VARIANTS["v7a"] = {"claim_evidence": True, **VARIANTS["v7"], "alt_quote_claim": True}
+VARIANTS["basea"] = {"claim_evidence": True, "rival_only_lower": True, "alt_quote_claim": True}
+VARIANTS["v7c"] = {"claim_evidence": True, **VARIANTS["v7a"], "concede_early": 0.35}  # hold study: front-load concessions (sandbox A/B)
+VARIANTS["v14c"] = {"claim_evidence": True, **VARIANTS["v14a"], "concede_early": 0.35}
 VARIANTS["v14r"] = {**VARIANTS["v14a"], "rel_full": 0.965}
-VARIANTS["v14s"] = {**VARIANTS["v14a"], "anchor_below_open": 0.04}
+VARIANTS["v14s"] = {"claim_evidence": True, **VARIANTS["v14a"], "anchor_below_open": 0.04}
 VARIANTS["v17"] = {**VARIANTS["v16"], "rel_anchor": False, "close_gap": 0.001, "close_room": 0.05}
 
 

@@ -93,6 +93,9 @@ class Params:
     trade_gain: float = 0.006  # a trade sheet must save us at least this share of C
     max_claims: int = 2  # data arguments per message (the arena checks at most 3)
     history_claims: bool = False  # also cite order history, quality notifications, earlier quarters, case refs
+    claim_evidence: bool = False  # order claims by measured effect (296 practice replies, Sat 24 Oct): drop order-history
+    #                               (0 of 26 moved a price) and earlier-quarter delivery (always "duplicate"); delivery record
+    #                               (14 of 37) ranks below index (41/44), forecast (23/26), should-cost (11/11), notice (6/6)
     cash_rate: float = 0.14  # a cash-short supplier's cost of money
     reserve_moves: int = 1  # keep this many messages in hand
     # v2 switches (off = the v1 baseline behaviour)
@@ -813,6 +816,9 @@ class CseeAgent:
     def pick_claims(self, case, threads, sid):
         st = self.threads[sid]
         claims = [c for c in st.intel.claims if self.p.history_claims or c.source != "history"]
+        if self.p.claim_evidence:
+            claims = [c for c in claims if not (c.tag == "po" or (c.tag == "otd" and c.source == "history"))]
+            claims = sorted(claims, key=lambda c: -(c.strength * (0.4 if c.tag == "otd" else 1.0)))
         if len(case["suppliers"]) > 1:
             stand = {s: standing(threads[s]) for s in threads}
             rivals = intel_mod.rival_claims(case, stand, sid)
