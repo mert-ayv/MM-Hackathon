@@ -1,0 +1,379 @@
+diff --git a/starter-kit/csee/agents/emre.py b/starter-kit/csee/agents/emre.py
+index 473801f..76f6e74 100644
+--- a/starter-kit/csee/agents/emre.py
++++ b/starter-kit/csee/agents/emre.py
+@@ -1,22 +1,23 @@
+-"""Emre's agent: raw-material cases (index-priced metal, e.g. P08/P18 1.4404 bar, P16 steel sheet).
+-Every other case type plays exactly like base. Only Emre edits this file.
+-
+-What changes for `type == "raw_material"`:
+-- A fixed price is the main ask. With the case's index path rising, any index clause costs us
+-  (P08: deadband 0 = +17 cents/kg, deadband 5 = +5 cents/kg), so a clause is only offered as an
+-  alternative sheet, at its widest deadband and a price that leaves us cheaper than the fixed one.
+-- Raw-material arguments go first: the index's fall since its recent peak (two `idx` IDs, checked
+-  by the arena) and, if the supplier wrote that its material is bought at fixed prices, that letter.
+-- Rule tweaks for these suppliers (bets to measure): stop fighting terms it held twice, hold our
+-  price while it asks its pricing committee, up to 3 arguments per message.
++"""Emre's agent: raw-material cases (index-priced material: bar, sheet, ...). Every other case type plays
++exactly like base. Only Emre edits this file.
++
++Every rule comes from the case file and from data any supplier has (`emre_data.py`), never from supplier
++names or practice cases; without that data it plays like base. For `type == "raw_material"`:
++- **Opening offer from data**, not only from the supplier's ask: reference = today's price, or the same
++  part's lower price from another supplier (our orders); target = reference minus how far this supplier
++  usually settles below its ask (negotiation history). We open ANCHOR_ROOM below the target (practice
++  deals landed ~3 % above our opening), then concede like base: holding firm at the target made the local
++  simulator's suppliers turn final early (raw cases x 8 seeds: 0.186 with the hold, 0.202 without).
++- **Clause form:** a clause in our current contract is the status quo, so we lead with the widest-deadband
++  clause and offer a fixed price as the alternative (worth the same to us). Otherwise a fixed price leads
++  and the clause is the alternative. Either way the supplier sees the cheaper-for-us deadband.
++- **Arguments:** our lower order price for the same part from another supplier (PO IDs, checked by the
++  arena); with a clause in the current contract, that market moves are already passed through.
+ 
+     uv run python -m csee --agent emre sim --cases case:P08 case:P16 case:P18   free, offline
+-    uv run python -m csee --agent emre bench                                     free, sandbox
+ """
+ 
+-import dataclasses
+ import logging
+-import re
+ 
+ from arena_kit.cost import complete_offer, must_haves_ok, total_cost
+ 
+@@ -24,120 +25,154 @@ from .. import intel as intel_mod
+ from .. import levers
+ from ..agent import CseeAgent
+ from ..writer import SIGN
++from . import emre_data
+ 
+ log = logging.getLogger("csee")
+ 
+ RAW = "raw_material"
+-MIN_DROP_PCT = 1.0  # an index fall smaller than this is not worth an argument
+-HEDGED = re.compile(r"covered at fixed prices until ([A-Z][a-z]+ \d{4})")
++ANCHOR_ROOM = 0.03  # open this far below the target: deals land about this much above our opening
++MIN_ANCHOR_SHARE = 0.85  # never open below this share of the reference price
+ 
+ 
+ def is_raw(case):
+     return case.get("type") == RAW
+ 
+ 
+-def clause_series(case):
+-    """The index series the case's clause options follow (one per case in practice)."""
+-    for c in levers.options(case, "index_clause"):
+-        if c and c.get("series"):
+-            return c["series"]
+-    return None
+-
+-
+-def index_peak_claim(pkg, series):
+-    """The series' fall from its highest month in the last 12 to its latest month, as a checked claim."""
+-    if not pkg or not series:
+-        return None
+-    ids = sorted(i for i in pkg.ids(f"idx:{series}@") if "@" in i)[-12:]
+-    values = [(i, (pkg.lookup(i) or {}).get("value")) for i in ids]
+-    values = [(i, float(v)) for i, v in values if v]
+-    if len(values) < 2:
+-        return None
+-    peak_id, peak = max(values[:-1], key=lambda x: x[1])
+-    last_id, last = values[-1]
+-    pct = (last / peak - 1) * 100
+-    if pct > -MIN_DROP_PCT:
+-        return None
+-    name = intel_mod.series_name(pkg, series).split(" (")[0]
+-    month = peak_id.split("@")[1]
+-    return intel_mod.Claim(
+-        f"{name} has changed {pct:+.1f}% since its peak in {month} ({peak_id}, {last_id}).",
+-        [peak_id, last_id],
+-        "index",
+-        strength=4.0,
+-    )
+-
+-
+-def hedged_claim(pkg, supplier_id):
+-    """The supplier's own letter that its material is bought at fixed prices: an index clause would pass
+-    on market moves that do not reach its costs. Prose only (a letter is context, not a checked claim)."""
+-    if not pkg:
+-        return None
+-    num = supplier_id.split(":")[-1]
+-    for path in sorted(p for p in pkg.root.rglob(f"*-{num}-*.md") if "correspondence" in p.parts):
+-        m = HEDGED.search(path.read_text(encoding="utf-8"))
+-        if m:
+-            return intel_mod.Claim(
+-                f"You wrote to us that your material is covered at fixed prices until {m.group(1)}, so market "
+-                "moves do not reach your costs before then and an index clause is not justified.",
+-                [],
+-                "hedge",
+-                strength=5.0,
+-            )
+-    return None
++def has_clause(sheet):
++    return bool(sheet.get("index_clause"))
++
++
++def widest_clause(case):
++    clauses = [c for c in levers.options(case, "index_clause") if c]
++    return max(clauses, key=lambda c: c.get("deadband_pct") or 0) if clauses else None
+ 
+ 
+ class EmreAgent(CseeAgent):
++    raw = False
++    plans = {}
++
++    # ---------- preparation: one plan per supplier, from data ----------
+     def prepare(self, case, threads):
+         super().prepare(case, threads)
+-        if not is_raw(case):
++        self.raw, self.plans = is_raw(case), {}
++        if not self.raw:
+             return
+-        self.p = dataclasses.replace(self.p, adopt_insisted=True, hold_on_internal=True, max_claims=3)
+-        series = clause_series(case)
+         for sid, st in self.threads.items():
+             try:
+-                extra = [c for c in (hedged_claim(self.pkg, sid), index_peak_claim(self.pkg, series)) if c]
+-            except Exception:  # an argument we cannot build must never cost the case
+-                log.exception("%s %s: raw-material claims failed", case["case_id"], sid)
+-                extra = []
+-            st.intel.claims = extra + st.intel.claims
+-            log.info("%s %s: raw-material claims %s", case["case_id"], sid, [c.kind for c in extra])
+-
+-    def thread_move(self, case, threads, sid):
+-        msg = super().thread_move(case, threads, sid)
+-        if not is_raw(case) or not msg or SIGN not in (msg.get("body") or ""):
+-            return msg
+-        # the template's sheet wording leaves index clauses out: say which alternative carries one
+-        notes = []
+-        for i, s in enumerate(msg.get("term_sheets") or []):
+-            c = s["terms"].get("index_clause")
+-            if i and c and not msg["term_sheets"][0]["terms"].get("index_clause"):
+-                notes.append(
+-                    f"The alternative at EUR {s['terms']['unit_price']:.2f} includes an index clause on "
+-                    f"{c['series']} ({c['material_share']:.0%} material share, {c['deadband_pct']}% deadband)."
++                plan = self.plans[sid] = self.raw_plan(case, sid, st)
++                if plan:
++                    st.intel.claims = self.raw_claims(st, plan) + st.intel.claims
++                log.info("%s %s: raw plan %s", case["case_id"], sid, plan)
++            except Exception:  # data we cannot read must never cost the case: play like base
++                log.exception("%s %s: raw plan failed", case["case_id"], sid)
++                self.plans[sid] = None
++
++    def raw_plan(self, case, sid, st):
++        current = case["buyer"].get("current_unit_price")
++        give = emre_data.typical_give(self.pkg, sid)
++        if not current or give is None:
++            return None
++        bench = emre_data.benchmark(self.pkg, case["parts"][0], sid) if case.get("parts") else None
++        ref = min(current, bench["price"]) if bench else current
++        target = ref * (1 - give / 100)
++        return {
++            "clause": emre_data.current_clause(self.pkg, sid),
++            "give": give,
++            "bench": bench,
++            "ref": round(ref, 2),
++            "target": round(target, 2),
++            "anchor": round(max(target * (1 - ANCHOR_ROOM), ref * MIN_ANCHOR_SHARE), 2),
++        }
++
++    def raw_claims(self, st, plan):
++        out = []
++        bench, ask = plan["bench"], st.opening.get("unit_price")
++        if bench and ask and bench["price"] < ask:
++            out.append(
++                intel_mod.Claim(
++                    f"We currently pay EUR {bench['price']:.2f} per unit for this part from another approved "
++                    f"supplier ({', '.join(bench['ids'])}).",
++                    bench["ids"],
++                    "po",
++                    strength=6.0,
+                 )
+-        if notes:
+-            msg["body"] = msg["body"].replace(SIGN, "\n".join(notes) + "\n\n" + SIGN)
+-        return msg
+-
++            )
++        if plan["clause"]:
++            out.append(
++                intel_mod.Claim(
++                    f"Our current agreement already follows {plan['clause']['series']}, so market moves are passed "
++                    "through and should not be priced into the base price a second time.",
++                    [],
++                    "status_quo",
++                    strength=5.0,
++                )
++            )
++        return out
++
++    # ---------- price: the opening offer from the data target ----------
++    def next_terms(self, case, threads, sid, theirs, std, supplier, left):
++        ours = super().next_terms(case, threads, sid, theirs, std, supplier, left)
++        plan = self.plans.get(sid) if self.raw else None
++        if ours is None or not plan:
++            return ours
++        st = self.threads[sid]
++        if not st.our_prices and plan["anchor"] < ours["unit_price"]:  # the opening offer, never above base's
++            ours["unit_price"] = plan["anchor"]
++            why = f"raw: open at {plan['anchor']:.2f} (target {plan['target']:.2f} = ref {plan['ref']:.2f} - {plan['give']:.1f}%)"
++            st.why = f"{st.why}; {why}" if st.why else why
++        return ours
++
++    # ---------- term sheets: the clause form ----------
+     def sheets(self, case, sid, ours, std, supplier):
+         out = super().sheets(case, sid, ours, std, supplier)
+-        if not is_raw(case) or out[0].get("index_clause") is not None:
++        if not self.raw or has_clause(out[0]):
+             return out  # it insisted on a clause: base already asks for the cheapest one
+-        clause = self.clause_sheet(case, out[0], std, supplier)
+-        if clause and clause not in out:
+-            out = [out[0], clause] + out[1:]
++        try:
++            if (self.plans.get(sid) or {}).get("clause"):  # status quo is a clause: lead with it
++                main = self.with_clause(case, out[0], std)
++                fixed = self.repriced(case, out[0], main, std, supplier) if main else None
++                if main and fixed:
++                    return ([main, fixed] + [s for s in out[1:] if s != fixed])[:3]
++            alt = self.with_clause(case, out[0], std)
++            alt = self.repriced(case, alt, out[0], std, supplier) if alt else None
++            if alt and alt not in out:
++                out = [out[0], alt] + out[1:]
++        except Exception:
++            log.exception("%s %s: raw sheets failed", case["case_id"], sid)
+         return out[:3]
+ 
+-    def clause_sheet(self, case, main, std, supplier):
+-        """The widest-deadband clause at a price that makes it cheaper for us than the fixed-price ask."""
+-        clauses = [c for c in levers.options(case, "index_clause") if c]
+-        if not clauses:
+-            return None
+-        widest = max(clauses, key=lambda c: c.get("deadband_pct") or 0)
+-        t = complete_offer(case, {**main, "index_clause": widest})
++    def with_clause(self, case, sheet, std):
++        """The same sheet with the widest-deadband clause, at the same price (None if no clause fits)."""
++        clause = widest_clause(case)
++        t = complete_offer(case, {**sheet, "index_clause": clause}) if clause else None
++        return t if t and must_haves_ok(case, t, std) else None
++
++    def repriced(self, case, sheet, main, std, supplier):
++        """`sheet` at the price that costs us trade_gain less than `main`: an alternative worth taking."""
++        t = complete_offer(case, sheet)
+         if not must_haves_ok(case, t, std):
+             return None
+         target = total_cost(case, main, std, supplier) * (1 - self.p.trade_gain)
+         t["unit_price"] = levers.price_for(case, t, target, std, supplier)
+         return t if t["unit_price"] > 0 else None
++
++    # ---------- the e-mail: say which sheet carries a clause ----------
++    def thread_move(self, case, threads, sid):
++        msg = super().thread_move(case, threads, sid)
++        if not self.raw or not msg or SIGN not in (msg.get("body") or ""):
++            return msg
++        sheets = [s["terms"] for s in msg.get("term_sheets") or []]
++        if len({has_clause(s) for s in sheets}) < 2:
++            return msg  # all sheets alike: the template's wording is enough
++        notes = []
++        for i, s in enumerate(sheets):
++            which = "Our proposal" if i == 0 else "The alternative"
++            c = s.get("index_clause")
++            notes.append(
++                f"{which} at EUR {s['unit_price']:.2f} includes an index clause on {c['series']} "
++                f"({c['material_share']:.0%} material share, {c['deadband_pct']}% deadband)."
++                if c
++                else f"{which} at EUR {s['unit_price']:.2f} is a fixed price without index clause."
++            )
++        msg["body"] = msg["body"].replace(SIGN, "\n".join(notes) + "\n\n" + SIGN)
++        return msg
+diff --git a/starter-kit/csee/agents/emre_data.py b/starter-kit/csee/agents/emre_data.py
+new file mode 100644
+index 0000000..ac68b8b
+--- /dev/null
++++ b/starter-kit/csee/agents/emre_data.py
+@@ -0,0 +1,88 @@
++"""What the data package says about a raw-material negotiation, for any supplier and part.
++
++No supplier names, letters or practice-case numbers: every function reads tables every supplier has
++(contracts, negotiation history, purchase orders) and returns None when the data is missing, so a
++stranger in the Live Final simply plays like base.
++"""
++
++import statistics
++
++from ..intel import _q
++
++GIVE_CLIP = (0.0, 6.0)  # a supplier's usual settlement below its ask, in percentage points
++
++
++def current_clause(pkg, sid):
++    """The index clause of our current contract with this supplier: {series, material_share} or None."""
++    rows = _q(
++        pkg,
++        "SELECT cc.series, cc.material_share FROM contract_clauses cc JOIN contracts c ON c.id = cc.contract_id "
++        "WHERE c.supplier_id = ? AND cc.type = 'index' AND cc.series IS NOT NULL",
++        (sid,),
++    )
++    for r in rows:
++        if r.get("series"):
++            return {"series": r["series"], "material_share": r.get("material_share")}
++    return None
++
++
++def _gives(rows):
++    out = []
++    for r in rows:
++        asked, settled = r.get("asked_pct"), r.get("settled_pct")
++        if asked is not None and settled is not None and asked != "" and settled != "":
++            out.append(float(asked) - float(settled))
++    return out
++
++
++def typical_give(pkg, sid):
++    """How many percentage points below its ask this supplier usually settles (median of past renewals),
++    else the median of its category, else of all suppliers. Clipped to GIVE_CLIP; None without data."""
++    sql = "SELECT asked_pct, settled_pct FROM negotiation_history WHERE type = 'annual renewal'"
++    gives = _gives(_q(pkg, sql + " AND supplier_id = ?", (sid,)))
++    if not gives:
++        cat = _q(pkg, "SELECT category FROM suppliers WHERE id = ?", (sid,))
++        if cat and cat[0].get("category"):
++            gives = _gives(
++                _q(
++                    pkg,
++                    sql + " AND supplier_id IN (SELECT id FROM suppliers WHERE category = ?)",
++                    (cat[0]["category"],),
++                )
++            )
++    if not gives:
++        gives = _gives(_q(pkg, sql))
++    if not gives:
++        return None
++    return min(max(statistics.median(gives), GIVE_CLIP[0]), GIVE_CLIP[1])
++
++
++def benchmark(pkg, part, sid):
++    """The lowest latest order price for the same part from another supplier, in the same price unit as
++    this supplier's own orders: {price, supplier_id, ids: [2 PO IDs]} or None."""
++    own = _q(
++        pkg,
++        "SELECT price_unit FROM po_lines WHERE part_id = ? AND supplier_id = ? ORDER BY order_date DESC LIMIT 1",
++        (part, sid),
++    )
++    if not own:
++        return None
++    unit = own[0].get("price_unit")
++    rows = _q(
++        pkg,
++        "SELECT id, supplier_id, price, order_date FROM po_lines WHERE part_id = ? AND supplier_id != ? "
++        "AND price_unit = ? AND price IS NOT NULL ORDER BY order_date DESC",
++        (part, sid, unit),
++    )
++    latest = {}
++    for r in rows:  # newest first: the first two lines per supplier
++        latest.setdefault(r["supplier_id"], [])
++        if len(latest[r["supplier_id"]]) < 2:
++            latest[r["supplier_id"]].append(r)
++    best = None
++    for other, lines in latest.items():
++        if len(lines) < 2 or lines[0]["price"] != lines[1]["price"]:
++            continue  # cite two orders at one price, so the figure is unambiguous
++        if best is None or lines[0]["price"] < best["price"]:
++            best = {"price": float(lines[0]["price"]), "supplier_id": other, "ids": [l["id"] for l in lines]}
++    return best
