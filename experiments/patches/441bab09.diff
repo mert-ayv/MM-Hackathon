@@ -1,0 +1,80 @@
+diff --git a/starter-kit/csee/agents/__init__.py b/starter-kit/csee/agents/__init__.py
+index 2bf7d8f..b98276a 100644
+--- a/starter-kit/csee/agents/__init__.py
++++ b/starter-kit/csee/agents/__init__.py
+@@ -92,6 +92,7 @@ from .mert_dossier import (
+     PlanMesoRawSoftClaims,
+     SkipHedgeDossier,
+ )
++from .emre_ehl import PlanMesoLeverDeepClaims, PlannerDeepClaims
+ from .router import RouterAgent, RouterPlanAgent
+ 
+ AGENTS = {
+@@ -139,6 +140,9 @@ AGENTS = {
+     "mert-plan-soft": PlannerSoftClaims,  # 6 % anchor (P10 challenger)
+     "mert-plan-meso-raw-soft": PlanMesoRawSoftClaims,  # 12 % raw anchor (P18 challenger)
+     "router": RouterAgent,
++    # EHL-final challengers (emre_ehl.py): the router's planner routes with an 18 % first ask
++    "emre-plan-deep": PlannerDeepClaims,  # vs mert-plan-dc (renewal, capacity)
++    "emre-plan-meso-lever-deep": PlanMesoLeverDeepClaims,  # vs mert-plan-meso-lever-dc (price_increase)
+     "router-plan": RouterPlanAgent,  # A/B candidate: the planner on every non-RFQ type
+ }
+ 
+diff --git a/starter-kit/csee/variants.py b/starter-kit/csee/variants.py
+index 56d1e9d..c5a09f8 100644
+--- a/starter-kit/csee/variants.py
++++ b/starter-kit/csee/variants.py
+@@ -155,6 +155,8 @@ VARIANTS["v7a"] = {**VARIANTS["v7"], "alt_quote_claim": True}
+ VARIANTS["basea"] = {"rival_only_lower": True, "alt_quote_claim": True}
+ VARIANTS["v14r"] = {**VARIANTS["v14a"], "rel_full": 0.965}
+ VARIANTS["v14s"] = {**VARIANTS["v14a"], "anchor_below_open": 0.04}
++VARIANTS["baseacr"] = {**VARIANTS["basea"], "close_room": 0.05}
++VARIANTS["v7acr"] = {**VARIANTS["v7a"], "close_room": 0.05}
+ VARIANTS["v17"] = {**VARIANTS["v16"], "rel_anchor": False, "close_gap": 0.001, "close_room": 0.05}
+ 
+ 
+@@ -203,6 +205,8 @@ DESCRIPTIONS = {
+     "v7a": "v7 + the v14a alternative-quote argument.",
+     "basea": "base + cite only rivals below this supplier's price (base cites the best rival even when it is higher: "
+     "'the rival offer is still higher than our price', P05) + the v14a alternative-quote argument.",
++    "baseacr": "basea + patience: a thread is done only when the C gap <= 5 % of the room (EHL final: closing at reply 2 within 0.4 % of C lost ~0.3 on H30/H34 to teams that pushed to reply 3-4).",
++    "v7acr": "v7a + baseacr's patience rule (close only when the gap <= 5 % of the room).",
+     "v14": "v13 + price-increase review: relationship goals anchor at the relationship-optimal price at the "
+     "supplier's real cost (should-cost x0.98), not the should-cost floor (P02 369 -> 358); trade sheets priced "
+     "without the relationship term (they were all dropped); close only when the gap <= 10 % of the room.",
+diff --git a/starter-kit/csee/agents/emre_ehl.py b/starter-kit/csee/agents/emre_ehl.py
+new file mode 100644
+index 0000000..c0195c0
+--- /dev/null
++++ b/starter-kit/csee/agents/emre_ehl.py
+@@ -0,0 +1,30 @@
++"""Emre's EHL-final challengers: the router's planner agents with a deeper first ask. Only Emre edits this file.
++
++Evidence (EHL Grand Finale, 11 Oct 2026, same world and suppliers: 30 cases, 474 replays): a first counter 20-25 %
++below the supplier's ask ranked 0.62 within its case, 5-15 % below ranked 0.39-0.44 (0 = worst team, 1 = best).
++H34: 7 % below drew "agreed" at reply 2 (0.49); 14 % below and slow steps reached its final 23.50 (0.81).
++
++Only `anchor` changes (price_increase / renewal / capacity outside relationship goals); `anchor_rel` stays 12 %
++(stabilise / secure_supply pay a relationship charge for squeezing) and `anchor_raw` stays 22 %.
++
++    uv run python -m csee sim --agents mert-plan-dc emre-plan-deep --variants v14a   free, offline
++"""
++
++from dataclasses import replace
++
++from .mert import PlanParams
++from .mert_dossier import PlanMesoLeverDossierClaims, PlannerDossierClaims
++
++DEEP_ANCHOR = 0.18
++
++
++class PlannerDeepClaims(PlannerDossierClaims):
++    """renewal / capacity route (mert-plan-dc) with an 18 % first ask."""
++
++    plan = replace(PlanParams(), anchor=DEEP_ANCHOR)
++
++
++class PlanMesoLeverDeepClaims(PlanMesoLeverDossierClaims):
++    """price_increase route (mert-plan-meso-lever-dc) with an 18 % first ask."""
++
++    plan = replace(PlanParams(), anchor=DEEP_ANCHOR)
