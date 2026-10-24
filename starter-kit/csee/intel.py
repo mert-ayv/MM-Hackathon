@@ -450,3 +450,33 @@ def parse_cost_breakdown(text):
     skip = ("margin", "profit", "unit price", "price", "total", "sum", "full cost")
     full = sum(v for k, v in out.items() if not any(w in k for w in skip))
     return {"elements": out, "full_cost": full, "margin": out.get("margin") or out.get("profit")}
+
+
+ALT_QUOTE_MIN_GAP = 0.01  # cite the alternative only if at least this far below the standing ask
+
+
+def alt_quote_claims(case, pkg, supplier_id, ask):
+    """The case's own quotes (its alternative, quote refs of the same part) priced BELOW this supplier's
+    standing ask: the cheapest as one argument. The arena checks a quote of this case as verified
+    (brief/api.md, What counts); a quote outside the case or another supplier's orders come back
+    `irrelevant` (P08/P18, and P18 then asked for "redacted invoices"). A pricier alternative is never
+    cited (P05: "the rival offer is still higher than our price"). Single-part cases only."""
+    if not ask or len(case.get("parts") or []) != 1:
+        return []
+    cands = {}
+    alt = (case.get("buyer") or {}).get("alternative") or {}
+    if alt.get("kind") == "quote" and alt.get("ref") and (alt.get("terms") or {}).get("unit_price"):
+        f = _fact(case, pkg, alt["ref"]) or {}
+        cands[alt["ref"]] = (float(alt["terms"]["unit_price"]), f.get("supplier"))
+    for r in case.get("refs") or []:
+        if not r.startswith("quote:") or r in cands:
+            continue
+        f = _fact(case, pkg, r) or {}
+        if not f.get("unit_price") or (f.get("part") and f["part"] not in case["parts"]) or (f.get("price_unit") or 1) != 1:
+            continue
+        cands[r] = (float(f["unit_price"]), f.get("supplier"))
+    below = [(p, r) for r, (p, s) in cands.items() if s != supplier_id and p < ask * (1 - ALT_QUOTE_MIN_GAP)]
+    if not below:
+        return []
+    p, r = min(below)
+    return [Claim(f"Our qualified second source has quoted EUR {p:.2f} per unit for this part ({r}).", [r], "rival", 2.5, p, tag="alt_quote")]

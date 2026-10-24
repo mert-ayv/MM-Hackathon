@@ -145,3 +145,12 @@ How our agent negotiates, and how each architecture version is tracked. Code: [`
   - It goes final at reply N, or from K0 when our gap > G.
   - It always agrees to its own final sheets proposed back.
   - It agrees to ANY of our sheets worth >= its ask, so a sheet 2-3 must be one we would accept.
+
+**Competing prices as leverage (Sat 20:00; scratchpad sub-rival):**
+- **What the arena verifies:** only the case's alternative quote, a `quote:` in the case refs, and RFQ rivals' offers in the session. Historical rival quotes and orders come back `irrelevant`; in one P18 run they drew "we cannot verify the competitor pricing", the opening was about 1.7 % worse and the run scored 0.401 vs 0.467.
+- **What we cite now:** new `alt_quote_claim` cites the case's alternative quote once per supplier, and only when it is at least 1 % below the ask.
+  - **Why:** bots answer a verified much-lower rival quote with "I give half the step now"; DEMO-J1 did 99 of 99 times.
+  - **Practice:** it never fires on the 10 practice cases, because every alternative there is dearer than the ask.
+  - **Final:** it could turn a hidden "best left without a deal" case into a deal.
+- **Routes now use the a-variants:** mert-lever/v14a, base/v14a, base/v7a, mert/v16a, and base/basea for bundling (base + `rival_only_lower`).
+- **Checks:** sandbox router 0.852 (unchanged); 431 tests pass.

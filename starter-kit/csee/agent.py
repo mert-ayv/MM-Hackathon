@@ -112,6 +112,7 @@ class Params:
     # v5 switches (Fable review strategy bets)
     anchor_leverage: float = 0.0  # >0: anchor this far below the opening outside relationship goals, no floor
     rfq_anchor_vs_leader: float = 0.0  # >0: RFQ first ask at most (1 - x) x the cheapest rival's opening price
+    alt_quote_claim: bool = False  # cite the case's alternative quote, once per supplier, when it is below the ask
     adopt_revealed: bool = False  # keep a term at the supplier's value when its own sheets show that is cheaper
     hold_on_internal: bool = False  # "we will come back to you on price": hold our price one round
     # v8 switches (trade every lever; read the supplier's own words)
@@ -820,6 +821,11 @@ class CseeAgent:
                 if rivals:
                     st.cited_rival = rivals[0].price
             claims = rivals + claims
+        if self.p.alt_quote_claim:
+            mine = (standing(threads[sid])[1] or {}).get("unit_price")
+            alts = intel_mod.alt_quote_claims(case, self.pkg, sid, mine)
+            if alts and (st.cited_rival is None or alts[0].price < st.cited_rival):
+                claims = alts + [c for c in claims if c.ids != alts[0].ids]
         avoid = " ".join(
             f"{a.get('argument', '')} {a.get('why', '')}" for a in st.intel.profile.get("arguments_to_avoid", [])
         ).lower()
@@ -829,9 +835,11 @@ class CseeAgent:
                 key = tuple(c.ids) if c.kind != "rival" else (sid, *c.ids)
                 if key in self.used_ids or any(i in self.used_ids for i in c.ids if c.kind != "rival"):
                     continue
-                if avoided(c, avoid):
+                if avoided(c, avoid) and c.tag != "alt_quote":  # profiles avoid a PRICIER alternative only
                     continue
                 out.append(c)
+                if c.kind == "rival" and self.p.alt_quote_claim:
+                    st.cited_rival = c.price if st.cited_rival is None else min(st.cited_rival, c.price)
                 self.used_ids.add(key)
                 self.used_ids.update(i for i in c.ids if c.kind != "rival")
                 first = not any(m.get("from") == "buyer" for m in threads[sid])

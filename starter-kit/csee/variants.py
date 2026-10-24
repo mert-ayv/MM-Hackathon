@@ -149,6 +149,10 @@ VARIANTS = {
 VARIANTS["v15"] = {**VARIANTS["v14"], "final_push": 0.008}
 VARIANTS["v16"] = {**VARIANTS["v14"], "history_claims": True}
 VARIANTS["v18"] = {**VARIANTS["v14"], "anchor_leverage": 0.12}
+VARIANTS["v14a"] = {**VARIANTS["v14"], "alt_quote_claim": True}
+VARIANTS["v16a"] = {**VARIANTS["v16"], "alt_quote_claim": True}
+VARIANTS["v7a"] = {**VARIANTS["v7"], "alt_quote_claim": True}
+VARIANTS["basea"] = {"rival_only_lower": True, "alt_quote_claim": True}
 VARIANTS["v17"] = {**VARIANTS["v16"], "rel_anchor": False, "close_gap": 0.001, "close_room": 0.05}
 
 
@@ -188,6 +192,11 @@ DESCRIPTIONS = {
     "hold no figures for, cited without one (D01/D02 had no arguments at all).",
     "v15": "v14 + after a final offer one push 0.8 % below it, leading bidder only (sandbox logs: 10 of 11 "
     "pushes <= 2 % improved the deal, none walked; 9.6 % and 15.7 % pushes walked).",
+    "v14a": "v14 + cite the case's alternative quote (verified) once per supplier when it is below the ask; never a pricier one.",
+    "v16a": "v16 + the v14a alternative-quote argument.",
+    "v7a": "v7 + the v14a alternative-quote argument.",
+    "basea": "base + cite only rivals below this supplier's price (base cites the best rival even when it is higher: "
+    "'the rival offer is still higher than our price', P05) + the v14a alternative-quote argument.",
     "v14": "v13 + price-increase review: relationship goals anchor at the relationship-optimal price at the "
     "supplier's real cost (should-cost x0.98), not the should-cost floor (P02 369 -> 358); trade sheets priced "
     "without the relationship term (they were all dropped); close only when the gap <= 10 % of the room.",
