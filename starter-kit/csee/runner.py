@@ -249,6 +249,13 @@ def _play_case(table, case_id, agent, deadline, clog):
                         fetch_documents(table, m)
                 decision = agent.close(case, threads, force=True)
                 reason = (getattr(agent, "close_reason", "") or "agent.close") + " (threads re-read)"
+                # still refused: the thread's own standing offer, nothing clever (Sat 20:42, both A/B runs:
+                # P05 was refused twice as "not a standing offer" and closed only through this at retry 2)
+                if attempt >= 1:
+                    t = table.client.thread(table.session_id, decision["supplier_id"])
+                    if t.get("offer_id") and decision["message"]["action"]["type"] == "accept":
+                        decision["message"]["action"]["term_sheet_id"] = t["offer_id"]
+                        reason += "; its thread's standing offer"
             except Exception:
                 log.exception("%s: re-reading the threads failed", case_id)
                 break
