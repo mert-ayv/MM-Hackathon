@@ -73,6 +73,7 @@ from .mert import (
     PlannerRawAgent,
 )
 from .records import (
+    PlanDb0Raw,
     MesoBase,
     MesoLever,
     MesoMert,
@@ -139,6 +140,7 @@ AGENTS = {
     "mert-plan-raw-soft18": PlanMesoRawSoft18,  # 18 % raw anchor + tight gap budget
     "mert-plan-softrel": PlannerSoftRel,  # 4 % anchor for relationship goals (P10 capacity)
     "mert-plan-meso-lever-r": PlanMesoLeverReal,  # real-cost study: relationship sheets at should-cost x 0.965 (P02)
+    "mert-plan-db0-raw": PlanDb0Raw,  # P18 record route: 0 % deadband clause + 45 d on the main sheet
     "mert-pledge": PledgeBase,  # P11 record: on-time-payment commitment when payment is fixed and we paid late
     # dossier (csee/dossier): hedge-aware claims; "-d" planners also take the supplier's fitted persona priors
     "base-d": BaseDossier,

@@ -1,0 +1,58 @@
+diff --git a/starter-kit/csee/agents/__init__.py b/starter-kit/csee/agents/__init__.py
+index 3be6b7c..e6bb1d6 100644
+--- a/starter-kit/csee/agents/__init__.py
++++ b/starter-kit/csee/agents/__init__.py
+@@ -73,6 +73,7 @@ from .mert import (
+     PlannerRawAgent,
+ )
+ from .records import (
++    PlanDb0Raw,
+     MesoBase,
+     MesoLever,
+     MesoMert,
+@@ -139,6 +140,7 @@ AGENTS = {
+     "mert-plan-raw-soft18": PlanMesoRawSoft18,  # 18 % raw anchor + tight gap budget
+     "mert-plan-softrel": PlannerSoftRel,  # 4 % anchor for relationship goals (P10 capacity)
+     "mert-plan-meso-lever-r": PlanMesoLeverReal,  # real-cost study: relationship sheets at should-cost x 0.965 (P02)
++    "mert-plan-db0-raw": PlanDb0Raw,  # P18 record route: 0 % deadband clause + 45 d on the main sheet
+     "mert-pledge": PledgeBase,  # P11 record: on-time-payment commitment when payment is fixed and we paid late
+     # dossier (csee/dossier): hedge-aware claims; "-d" planners also take the supplier's fitted persona priors
+     "base-d": BaseDossier,
+diff --git a/starter-kit/csee/agents/records.py b/starter-kit/csee/agents/records.py
+index cb7809a..891ec77 100644
+--- a/starter-kit/csee/agents/records.py
++++ b/starter-kit/csee/agents/records.py
+@@ -288,3 +288,33 @@ class PlanMesoLeverReal(PlanMesoLever):
+     """mert-plan-meso-lever with the real full cost at should-cost x 0.965 (run with --variant v14r)."""
+ 
+     REAL_FULL = 0.965
++
++
++class PinDb0Mixin:
++    """Raw-material record route (Hack It P18 0.688 = 5.00 with a 0 % deadband clause, 45 days, 24 months, rebuilt
++    from its published EUR saved): the main sheet carries the clause WITHOUT deadband (worth ~2 % of price to these
++    suppliers, which add it themselves) and a middle payment term (Werdenfels values cash at 10.5 %). Our agents
++    always chose the 5 % deadband at 30 days and stalled at 5.30. Put after PlanMixin, so the planner prices it."""
++
++    PIN_DAYS = 45
++
++    def next_terms(self, case, threads, sid, theirs, std, supplier, left):
++        ours = super().next_terms(case, threads, sid, theirs, std, supplier, left)
++        if not ours or case.get("type") != "raw_material":
++            return ours
++        opts = levers.options(case, "index_clause") or []
++        db0 = [c for c in opts if c and not c.get("deadband_pct")]
++        pin = {}
++        if "index_clause" in case["negotiable"] and db0:
++            pin["index_clause"] = db0[0]
++        if "payment_days" in case["negotiable"] and self.PIN_DAYS in (levers.options(case, "payment_days") or []):
++            pin["payment_days"] = self.PIN_DAYS
++        t = complete_offer(case, {**ours, **pin})
++        if not pin or not must_haves_ok(case, t, std):
++            return ours
++        self.threads[sid].why += f"; pinned {sorted(pin)} (record route)"
++        return {**ours, **pin}
++
++
++class PlanDb0Raw(PlanMixin, PinDb0Mixin, PayMesoMixin, MertSkipHedgeAgent):
++    pass
