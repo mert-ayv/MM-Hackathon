@@ -231,3 +231,11 @@ class PlanMesoLever(PlanMixin, PayMesoMixin, MertLeverAgent):
     """The planner's value-unit pacing on top of the payment MESO: PayMeso picks the payment days the supplier
     chose (P01: 14 d), then the planner prices that sheet at its planned value. P01 MESO run 0.938: the
     supplier took 14 d at once but our last steps were +0.05, so it stopped at 133.9."""
+
+
+from csee.agents.mert import MertSkipHedgeAgent  # noqa: E402
+
+
+class PlanMesoRaw(PlanMixin, PayMesoMixin, MertSkipHedgeAgent):
+    """Raw material: mert-skiphedge's packages (Emre's clause sheets, hedged index last) + payment choice + the
+    planner's value-unit pacing. P18 record = 3 % db / 45 d / 5.20 or 5 % / 14 d / 5.21 (supplier rate 10.5 %)."""
