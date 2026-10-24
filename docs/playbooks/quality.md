@@ -246,5 +246,5 @@ close:
 **Specific to Aichbauer (P12, not hosted, no replay):** no must-haves. We are 11.3 % of its turnover.
 Payment fixed at 45. Lead time negotiable (16-35; need 23, its standard 21). The alternative (today's
 contract) already carries **4,118 ppm**, so any deal at ≤ 800 ppm and price ≤ 100.14 beats it by ~€3.7k.
-Its standard chargeback is 150 (the contract's flat fee), so ask 150, not 0, to avoid paying it to come
-down. VDA 6.3 grade C and cash memo `doc:20260911-70310-M1`.
+Its standard chargeback is probably 150 (the contract's flat fee and today's terms). Check the quote PDF's
+standard terms. If it is 150, ask for 150, not 0: going below the standard costs a price step for €0.12/u. VDA 6.3 grade C and cash memo `doc:20260911-70310-M1`.
