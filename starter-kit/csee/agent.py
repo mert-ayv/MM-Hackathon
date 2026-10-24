@@ -13,7 +13,8 @@ import threading
 import time
 from dataclasses import dataclass, field
 
-from arena_kit.cost import RELATIONSHIP_GOALS, closing_terms, complete_offer, must_haves_ok, supplier_value, total_cost
+from arena_kit.cost import RELATIONSHIP_GOALS, closing_terms, complete_offer, supplier_value, total_cost
+from arena_kit.cost import must_haves_ok as _kit_must_haves_ok
 from arena_kit.docs import standard_terms
 from arena_kit.play import ENDED, latest, moves_left, standing
 from arena_kit.play import live_threads as _kit_live_threads
@@ -25,6 +26,22 @@ from .writer import SIGN, TemplateWriter, describe
 log = logging.getLogger("csee")
 
 READY_STATUSES = {"agreed", "final_offer"}
+
+
+def must_haves_ok(case, terms, standard=None):
+    """The kit's check, except for a must-have on a field we cannot see: not in the sheet, not a fixed term and
+    not in the standard terms we parsed from the quote PDF (ppm/incoterm are often missing there). The kit's
+    closing_terms then has None (ppm) or the costliest plan default (incoterm) and every sheet "breaks" it, so
+    we would refuse every offer and score 0. The arena judges it on the supplier's real standard terms, and a
+    case's openings keep its must-haves (C_open is the cheapest valid opening): count it as kept."""
+    if _kit_must_haves_ok(case, terms, standard):
+        return True
+    seen = {**(standard or {}), **case.get("fixed_terms", {}), **(terms or {})}
+    musts = case["buyer"].get("must_haves", [])
+    visible = [m for m in musts if seen.get(m["field"]) is not None]
+    if len(visible) == len(musts):
+        return False
+    return _kit_must_haves_ok({**case, "buyer": {**case["buyer"], "must_haves": visible}}, terms, standard)
 
 
 def live_threads(threads):

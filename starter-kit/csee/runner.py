@@ -267,6 +267,9 @@ def _play_case(table, case_id, agent, deadline, clog):
     return out
 
 
+# a case whose play failed (open 429 while sessions are still closing, network) is retried while its wave runs:
+# 2 retries were ~6 s of polling - a 30 s network blip lost the case (an open session scores no deal at the cap)
+MAX_RETRIES = 40
 IDLE_CLOSE_S = 40  # a ready thread holding the best deal must not wait out its 60 s clock
 WRITE_BUDGET_S = 15  # the model's share of our 60 s per message; the template is the fallback
 _writers = ThreadPoolExecutor(max_workers=16, thread_name_prefix="writer")
@@ -464,7 +467,7 @@ def play_waves(client, new_agent, waves=5, parallel=10, poll=3.0, run=None):
                 if case.get("seconds_left") is not None:
                     caps[case["wave"]] = time.time() + case["seconds_left"]
                 f = started.get(case["case_id"])
-                if f and f.done() and isinstance(f.result(), Exception) and retries.get(case["case_id"], 0) < 2:
+                if f and f.done() and isinstance(f.result(), Exception) and retries.get(case["case_id"], 0) < MAX_RETRIES:
                     # it failed before closing (open or attachments after the client's retries): play it again,
                     # the open answers 409 and the session resumes
                     retries[case["case_id"]] = retries.get(case["case_id"], 0) + 1
