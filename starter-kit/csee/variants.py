@@ -67,6 +67,16 @@ VARIANTS = {
         "rfq_anchor_vs_leader": 0.08,
         "adopt_revealed": True,
     },
+    "v8": {
+        "adopt_insisted": True,
+        "rival_only_lower": True,
+        "cash_trade_always": True,
+        "anchor_leverage": 0.22,
+        "rfq_anchor_vs_leader": 0.08,
+        "adopt_revealed": True,
+        "generic_trades": True,
+        "text_signals": True,
+    },
 }
 
 
@@ -84,6 +94,8 @@ DESCRIPTIONS = {
     "price while it asks its boss; v2's held-terms, lower-rival, cash sheet; concede at most half its step.",
     "v6": "v5 with base's concession speed (follow_share 1.1): keep the RFQ gain without the D01 patience loss.",
     "v7": "v6 without holding the price while the supplier asks its boss.",
+    "v8": "v7 + trade sheets over every term (lead time, ppm, chargeback, incoterm, clause...), one step toward "
+    "the supplier, liked terms first, then cheapest for us; + pressures read from the supplier's own e-mails.",
     "v4": "base tactics (12% anchor, steady concessions keep the supplier conceding: D01) + v2's adopt-held-terms, "
     "lower-rival-only, cash sheet + floor guard (P05 anchored 0.5% below the opening) + RFQ: beat the leader.",
 }

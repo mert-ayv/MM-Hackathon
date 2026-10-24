@@ -60,6 +60,9 @@ class Params:
     rfq_anchor_vs_leader: float = 0.0  # >0: RFQ first ask at most (1 - x) x the cheapest rival's opening price
     adopt_revealed: bool = False  # keep a term at the supplier's value when its own sheets show that is cheaper
     hold_on_internal: bool = False  # "we will come back to you on price": hold our price one round
+    # v8 switches (trade every lever; read the supplier's own words)
+    generic_trades: bool = False  # trade sheets over every negotiable term, cheapest concession for us first
+    text_signals: bool = False  # infer cash/capacity/volume pressure from the supplier's e-mails, not only profiles
 
 
 @dataclass
@@ -69,10 +72,9 @@ class ThreadState:
     their_prices: list = field(default_factory=list)
     breakdown: dict | None = None
     opening: dict = field(default_factory=dict)  # its first offered terms
-    cited_rival: float | None = None
-    alt_requested: str | None = (
-        None  # an alternative sheet of theirs we proposed back  # the rival price we last cited to this supplier
-    )
+    cited_rival: float | None = None  # the rival price we last cited to this supplier
+    alt_requested: str | None = None  # an alternative sheet of theirs we proposed back
+    events: list = field(default_factory=list)  # the thread so far (for the supplier's own signals)
     asked_breakdown: bool = False
     ready: bool = False  # nothing more to gain by writing: wait for the coordinator
 
@@ -109,6 +111,24 @@ class CseeAgent:
                 len(info.claims),
             )
 
+    def signals(self, sid, events=None):
+        """Pressures the supplier states itself: its e-mails are formulaic ("we need cash", "fully booked")."""
+        text = " ".join((m.get("body") or "") for m in (events or []) if m.get("from") != "buyer").lower()
+        out = set()
+        if re.search(
+            r"cash|liquid|pay (our|the) (guys|staff|wages)|faster payment|payment within|too long .{0,20}payment|"
+            r"payment .{0,30}too long",
+            text,
+        ):
+            out.add("cash")
+        if re.search(r"fully booked|capacity|utili[sz]ation|allocation|lead time .{0,30}not feasible", text):
+            out.add("capacity")
+        if re.search(r"new customers|more (parts|business|volume)|fill (our|the) (line|capacity)|second shift", text):
+            out.add("volume")
+        if re.search(r"index clause|alloy|surcharge|copper|preisgleit", text):
+            out.add("index")
+        return out
+
     def supplier_estimate(self, case, sid, std):
         st = self.threads[sid]
         full = (st.breakdown or {}).get("full_cost") or (
@@ -117,6 +137,8 @@ class CseeAgent:
         if not full:
             return None
         pressures = " ".join(p.get("type", "") for p in st.intel.profile.get("pressures", []))
+        if self.p.text_signals and "cash" in self.signals(sid, st.events):
+            pressures += " cash"
         rate = self.p.cash_rate if "cash" in pressures else 0.08
         # its standard terms, complete: the quote PDF's standard section often omits what it offered,
         # so fill every field from its opening offer and the case (supplier_value needs them all)
@@ -173,6 +195,7 @@ class CseeAgent:
         if self.case_id != case["case_id"]:
             self.prepare(case, threads)
         st, ev = self.threads[sid], threads[sid]
+        st.events = ev
         last = latest(ev)
         status = last.get("status")
         std = standard_terms(ev)
@@ -367,6 +390,8 @@ class CseeAgent:
             more = [v for v in levers.options(case, "volume_per_year") if v > out[0]["volume_per_year"]]
             if more:
                 trades.append({"volume_per_year": min(more)})
+        if self.p.generic_trades:
+            trades = self.generic_trade_moves(case, sid, out[0], std, supplier, values, tradeables) + trades
         for change in trades:
             if len(out) >= 3:
                 break
@@ -377,6 +402,37 @@ class CseeAgent:
             if t["unit_price"] > 0 and t not in out and t["unit_price"] < out[0]["unit_price"] * 1.2:
                 out.append(t)
         return out
+
+    def generic_trade_moves(self, case, sid, main, std, supplier, values, tradeables):
+        """Every negotiable term one step toward what the supplier prefers (P10: lead time was worth EUR 1.90
+        a unit to it and far less to us; P11: chargeback). Ordered: terms its own words or profile say it
+        values, then the cheapest concession for us."""
+        sig = self.signals(sid, self.threads[sid].events) if self.p.text_signals else set()
+        wants = {
+            "payment_days": "cash" in sig or "cash" in values or "payment" in values,
+            "lead_time_days": "capacity" in sig or "capacity" in values or "lead" in values,
+            "volume_per_year": "volume" in sig or "volume" in values,
+            "contract_months": "volume" in sig or "contract" in values or "long" in values,
+            "index_clause": "index" in sig or "index" in values,
+        }
+        base_c = total_cost(case, main, std, supplier)
+        moves = []
+        for f in case["negotiable"]:
+            opts = levers.options(case, f)
+            if f == "unit_price" or not opts or f not in main:
+                continue
+            here = levers._supplier_rank(f, main[f], case)
+            better = [v for v in opts if levers._supplier_rank(f, v, case) > here]
+            if not better:
+                continue
+            v = min(better, key=lambda x: levers._supplier_rank(f, x, case))  # one step toward the supplier
+            t = complete_offer(case, {**main, f: v})
+            if not must_haves_ok(case, t, std):
+                continue
+            cost_to_us = total_cost(case, t, std, supplier) - base_c
+            liked = wants.get(f, False) or f in tradeables
+            moves.append((not liked, cost_to_us, {f: v}))
+        return [m for _, _, m in sorted(moves, key=lambda x: (x[0], x[1]))]
 
     def pick_claims(self, case, threads, sid):
         st = self.threads[sid]
