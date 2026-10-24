@@ -16,7 +16,7 @@ log = logging.getLogger("csee")
 # case type -> agent[/variant]; every type the arena knows (brief/api.md, "Case file")
 ROUTES = {
     # practice evidence, Sat 24 Oct (experiments/ ledger); v15's push after a final offer made P02 walk (0.48 -> 0)
-    "price_increase": "base/v14",  # P01 0.93 (v15 run, no push fired); P02 v13 0.44, v14 anchor stood at 0.48
+    "price_increase": "mert-lever/v14",  # P02 0.733 (copper clause db5 @90 agreed; was 0.633), P01 0.933 (best); engine predicted 0.736. NEVER on raw material (lever sheets near the opening get agreed: engine P08 0.04)
     "renewal": "base/v14",  # P03 v13 0.92 (= house; v14 = v13 off relationship goals); P04 base 0.86 untested
     "rfq": "base/v7",  # P05 v7 0.81 vs base 0.35, ege/v9 0.52
     "raw_material": "mert/v16",  # P08 0.711, P18 0.552 (emre/base 0.549 / 0.467; latest emre/base P08 0.527); 30 % anchor: 0.278 / 0.485

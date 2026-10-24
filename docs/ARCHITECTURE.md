@@ -135,3 +135,13 @@ How our agent negotiates, and how each architecture version is tracked. Code: [`
 - **Faster concessions lose on the sandbox** (D01 0.969 -> 0.856/0.921).
 - **The gated push after a final offer is rejected.** Size min(1 %, 0.6 x the supplier's own concession), only after >= 1 %. 20 logged pushes inside the gate were safe, but P18 session afada094 walked after a 0.55 % push inside it ("we have already reached our absolute limit").
 - **Push hook.** Agents now size a push per thread with the `final_push_size` hook, never by swapping `self.p`: threads decide in parallel outside the runner's lock.
+
+**Practice batch Sat 19:04 (AI writer):**
+- **mert-lever/v14:** P02 **0.733** (362 @90 with the CU clause at 5 % deadband, agreed; previous best 0.633; the engine model predicted 0.736) and P01 **0.933** (new best).
+- **mert-raw/v16:** P08 0.57 (mert/v16's 0.711 stands) and P18 0.552 (= best).
+- **Router:** price_increase -> mert-lever/v14; raw stays mert/v16.
+- **Engine model** (scratchpad sub-engine): the bots are a deterministic rule engine with an LLM writing the e-mails.
+  - It mirrors our value step up to a decaying cap.
+  - It goes final at reply N, or from K0 when our gap > G.
+  - It always agrees to its own final sheets proposed back.
+  - It agrees to ANY of our sheets worth >= its ask, so a sheet 2-3 must be one we would accept.
