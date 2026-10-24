@@ -1,0 +1,203 @@
+diff --git a/starter-kit/csee/agents/emre.py b/starter-kit/csee/agents/emre.py
+index b5cd529..7c76bf1 100644
+--- a/starter-kit/csee/agents/emre.py
++++ b/starter-kit/csee/agents/emre.py
+@@ -6,10 +6,11 @@ For `type == "raw_material"`, on top of base (same opening offer, concessions, a
+   costs us trade_gain less than the fixed price. Base deals had ended on a 0 % deadband clause; with this
+   alternative both suppliers settled on 5 % (practice P08/P18).
+ - The e-mail says which sheet carries the clause (the template's wording leaves clauses out).
+-- **One new checked argument in every e-mail**, not all of them in the first: in every practice replay
+-  rounds 2+ carried none, and only replies to messages with arguments said "we took it into account".
+-  1 argument per e-mail (base sends max_claims + 1 in the first and runs dry); the pool gets more recent
+-  index falls of the same cost drivers over disjoint month pairs (each data ID counts once per case).
++- **One checked argument per e-mail**, not all of them in the first (base sends max_claims + 1 in the
++  first and runs dry): in every practice replay rounds 2+ carried none.
++- **Payment for price:** when the supplier's own sheets show faster payment is worth more to it than money
++  costs us (P18: EUR 5.60 at 30 days vs 5.70 at 90 = about 11 % a year, we pay 8 %), offer its shorter
++  term at a price between the two rates, so both gain. Untested on real suppliers.
+ - **A small push after the final offer** (base's `final_push`, 0.5 %, once).
+ - **Index falls pass the profile's "avoid" filter.** Its warnings are about twelve-month rises ("steel
+   prices are flat" while the index rose 12 % a year), but base's filter drops every argument on that
+@@ -20,7 +21,9 @@ Tried and dropped (practice P08/P18, 24 Oct): an opening offer from data (today'
+ price minus the supplier's usual give) - suppliers answered as before, turned final earlier and higher
+ (0.549/0.467 -> 0.505/0.401); our order price with another supplier - "irrelevant", "does not concern this
+ part or our company"; a fixed-price alternative behind a clause - "we cannot offer a fixed price for 36
+-months"; holding at a target - the simulator's suppliers turned final early.
++months"; holding at a target - the simulator's suppliers turned final early; one argument per round with
++more windows of the same index (v3: every argument verified and "factored in", price still EUR 5.50; a
++second window of an index already cited came back "duplicate").
+ 
+     uv run python -m csee --agent emre sim --cases case:P08 case:P16 case:P18   free, offline
+ """
+@@ -30,7 +33,6 @@ import logging
+ 
+ from arena_kit.cost import complete_offer, must_haves_ok, total_cost
+ 
+-from .. import intel as intel_mod
+ from .. import levers
+ from ..agent import CseeAgent
+ from ..writer import SIGN
+@@ -40,10 +42,7 @@ log = logging.getLogger("csee")
+ RAW = "raw_material"
+ FINAL_PUSH = 0.005  # after its final offer, ask once this share below it (sandbox D01 agreed to 0.5 %)
+ CLAIMS_PER_MESSAGE = 1  # checked arguments per e-mail, the first one included
+-EXTRA_PER_SERIES = 3  # more index falls per cost driver, over disjoint month pairs
+-MIN_FALL_PCT = -0.5  # only a clear fall argues for us
+-WINDOWS = (3, 4, 6, 9, 12)  # months between the two index values (the arena checks <= 12)
+-RECENT_MONTHS = 6  # the later value lies within this many months of the series' latest: a current argument
++PAY_MARGIN = 1.2  # trade payment only if its rate beats ours by this factor (a clear mutual gain)
+ 
+ 
+ def is_raw(case):
+@@ -59,43 +58,26 @@ def widest_clause(case):
+     return max(clauses, key=lambda c: c.get("deadband_pct") or 0) if clauses else None
+ 
+ 
+-def index_falls(pkg, case, series, exclude=(), limit=EXTRA_PER_SERIES):
+-    """Falls of `series` over month pairs ending in its last RECENT_MONTHS, the steepest first, sharing no
+-    ID with each other or with `exclude`: a fresh checkable argument for every round."""
+-    ids = {i for i in (pkg.ids(f"idx:{series}@") if pkg else []) if "@" in i}
+-    ids |= {k for k in (case.get("facts") or {}) if k.startswith(f"idx:{series}@")}
+-    if len(ids) < 2:
+-        return []
+-    last = max(ids).split("@")[1]
+-    ends = [i for i in sorted(ids) if i.split("@")[1] > intel_mod._month_minus(last, RECENT_MONTHS)]
+-    found = []
+-    for b in ends:
+-        vb = (intel_mod._fact(case, pkg, b) or {}).get("value")
+-        for k in WINDOWS:
+-            a = f"idx:{series}@{intel_mod._month_minus(b.split('@')[1], k)}"
+-            va = (intel_mod._fact(case, pkg, a) or {}).get("value") if a in ids else None
+-            if va and vb:
+-                pct = (float(vb) / float(va) - 1) * 100
+-                if pct <= MIN_FALL_PCT:
+-                    found.append((pct, a, b))
+-    used, out = set(exclude), []
+-    label = intel_mod.series_label(pkg, series)
+-    for pct, a, b in sorted(found):
+-        if a in used or b in used:
++def revealed_payment(case, events):
++    """What faster payment is worth to the supplier, from its own latest sheets that differ only in price and
++    payment days: (yearly rate, its shorter payment days) or None. Its cost of money, revealed."""
++    for m in reversed(events):
++        if m.get("from") == "buyer" or not m.get("term_sheets"):
+             continue
+-        used |= {a, b}
+-        out.append(
+-            intel_mod.Claim(
+-                f"{label} changed {pct:+.1f}% from {a.split('@')[1]} to {b.split('@')[1]} ({a}, {b}).",
+-                [a, b],
+-                "index",
+-                strength=0.5 * (1.0 - pct),  # after base's own arguments
+-                tag=series,
+-            )
+-        )
+-        if len(out) >= limit:
+-            break
+-    return out
++        sheets = [s.get("terms") or {} for s in m["term_sheets"]]
++        best = None
++        for a in sheets:
++            for b in sheets:
++                da, db = a.get("payment_days"), b.get("payment_days")
++                if not (da and db and da < db and a.get("unit_price") and b.get("unit_price")):
++                    continue
++                same = all(a.get(f) == b.get(f) for f in case["negotiable"] if f not in ("unit_price", "payment_days"))
++                if same and b["unit_price"] > a["unit_price"]:
++                    rate = (b["unit_price"] / a["unit_price"] - 1) / ((db - da) / 360)
++                    if best is None or rate > best[0]:
++                        best = (rate, da)
++        return best  # its latest sheets only: older ones may be stale
++    return None
+ 
+ 
+ class EmreAgent(CseeAgent):
+@@ -107,31 +89,12 @@ class EmreAgent(CseeAgent):
+         if not self.raw:
+             return
+         self.p = dataclasses.replace(self.p, final_push=FINAL_PUSH)
+-        for sid, st in self.threads.items():
+-            try:
+-                st.intel.claims = st.intel.claims + self.more_index_claims(case, sid, threads, st)
+-            except Exception:  # an argument we cannot build must never cost the case
+-                log.exception("%s %s: extra index claims failed", case["case_id"], sid)
++        self.revealed = {}
++        for st in self.threads.values():
+             for c in st.intel.claims:
+-                if c.kind == "index":  # all falls (base and index_falls cite no rise): no topic filter
++                if c.kind == "index":  # base cites only falls: no topic filter (see the docstring)
+                     c.tag = ""
+ 
+-    def more_index_claims(self, case, sid, threads, st):
+-        """Index falls of the part's cost drivers, the series the supplier blames and the clause's series."""
+-        series = [r["series_id"] for p in case.get("parts", []) for r in intel_mod._q(
+-            self.pkg, "SELECT series_id FROM cost_drivers WHERE part_id = ? ORDER BY weight DESC", (p,))]
+-        first = next((m for m in threads.get(sid, []) if m.get("from") != "buyer"), {})
+-        series += intel_mod.DRIVER_RE.findall(first.get("body") or "")
+-        series += [c["series"] for c in levers.options(case, "index_clause") if c and c.get("series")]
+-        taken = {i for c in st.intel.claims for i in c.ids}
+-        out = []
+-        for s in dict.fromkeys(series):  # each series once, in order
+-            new = index_falls(self.pkg, case, s, taken)
+-            taken |= {i for c in new for i in c.ids}
+-            out += new
+-        log.info("%s %s: %d extra index claims", case["case_id"], sid, len(out))
+-        return out
+-
+     def pick_claims(self, case, threads, sid):
+         if not self.raw:
+             return super().pick_claims(case, threads, sid)
+@@ -143,19 +106,38 @@ class EmreAgent(CseeAgent):
+             finally:
+                 self.p.max_claims = keep
+ 
+-    # ---------- term sheets: the clause as a priced alternative ----------
++    # ---------- term sheets: the clause and faster payment as priced alternatives ----------
+     def sheets(self, case, sid, ours, std, supplier):
+         out = super().sheets(case, sid, ours, std, supplier)
+-        if not self.raw or has_clause(out[0]):
+-            return out  # it insisted on a clause: base already asks for the cheapest one
++        if not self.raw:
++            return out
+         try:
+-            alt = self.clause_sheet(case, out[0], std, supplier)
+-            if alt and alt not in out:
+-                out = [out[0], alt] + out[1:]
++            extra = [self.payment_sheet(case, sid, out[0], std, supplier)]
++            if not has_clause(out[0]):  # if it insisted on a clause, base already asks for the cheapest one
++                extra.append(self.clause_sheet(case, out[0], std, supplier))
++            for alt in extra:
++                if alt and alt not in out:
++                    out = [out[0], alt] + out[1:]
+         except Exception:  # a sheet we cannot build must never cost the case
+             log.exception("%s %s: raw sheets failed", case["case_id"], sid)
+         return out[:3]
+ 
++    def payment_sheet(self, case, sid, main, std, supplier):
++        """`main` at the supplier's shorter payment term, at a price between its rate and ours."""
++        found = self.revealed.get(sid)
++        ours = case["buyer"].get("interest_rate")
++        if not found or not ours or found[0] < ours * PAY_MARGIN:
++            return None
++        rate, days = found
++        if days >= (main.get("payment_days") or 0) or days not in levers.options(case, "payment_days"):
++            return None
++        t = complete_offer(case, {**main, "payment_days": days})
++        cut = (rate + ours) / 2 * (main["payment_days"] - days) / 360
++        t["unit_price"] = round(main["unit_price"] * (1 - cut), 2)
++        if not must_haves_ok(case, t, std) or total_cost(case, t, std, supplier) >= total_cost(case, main, std, supplier):
++            return None
++        return t
++
+     def clause_sheet(self, case, main, std, supplier):
+         """`main` with the widest-deadband clause, at the price that costs us trade_gain less than `main`."""
+         clause = widest_clause(case)
+@@ -170,6 +152,8 @@ class EmreAgent(CseeAgent):
+ 
+     # ---------- the e-mail: say which sheet carries a clause ----------
+     def thread_move(self, case, threads, sid):
++        if self.raw:
++            self.revealed[sid] = revealed_payment(case, threads[sid])
+         msg = super().thread_move(case, threads, sid)
+         if not self.raw or not msg or SIGN not in (msg.get("body") or ""):
+             return msg

@@ -63,13 +63,37 @@ def test_raw_spreads_arguments_and_pushes_after_a_final_offer(pkg, cases):
     assert per_round[0] == 1 and per_round[1] == 1  # one per e-mail, so round 2 still argues
 
 
-def test_index_falls_are_recent_disjoint_falls(pkg, cases):
-    from csee.agents.emre import RECENT_MONTHS, index_falls
-    from csee.intel import _month_minus
+def test_payment_trade_from_the_suppliers_own_sheets(pkg, cases):
+    from csee.agents.emre import revealed_payment
 
-    falls = index_falls(pkg, cases["case:P08"], "AS-14404", limit=5)
-    ids = [i for c in falls for i in c.ids]
-    assert falls and len(ids) == len(set(ids))
-    assert all("-" in c.sentence and c.kind == "index" for c in falls)
-    latest = max(i for i in pkg.ids("idx:AS-14404@") if "@" in i).split("@")[1]
-    assert all(c.ids[1].split("@")[1] > _month_minus(latest, RECENT_MONTHS) for c in falls)
+    case = cases["case:P18"]
+    sid = case["suppliers"][0]
+    reply = opening(case, sid)
+    main = reply["term_sheets"][0]["terms"]
+    slow, fast = {**main, "unit_price": 5.70, "payment_days": 90}, {**main, "unit_price": 5.60, "payment_days": 30}
+    reply["term_sheets"] = [{"term_sheet_id": "offer:a", "terms": slow}, {"term_sheet_id": "offer:b", "terms": fast}]
+    rate, days = revealed_payment(case, [reply])
+    assert days == 30 and rate == pytest.approx((5.70 / 5.60 - 1) / (60 / 360))  # about 10.7 % a year
+
+    agent = EmreAgent(pkg)
+    ours = {**main, "unit_price": 4.80}  # still far apart: the negotiation goes on
+    threads = {sid: [opening(case, sid), {"from": "buyer", "term_sheets": [{"terms": ours}]}, reply]}
+    agent.prepare(case, threads)
+    msg = agent.thread_move(case, threads, sid)
+    sheets = [s["terms"] for s in msg["term_sheets"]]
+    pay = [s for s in sheets[1:] if s["payment_days"] == 30]
+    assert pay and total_cost(case, pay[0]) < total_cost(case, sheets[0])  # cheaper for us, too
+
+
+def test_no_payment_trade_when_money_costs_us_more(cases):
+    from csee.agents.emre import revealed_payment
+
+    case = cases["case:P18"]
+    reply = opening(case, case["suppliers"][0])
+    main = reply["term_sheets"][0]["terms"]
+    reply["term_sheets"] = [  # 1 cent for 60 days: under 1 % a year, below our 8 %
+        {"term_sheet_id": "a", "terms": {**main, "unit_price": 5.61, "payment_days": 90}},
+        {"term_sheet_id": "b", "terms": {**main, "unit_price": 5.60, "payment_days": 30}},
+    ]
+    rate, _ = revealed_payment(case, [reply])
+    assert rate < case["buyer"]["interest_rate"]
