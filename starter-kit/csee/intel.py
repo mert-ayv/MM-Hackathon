@@ -132,12 +132,18 @@ def estimate_full_cost(case, pkg, supplier_id, country):
     return None, ""
 
 
-def build(case, pkg, supplier_id, opening_price=None, opening_text=""):
+def build(case, pkg, supplier_id, opening_price=None, opening_text="", opening=None):
     """Everything we know about one supplier in this case, before the first counter-offer."""
     intel = Intel(supplier_id, load_profile(supplier_id))
+    if not intel.profile:  # no curated profile: generate one (fallback.py); curated suppliers unchanged
+        from .fallback import profile_for
+
+        intel.profile = profile_for(supplier_id, case, pkg, opening or opening_text)
     rows = _q(pkg, "SELECT country FROM suppliers WHERE id = ?", (supplier_id,))
     intel.country = (rows[0]["country"] if rows else None) or intel.profile.get("country") or "DE"
     intel.full_cost, intel.full_cost_source = estimate_full_cost(case, pkg, supplier_id, intel.country)
+    if intel.full_cost is None and intel.profile.get("floor_feed"):  # auto profiles only
+        intel.full_cost, intel.full_cost_source = intel.profile["floor_estimate"], intel.profile["floor_source"]
     intel.claims = claims_for(case, pkg, supplier_id, opening_price, opening_text)
     return intel
 

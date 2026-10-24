@@ -32,3 +32,16 @@ Every factual statement must point to IDs that exist in the data package. No inv
   "confidence": "high|medium|low"
 }
 ```
+
+## Generated profiles (`csee/fallback.py`)
+
+A supplier without a file here gets a generated profile from `fallback.auto_profile` (hooked into
+`intel.build`): same shape, plus `"source": "auto"`, `"confidence": "low"`, `"stage"` (1 = case file
+only, 2 = with the opening e-mail and quote PDF), `"archetype"` (the prior group used),
+`"floor_estimate"` / `"floor_source"` / `"floor_method"` (`should_cost` or `quote`), `"floor_feed"`
+(use it as the agent's full cost), `"quote_validity_days"`; pressures from priors carry `"prior": true`,
+pressures from the optional model `"model": true`.
+
+`_archetypes.json` holds the priors derived from the curated profiles (category x owner type x
+country group, and coarser levels). It is generated: after editing profiles, run
+`uv run python -m csee.fallback archetypes` (a test checks it is current).
