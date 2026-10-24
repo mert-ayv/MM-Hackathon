@@ -168,4 +168,53 @@ Clocks go back overnight to Sunday (03:00 → 02:00); Sunday times are the new t
 
 ## Our approach
 
-_TBD._
+**In one line:** the language model reads and writes like a buyer; deterministic code decides every number. Guardrails protect the deal, and every design choice was measured before it shipped.
+
+### Architecture
+
+| Layer | What it does | Where |
+|---|---|---|
+| Commercial engine | Prices every package with the arena's exact total-cost model, including the relationship charge for stabilise/secure-supply goals (we reproduce the arena's deal cost to the euro on all 40 of our deals). The case's alternative is our walk-away line. | `csee/levers.py`, `arena_kit/cost.py` |
+| Negotiation policy | Opening anchor, concession pacing, which 1–3 term sheets to send, when to accept. Uses an online move planner (below) and a router that picks the proven policy per case type. | `csee/agent.py`, `csee/agents/mert.py`, `csee/agents/router.py` |
+| Supplier intelligence | A dossier for all 46 suppliers. It covers hedges from letters and call notes, cost drivers and index exposure, cash pressure (including how late we pay them), levers they value, approval ladder, capacity and quality. Checked data arguments are drawn from the data package. | `csee/dossier/`, `csee/intel.py` |
+| Writer | Claude Opus 5.5 writes the e-mail around fixed numbers and verbatim, checkable claim sentences. A template is the fallback if the model is slow. | `csee/writer.py` |
+| Guardrails | The agent: <br>• accepts only the supplier's standing (first) sheet; <br>• never accepts above the alternative or against a must-have; <br>• never pushes after a final offer; <br>• completes price-only offers before accepting. <br>The runner adds time-aware closing before the wave cap, retries and resume. | `csee/agent.py`, `csee/runner.py` |
+
+### What we learned about the opponent, and how we exploit it
+
+We fitted a model of the supplier bots from 260 of our own sessions. Each round's back-office note exposes the bot's decision, which made this possible. The model predicts the next supplier price within about 0.6 %. The suppliers behave like a classic **tit-for-tat negotiator** (Faratin, Sierra & Jennings 1998):
+
+- They mirror our concession step, up to a cap that shrinks each round.
+- They hold when we do not move.
+- They send a final offer after a fixed number of replies, or earlier when our ask stays far away.
+- They always accept their own final sheet proposed back, and agree to any of our sheets that is worth at least their current ask.
+- Pushing after a final offer has negative expected value: in our logs 2 of 17 such pushes ended in a walk-away.
+
+From that we built:
+
+- **An online move planner.** It estimates each supplier's cap and decay from its first replies. It then concedes exactly what the supplier will mirror and keeps the gap inside the budget that avoids an early final offer. This is the best response to a tit-for-tat opponent ([de Jonge 2022](https://www.iiia.csic.es/~davedejonge/homepage/files/articles/2022%20-%20de%20Jonge%20-%20MiCRO.pdf)). On 531 perturbed supplier models it scores 0.658 against 0.615 for our rule policy, with 3 walk-aways instead of 36.
+- **Lever answers.** When a supplier names a lever (for example a copper index clause or faster payment), we answer with a sheet priced by our cost engine. On P02 the supplier agreed to a copper clause with a 5 % deadband at once: 0.633 → 0.733.
+- **Payment-term menus (MESOs).** We offer the shortest and longest payment term at equal cost to us, and the supplier reveals its money rate by the one it picks. On P01 that moved us from 30-day terms to 14-day terms: 0.926 → 0.988.
+- **Checked arguments that move the engine.** We cite index falls on cost drivers the supplier names and has not hedged, should-cost, rival quotes and forecasts. We drop argument types the bots ignore ("holds, but does not change our calculation"). Skipping a hedged index on P08 took us from 0.711 to 0.754.
+
+### How we decided (no change shipped on intuition)
+
+Every practice session is logged with author, agent, variant, commit and score (`experiments/`, `runs/`). A change moved up this ladder:
+
+1. The free sandbox.
+2. The fitted engine model, which can also be perturbed for robustness.
+3. A real practice session, only when the model predicted a gain.
+
+The final router is the per-case-type winner of a 20-session A/B dress rehearsal. Full experiment log: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Research notes: [docs/notes/negotiation-research.md](docs/notes/negotiation-research.md).
+
+### Results (practice board, Sat evening)
+
+Mean 0.778 over the 10 practice suppliers, against 0.697 for Tacto's house agent. We beat the house agent on 8 of 10 cases, often by a wide margin: P05 0.81 vs 0.56, P11 0.71 vs 0.31, P18 0.55 vs 0.39.
+
+### Built for the Live Final
+
+- Only known suppliers appear, and every one is in the dossier. The Sunday data release is merged at runtime.
+- Parallel threads with time-aware pacing: every practice case finished inside the 390 s safety close.
+- A must-have the agent cannot see in the quote no longer blocks every offer.
+- Failed cases are retried while the wave runs.
+- Local wave rehearsals ran with zero errors.
