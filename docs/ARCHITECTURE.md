@@ -202,3 +202,8 @@ necessary to establish performance; existing runs predate this implementation.
 - **Engine results for the planner** (not routed yet):
   - fitted personas: mean .764 vs router .752; P01 .884 -> .947, P18 .485 -> .552;
   - 531 perturbed personas: .658 vs .615, with **3 walk-aways vs 36**.
+
+**Sat 20:40, record routes:**
+- **P01: mert-plan-meso-lever/v14a scored 0.975**, a new best (engine predicted 0.962). It is the planner's value-unit pacing on top of the payment choice; the supplier took the 14-day sheet at once and stepped 136.1 -> 132.7. This is the first real confirmation of the planner. Router: price_increase -> mert-plan-meso-lever/v14a.
+- **P01 MESO alone: 0.938** (stopped at 133.9 after +0.05 steps).
+- **P11: the on-time-payment pledge failed twice** (v14a 0.71, v18 0.71). The bot noticed it ("We appreciate your commitment...") but held 45.50.

@@ -19,7 +19,7 @@ ROUTES = {
     # supplier's ask (verified; bots then give "half the step now"). It never fires on the 10 practice cases, so the
     # practice results below carry over unchanged.
     # practice evidence, Sat 24 Oct (experiments/ ledger); v15's push after a final offer made P02 walk (0.48 -> 0)
-    "price_increase": "mert-lever/v14a",  # P02 0.733 (copper clause db5 @90 agreed; was 0.633), P01 0.933 (best); engine predicted 0.736. NEVER on raw material (lever sheets near the opening get agreed: engine P08 0.04)
+    "price_increase": "mert-plan-meso-lever/v14a",  # P01 0.975 (planner + 14-day MESO; engine 0.962), P02 engine = mert-lever 0.733 (copper clause kept). NEVER mert-lever* on raw material
     "renewal": "base/v14a",  # P03 v13 0.92 (= house; v14 = v13 off relationship goals); P04 base 0.86 untested
     "rfq": "base/v7a",  # P05 v7 0.81 vs base 0.35, ege/v9 0.52
     "raw_material": "mert-skiphedge/v16a",  # P08 0.754 (best; unhedged index argument in round 1), P18 = mert/v16 (no hedge) 0.552
