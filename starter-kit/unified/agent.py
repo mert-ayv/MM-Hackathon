@@ -56,97 +56,37 @@ def live_threads(threads):
     return _kit_live_threads({s: ev for s, ev in threads.items() if any(m.get("from") != "buyer" for m in ev)})
 
 
-AVOID_WORDS = {
-    "should_cost": ("should-cost", "should cost", "cost:"),
-    "rival": ("quote", "second source", "competitor", "rival"),
-    "forecast": ("forecast", "fc:"),
-    "notice": ("notice",),
-    "news": ("news:",),
-    "history": ("order history", "po:", "past prices", "historical price"),
-}
-
-
-def avoided(claim, avoid_text):
-    """The profile says this argument backfires with this supplier (kind-specific keywords; for indices
-    the series itself or its theme, never the word "index" alone - it is in 13 of 46 profiles)."""
-    if not avoid_text:
-        return False
-    if claim.kind == "index":
-        tag = claim.tag.lower()
-        theme = {"ppi-d": "electric", "cu": "copper", "wb-cu": "copper", "as-": "alloy", "ppi-c24": "steel"}
-        words = [tag] + [w for k, w in theme.items() if tag.startswith(k)]
-        return any(w and w in avoid_text for w in words)
-    if claim.kind == "scorecard":
-        words = ("ppm", "complaint", "quality") if claim.tag == "ppm" else ("otd", "on-time", "delivery record")
-        return any(w in avoid_text for w in words)
-    return any(w in avoid_text for w in AVOID_WORDS.get(claim.kind, ()))
-
-
-# the person at the desk is asking for approval: 16 of 19 such replies were followed by a further step
-INTERNAL = re.compile(
-    r"clarify (this )?internally|come back to you on price|check (this )?internally|"
-    r"needs? (the )?approval|discuss (it|this) with (our )?management",
-    re.I,
-)
-
-
 @dataclass
 class Params:
+    """The numbers that vary per case type (TYPE_SETTINGS) or are worth tuning; everything else is fixed code."""
+
     anchor_below_open: float = 0.12  # first price this far below the opening (used when anchor_leverage is 0)
+    anchor_leverage: float = 0.22  # >0: anchor this far below the opening outside relationship goals, no floor
+    rfq_anchor_vs_leader: float = 0.08  # >0: RFQ first ask at most (1 - x) x the cheapest rival's opening price
     floor_margin: float = 0.02  # never anchor below the estimated full cost + this
     concede_early: float = 0.25  # share of the remaining gap we give per round, early
     concede_late: float = 0.5  # ... in the last rounds
-    close_gap: float = 0.004  # their C within this share of ours: take it
-    trade_gain: float = 0.006  # a trade sheet must save us at least this share of C
-    max_claims: int = 2  # data arguments per message (the arena checks at most 3)
-    history_claims: bool = False  # also cite order history, quality notifications, earlier quarters, case refs
-    cash_rate: float = 0.14  # a cash-short supplier's cost of money
-    reserve_moves: int = 1  # keep this many messages in hand
-    # v2 switches (off = the v1 baseline behaviour)
-    adopt_insisted: bool = True  # a term the supplier held twice against our ask: take its value
-    rival_only_lower: bool = True  # cite a rival offer only if it beats this supplier's price
-    cash_trade_always: bool = True  # always offer a faster-payment sheet, not only for cash-short profiles
     follow_share: float = 1.1  # our step at most this share of the supplier's last step
-    hold_above_floor: float = 0.0  # with a known cost floor: concede only this share while above floor*1.08
-    # v3 switches (replay lessons P01/P05/P08/P10)
-    all_sheets: bool = True  # weigh every term sheet the supplier sends, not only its first
-    clause_when_insisted: bool = True  # supplier insists on an index clause: ask for its cheapest form
+    close_gap: float = 0.004  # their C within this share of ours: take it
+    close_room: float = 0.1  # >0: thread is done only when the C gap <= this share of the room (opening C - anchor C)
+    trade_gain: float = 0.006  # a trade sheet must save us at least this share of C
+    reserve_moves: int = 1  # keep this many messages in hand
+    cash_rate: float = 0.14  # a cash-short supplier's cost of money
     fullcost_discount: float = 0.95  # should-cost runs high (error ~5%): scale it for the relationship term
-    # v4 switches (D01 patience lesson, P05 floor bug, RFQ)
-    floor_guard: bool = False  # ignore a floor estimate at or above ~97% of its own price (outside relationship goals)
-    rfq_beat_leader: bool = False  # RFQ: non-leaders must beat the leader by rfq_margin; never pay above the leader
-    rfq_margin: float = 0.02
-    # v5 switches (Fable review strategy bets)
-    anchor_leverage: float = 0.22  # >0: anchor this far below the opening outside relationship goals, no floor
-    rfq_anchor_vs_leader: float = 0.08  # >0: RFQ first ask at most (1 - x) x the cheapest rival's opening price
-    adopt_revealed: bool = True  # keep a term at the supplier's value when its own sheets show that is cheaper
-    hold_on_internal: bool = False  # "we will come back to you on price": hold our price one round
-    # v8 switches (trade every lever; read the supplier's own words)
-    generic_trades: bool = False  # trade sheets over every negotiable term, cheapest concession for us first
-    # no push after a final offer: removed on purpose (practice: 2 of 5 pushes walked, each case -> 0.0)
-    # v14 switches (price-increase review: relationship-goal anchors)
     rel_anchor: bool = True  # stabilise/secure_supply: anchor at the relationship-optimal price, not should-cost
     rel_full: float = 0.98  # own-plant should-cost runs ~2 % above the real full cost (P01 130.04 vs 132.64)
-    close_room: float = 0.1  # >0: thread is done only when the C gap <= this share of the room (opening C - anchor C)
     trade_no_rel: bool = True  # price trade sheets without the relationship term (price_for bisection breaks with it)
-    time_aware: bool = True  # Live Final: pace concessions to the rounds that fit before the wave's cap
     sticky_terms: bool = True  # after our first ask, keep the non-price terms of its cheapest sheet (P11)
-    text_signals: bool = False
-    # v12 switches (coverage review)
     sticky_max_cost: float = 0.008  # >0: stick to a term only if keeping it costs us <= this share of C
-    sticky_fields: tuple = ()  # with sticky_terms: only these fields stick (empty = all non-price fields)
     value_neutral_terms: bool = True  # pick chargeback/ppm/payment at the price that keeps its value equal
     contract_at_horizon: bool = True  # no contract beyond the horizon when an index clause is in play and rising
-    # unified switches
+    max_claims: int = 2  # data arguments per message (the arena checks at most 3)
+    first_extra_claim: bool = True  # the first e-mail may carry max_claims + 1 arguments
+    history_claims: bool = False  # also cite order history, quality notifications, earlier quarters, case refs
     # checked facts only; news is dropped. Scorecards stay: the replays (P18) suggested they don't move the
     # price, but the simulator says they do (P01 0.63 -> 0.71 with them) and they carry the quality cases
     claim_kinds: tuple = ("index", "should_cost", "rival", "history", "forecast", "notice", "scorecard")
-    first_extra_claim: bool = True  # the first e-mail may carry max_claims + 1 arguments
-    risk_clause: bool = True  # offer an index-clause sheet on the index the supplier blames
-    clause_leads_status_quo: bool = False  # our current contract has that clause: lead with it (sim P14: 0.40 -> 0.25)
-    payment_trade: bool = True  # offer faster payment for price when its own sheets reveal a high cost of money
-    walk_guard: bool = True  # it says it holds and did not move: stop writing, let the coordinator close
-
+    # no push after a final offer: removed on purpose (practice: 2 of 5 pushes walked, each case -> 0.0)
 
 # per case type, on top of the defaults above (evidence: practice board, 24 Oct). A type the final brings that
 # is not listed plays the defaults.
@@ -225,9 +165,6 @@ class UnifiedAgent:
             st.blamed = set(DRIVER_RE.findall(body))
             st.status_quo_clause = self.current_clause(sid)
             info.claims = [c for c in info.claims if self.keep_claim(case, c)]
-            for c in info.claims:
-                if c.kind == "index":  # we only cite index falls: the profile's topic warnings are about rises
-                    c.tag = ""
             for m in threads.get(sid, []):  # a resumed case: continue from our earlier asks, never re-anchor
                 if m.get("from") == "buyer" and m.get("term_sheets"):
                     st.our_prices.append(m["term_sheets"][0].get("terms", m["term_sheets"][0]).get("unit_price"))
@@ -304,8 +241,6 @@ class UnifiedAgent:
         if not full:
             return None
         pressures = " ".join(p.get("type", "") for p in st.intel.profile.get("pressures", []))
-        if self.p.text_signals and "cash" in self.signals(sid, st.events):
-            pressures += " cash"
         rate = self.p.cash_rate if "cash" in pressures else 0.08
         # its standard terms, complete: the quote PDF's standard section often omits what it offered,
         # so fill every field from its opening offer and the case (supplier_value needs them all)
@@ -349,23 +284,9 @@ class UnifiedAgent:
             (b.get("index_paths") or {}).get(c["series"], 0) > 0 for c in clauses
         )
 
-    def leader_cost(self, case, threads, exclude=None):
-        """The lowest C any other live supplier offers right now (inf if none)."""
-        best = math.inf
-        for s in live_threads(threads):
-            if s == exclude:
-                continue
-            std = standard_terms(threads[s])
-            sheet_id, terms = self.their_sheet(case, threads[s], std, self.supplier_estimate(case, s, std))
-            if sheet_id and terms.get("unit_price") is not None:
-                best = min(best, total_cost(case, terms, std))
-        return best
-
     def their_sheet(self, case, events, std, supplier=None):
-        """(term_sheet_id, terms) the supplier offers that is cheapest for us (must-haves kept), or with
-        all_sheets off its first sheet. Suppliers often answer with alternatives; the second can be the deal."""
-        if not self.p.all_sheets:
-            return standing(events)
+        """(term_sheet_id, terms) the supplier offers that is cheapest for us (must-haves kept). Suppliers
+        often answer with alternatives; the second can be the deal."""
         sheets = latest(events).get("term_sheets") or []
         best = None
         for sh in sheets:
@@ -473,7 +394,7 @@ class UnifiedAgent:
                 }
         # GUARD: a final offer is never countered (READY_STATUSES below). A supplier that says it holds and did
         # not move this round walks next if we keep writing low (P02 ege/v9): let the coordinator close now.
-        if self.p.walk_guard and status == "open" and self.holding(ev):
+        if status == "open" and self.holding(ev):
             st.ready = True
             self.note_decision(ev, sid, "wait", "walk risk: it holds and did not move", t0)
             return None
@@ -490,7 +411,7 @@ class UnifiedAgent:
             return None
         supplier = self.supplier_estimate(case, sid, std)
         st.why = ""
-        st.revealed_pay = self.revealed_payment(case, ev) if self.p.payment_trade else None
+        st.revealed_pay = self.revealed_payment(case, ev)
         ours = self.next_terms(case, threads, sid, theirs, std, supplier, left)
         if ours is None:
             st.ready = True
@@ -555,16 +476,6 @@ class UnifiedAgent:
             )
         return body.replace(SIGN, "\n".join(notes) + "\n\n" + SIGN)
 
-    def is_leader(self, case, threads, sid):
-        """This thread holds our cheapest standing deal (always true with one supplier)."""
-        if len(case["suppliers"]) == 1:
-            return True
-        std = standard_terms(threads[sid])
-        sheet_id, terms = standing(threads[sid])
-        if not sheet_id or terms.get("unit_price") is None:
-            return False
-        return total_cost(case, terms, std) <= self.leader_cost(case, threads, exclude=sid)
-
     def nothing_to_win(self, case, threads, sid, theirs, std, left):
         """next_terms would stop here (its sheet is as cheap as ours): the moment to close this thread."""
         supplier = self.supplier_estimate(case, sid, std)
@@ -577,7 +488,7 @@ class UnifiedAgent:
     def rounds_left(self, sid, left):
         """Messages we can still send in this thread: the round limit, or in the Live Final how many rounds
         fit before the runner's safety close (8-minute waves, replies up to a minute: ~5-7 rounds, not 10)."""
-        cap = self.cap_at() if self.p.time_aware and self.cap_at else None
+        cap = self.cap_at() if self.cap_at else None
         if not cap:
             return left
         times = self.threads[sid].round_s
@@ -715,12 +626,12 @@ class UnifiedAgent:
         if p_s is None:
             st.why = "their sheet has no price"
             return None
-        fixed = self.insisted_fields(case, threads[sid]) if self.p.adopt_insisted else {}
+        fixed = self.insisted_fields(case, threads[sid])
         if self.p.sticky_terms and st.our_prices:
             # once it has priced a set of terms, flipping them lets it re-price (P11: we flipped quality terms
             # three times and accepted the dearest set it had offered): keep its cheapest-for-us sheet's terms,
             # negotiate the price, trade other terms only in alternative sheets
-            sticky = self.p.sticky_fields or tuple(f for f in case["negotiable"] if f != "unit_price")
+            sticky = tuple(f for f in case["negotiable"] if f != "unit_price")
             stick = {f: theirs[f] for f in sticky if f in case["negotiable"] and f in theirs}
             if self.p.sticky_max_cost and stick:
                 # keep only the terms that are cheap for us to concede (D01: its 30 days = 0.7 % of C, stick;
@@ -735,13 +646,12 @@ class UnifiedAgent:
                     if total_cost(case, {**ours_best, f: v}, std, supplier) - c0 <= self.p.sticky_max_cost * c0
                 }
             fixed.update(stick)
-        if self.p.adopt_revealed:
-            revealed = self.revealed_fields(case, threads[sid], theirs)
-            if "payment_days" in revealed and not self.cash_short(sid):
-                # P18: its 30-day alternative looked cheapest at that moment and got locked in; the same supplier
-                # gave 90 days at the same price to another agent. Faster payment only for a supplier short of cash
-                revealed.pop("payment_days")
-            fixed.update(revealed)
+        revealed = self.revealed_fields(case, threads[sid], theirs)
+        if "payment_days" in revealed and not self.cash_short(sid):
+            # P18: its 30-day alternative looked cheapest at that moment and got locked in; the same supplier
+            # gave 90 days at the same price to another agent. Faster payment only for a supplier short of cash
+            revealed.pop("payment_days")
+        fixed.update(revealed)
         # never adopt a supplier value that breaks one of our must-haves (P10: volume 19,890 < 22,230); meet it
         # at the bound instead (P09: it holds 49 days against our <= 42 - offer 42, not our 28 eight times)
         held = fixed
@@ -751,7 +661,7 @@ class UnifiedAgent:
             if near is not None:
                 fixed[k] = near
         exclude = {}
-        if self.p.clause_when_insisted and self.clause_insisted(threads[sid]):
+        if self.clause_insisted(threads[sid]):
             fixed.pop("index_clause", None)
             exclude = {"index_clause": [None]}  # a clause it is: the cheapest one for us (widest deadband)
         value_of = self.value_fn(case, sid, std) if self.p.value_neutral_terms else None
@@ -791,11 +701,7 @@ class UnifiedAgent:
                 p = min(p, b["current_unit_price"])
             if self.p.rel_anchor and rel_goal:
                 floor = None  # should-cost is not the bot's floor: P01/P02/P17 should-cost >= the supplier's own ask
-            if floor and not (
-                self.p.floor_guard
-                and b.get("category_goal") not in RELATIONSHIP_GOALS
-                and floor >= p_s * 0.97  # an estimate above its own ask is wrong, not a floor
-            ):
+            if floor:
                 p = max(p, floor)
             if self.p.rel_anchor and rel_goal and st.intel.full_cost:
                 # the price below which the margin charge outweighs the saving, at the supplier's REAL cost
@@ -826,15 +732,10 @@ class UnifiedAgent:
                 step = min(step, 0.1 * gap)
             else:
                 step = min(step, max(their_step * self.p.follow_share, 0.05 * gap))
-            if self.p.hold_above_floor and floor and p_b > floor * 1.08:
-                step *= self.p.hold_above_floor  # we know there is room above its cost: hold
-            if self.p.hold_on_internal and INTERNAL.search(latest(threads[sid]).get("body") or ""):
-                step = 0.0  # it is asking its boss for a further step: give it nothing to answer
             p = p_b + max(step, 0)
             st.why = (
                 f"concede {max(step, 0):.2f} of gap {gap:.2f} ({'late' if late else 'early'}, their step "
                 f"{their_step:.2f})"
-                + (", holding above floor" if self.p.hold_above_floor and floor and p_b > floor * 1.08 else "")
             )
         if "unit_price" not in case["negotiable"]:
             p = p_s  # a fixed price: we negotiate the other terms only
@@ -857,17 +758,6 @@ class UnifiedAgent:
             supplier_ppm=real_ppm,
         )
         ours = {**base, "unit_price": round(p, 2)}
-        if self.p.rfq_beat_leader and len(case["suppliers"]) > 1:
-            leader = self.leader_cost(case, threads, exclude=sid)
-            if leader < math.inf:
-                # ask for a package that beats the best rival; conceding past the rival is pointless
-                cap = levers.price_for(case, ours, leader * (1 - self.p.rfq_margin), std, supplier)
-                if cap is None or cap <= 0:
-                    st.why = "rfq: cannot beat the leader"
-                    return None
-                if cap < ours["unit_price"]:
-                    st.why += f"; capped at {cap:.2f} to beat the leader"
-                ours["unit_price"] = round(min(ours["unit_price"], cap), 2)
         # their sheet already as cheap as ours (on all terms): nothing to win by writing
         c_theirs = total_cost(case, theirs, std, supplier)
         c_ours = total_cost(case, ours, std, supplier)
@@ -890,19 +780,11 @@ class UnifiedAgent:
         if "unit_price" not in case["negotiable"]:
             return out
         try:
-            st = self.threads[sid]
-            if self.p.risk_clause and not out[0].get("index_clause"):
+            if not out[0].get("index_clause"):
                 clause = self.clause_sheet(case, sid, out[0], std, supplier)
-                if (
-                    clause
-                    and self.p.clause_leads_status_quo
-                    and st.status_quo_clause
-                    and clause["index_clause"].get("series") == st.status_quo_clause
-                ):
-                    out = [clause] + out[1:]  # our current contract has this clause: it is the status quo, it leads
-                elif clause and clause not in out:
+                if clause and clause not in out:  # an alternative, never the lead (sim P14: leading 0.40 -> 0.25)
                     out = [out[0], clause] + out[1:]
-            pay = self.payment_sheet(case, sid, out[0], std, supplier) if self.p.payment_trade else None
+            pay = self.payment_sheet(case, sid, out[0], std, supplier)
             if pay and pay not in out:
                 out = [out[0], pay] + out[1:]
         except Exception:  # a sheet we cannot build must never cost the case
@@ -989,13 +871,8 @@ class UnifiedAgent:
             return out  # a trade is a term for a lower price: nothing to trade with a fixed price
         c_main = total_cost(case, out[0], std, supplier)
         target = c_main * (1 - self.p.trade_gain)
-        profile = self.threads[sid].intel.profile
-        values = " ".join(profile.get("what_it_values", [])).lower()
-        tradeables = [t.get("lever") for t in profile.get("likely_tradeables", [])]
         trades = []
-        if "payment_days" in case["negotiable"] and (
-            self.p.cash_trade_always or "cash" in values or "payment" in values or "payment_days" in tradeables
-        ):
+        if "payment_days" in case["negotiable"]:
             faster = [d for d in levers.options(case, "payment_days") if d < out[0]["payment_days"]]
             if faster:
                 trades.append(
@@ -1015,8 +892,6 @@ class UnifiedAgent:
             more = [v for v in levers.options(case, "volume_per_year") if v > out[0]["volume_per_year"]]
             if more:
                 trades.append({"volume_per_year": min(more)})
-        if self.p.generic_trades:
-            trades = self.generic_trade_moves(case, sid, out[0], std, supplier, values, tradeables) + trades
         for change in trades:
             if len(out) >= 3:
                 break
@@ -1033,62 +908,25 @@ class UnifiedAgent:
                 out.append(t)
         return out
 
-    def generic_trade_moves(self, case, sid, main, std, supplier, values, tradeables):
-        """Every negotiable term one step toward what the supplier prefers (P10: lead time was worth EUR 1.90
-        a unit to it and far less to us; P11: chargeback). Ordered: terms its own words or profile say it
-        values, then the cheapest concession for us."""
-        sig = self.signals(sid, self.threads[sid].events) if self.p.text_signals else set()
-        wants = {
-            "payment_days": "cash" in sig or "cash" in values or "payment" in values,
-            "lead_time_days": "capacity" in sig or "capacity" in values or "lead" in values,
-            "volume_per_year": "volume" in sig or "volume" in values,
-            "contract_months": "volume" in sig or "contract" in values or "long" in values,
-            "index_clause": "index" in sig or "index" in values,
-        }
-        base_c = total_cost(case, main, std, supplier)
-        moves = []
-        for f in case["negotiable"]:
-            opts = levers.options(case, f)
-            if f == "unit_price" or not opts or f not in main:
-                continue
-            here = levers._supplier_rank(f, main[f], case)
-            better = [v for v in opts if levers._supplier_rank(f, v, case) > here]
-            if not better:
-                continue
-            v = min(better, key=lambda x: levers._supplier_rank(f, x, case))  # one step toward the supplier
-            t = complete_offer(case, {**main, f: v})
-            if not must_haves_ok(case, t, std):
-                continue
-            cost_to_us = total_cost(case, t, std, supplier) - base_c
-            liked = wants.get(f, False) or f in tradeables
-            moves.append((not liked, cost_to_us, {f: v}))
-        return [m for _, _, m in sorted(moves, key=lambda x: (x[0], x[1]))]
-
     def pick_claims(self, case, threads, sid):
         st = self.threads[sid]
         claims = [c for c in st.intel.claims if self.p.history_claims or c.source != "history"]
         if len(case["suppliers"]) > 1:
             stand = {s: standing(threads[s]) for s in threads}
             rivals = intel_mod.rival_claims(case, stand, sid)
-            if self.p.rival_only_lower:
-                mine = stand.get(sid, (None, {}))[1].get("unit_price") or 0
-                cited = st.cited_rival
-                rivals = [
-                    c for c in rivals if c.price is not None and c.price < mine and (cited is None or c.price < cited)
-                ]
-                if rivals:
-                    st.cited_rival = rivals[0].price
+            mine = stand.get(sid, (None, {}))[1].get("unit_price") or 0
+            cited = st.cited_rival
+            rivals = [
+                c for c in rivals if c.price is not None and c.price < mine and (cited is None or c.price < cited)
+            ]
+            if rivals:
+                st.cited_rival = rivals[0].price
             claims = [c for c in rivals if c.kind in self.p.claim_kinds] + claims
-        avoid = " ".join(
-            f"{a.get('argument', '')} {a.get('why', '')}" for a in st.intel.profile.get("arguments_to_avoid", [])
-        ).lower()
         out = []
         with self.shared_lock:  # check-and-claim: two threads must not cite the same ID
             for c in claims:
                 key = tuple(c.ids) if c.kind != "rival" else (sid, *c.ids)
                 if key in self.used_ids or any(i in self.used_ids for i in c.ids if c.kind != "rival"):
-                    continue
-                if avoided(c, avoid):
                     continue
                 out.append(c)
                 self.used_ids.add(key)
@@ -1165,38 +1003,18 @@ class UnifiedAgent:
         for sid in live:
             std = standard_terms(threads[sid])
             supplier = self.supplier_estimate(case, sid, std)
-            if False:  # only the first sheet is standing: alternatives are won by proposing them back
-                offered = []
-            else:
-                offered = [standing(threads[sid])]
-            for sheet_id, terms in offered:
-                if not sheet_id or closing_terms(case, terms, std).get("unit_price") is None:
-                    continue
-                if not must_haves_ok(case, terms, std):
-                    continue
-                c = total_cost(case, terms, std, supplier)
-                if c < c_alt and (best is None or c < best[0]):
-                    best = (c, sid, sheet_id)
+            # only the first sheet is standing: alternatives are won by proposing them back (thread_move)
+            sheet_id, terms = standing(threads[sid])
+            if not sheet_id or closing_terms(case, terms, std).get("unit_price") is None:
+                continue
+            if not must_haves_ok(case, terms, std):
+                continue
+            c = total_cost(case, terms, std, supplier)
+            if c < c_alt and (best is None or c < best[0]):
+                best = (c, sid, sheet_id)
         if best is None:
             self.close_reason = f"no valid sheet beats the alternative (C_alt {c_alt:.0f})"
             return {"supplier_id": live[0], "message": {"action": {"type": "walk_away"}}}
         log.info("%s: accept %s %s at C=%.0f (alt %.0f)", case["case_id"], best[1], best[2], best[0], c_alt)
         self.close_reason = f"cheapest valid standing sheet C={best[0]:.0f} < C_alt {c_alt:.0f}"
         return {"supplier_id": best[1], "message": {"action": {"type": "accept", "term_sheet_id": best[2]}}}
-
-    # ---------- the kit's sequential interface (arena_kit.play.play) ----------
-    def decide(self, case, threads):
-        if self.case_id != case["case_id"]:
-            self.prepare(case, threads)
-        for sid in live_threads(threads):
-            if latest(threads[sid]).get("from") != "buyer" and not self.threads[sid].ready:
-                msg = self.thread_move(case, threads, sid)
-                if msg:
-                    write = msg.pop("_write", None)
-                    if write:
-                        try:
-                            msg["body"] = write() or msg["body"]
-                        except Exception as e:
-                            log.warning("writer failed (%s): template kept", e)
-                    return {"supplier_id": sid, "message": msg}
-        return self.close(case, threads, force=True)
