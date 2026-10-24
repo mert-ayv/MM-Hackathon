@@ -56,6 +56,7 @@ from .mert import (
     MertDialogueAgent,
     MertHedgeAgent,
     MertHedgeLateAgent,
+    MertRawAgent,
 )
 from .router import RouterAgent
 
@@ -69,6 +70,7 @@ AGENTS = {
     "mert-anchor": MertAnchorAgent,
     "mert-consistent": MertConsistentAgent,
     "mert-clause": MertClauseAgent,
+    "mert-raw": MertRawAgent,
     "mert-hedge": MertHedgeAgent,
     "mert-hedge-late": MertHedgeLateAgent,
     "router": RouterAgent,

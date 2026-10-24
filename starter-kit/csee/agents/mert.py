@@ -10,6 +10,7 @@ disabled final pushes. No claimed practice improvement until measured.
 
 import math
 import re
+from datetime import date
 from dataclasses import replace
 
 from arena_kit.cost import RELATIONSHIP_GOALS, closing_terms, complete_offer, must_haves_ok, total_cost
@@ -380,3 +381,142 @@ class MertHedgeLateAgent(MertHedgeAgent):
         if sent + 1 < self.FROM_MESSAGE:
             return CseeAgent.sheets(self, case, sid, ours, std, supplier)
         return super().sheets(case, sid, ours, std, supplier)
+
+
+# ---------- raw-material candidate (P08/P18 review, 24 Oct): see docs in the class ----------
+RAW_RECIP = 0.6  # our move >= this share of the supplier's last move, in C
+RAW_MIN_GAP = 0.03  # ... but our main package stays at least this share of C below its current package
+HEDGE_RE = re.compile(
+    r"(?:covered at fixed prices|hedged|bought forward|fixed[- ]price cover)[^.]*?until\s+([A-Z][a-z]+)\s+(\d{4})",
+    re.I,
+)
+MONTHS = {m: i for i, m in enumerate(
+    ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october",
+     "november", "december"], 1)}
+KIND_ORDER = {"index": 0, "should_cost": 0, "rival": 0, "scorecard": 1, "forecast": 2, "news": 2, "notice": 2,
+              "history": 3}
+
+
+def hedge_of(pkg, sid):
+    """(series-agnostic) hedge end as date, from the supplier's own letters in the package, or None."""
+    if not pkg:
+        return None
+    best = None
+    for ref, fact in (pkg.facts or {}).items():
+        if not ref.startswith("doc:") or not isinstance(fact, dict) or fact.get("supplier") != sid:
+            continue
+        try:
+            text = pkg.document(ref) or ""
+        except Exception:
+            continue
+        m = HEDGE_RE.search(text)
+        if m and m.group(1).lower() in MONTHS:
+            end = date(int(m.group(2)), MONTHS[m.group(1).lower()], 1)
+            best = max(best, end) if best else end
+    return best
+
+
+def material_series(case):
+    """The series of the case's own index-clause options: the material the supplier would hedge."""
+    return {c["series"] for c in (case.get("term_options") or {}).get("index_clause") or [] if c}
+
+
+class MertRawAgent(MertConsistentAgent):
+    def prepare(self, case, threads):
+        super().prepare(case, threads)
+        self.hedges = {}
+        if not self.raw:
+            return
+        for sid, st in self.threads.items():
+            end = hedge_of(self.pkg, sid)
+            self.hedges[sid] = end
+            # Keep v16's proven index sequence (strongest fall first; the hedged series now carries the
+            # hedge-expiry sentence, see thread_move). Then ONE quality/delivery argument per topic, then
+            # order history (4/4 "does not change our calculation" on P08/P18) and repeats last.
+            seen_tags = set()
+
+            def rank(c):
+                k = KIND_ORDER.get(c.kind, 2)
+                if c.kind == "scorecard":
+                    if c.tag in seen_tags:
+                        return (4, -c.strength)
+                    seen_tags.add(c.tag)
+                elif c.source == "history":
+                    k = 3
+                return (k, -c.strength)
+
+            ordered = sorted(st.intel.claims, key=lambda c: (KIND_ORDER.get(c.kind, 2), -c.strength))
+            st.intel.claims = sorted(ordered, key=rank)
+
+    # ---------- 1. reciprocity floor ----------
+    def next_terms(self, case, threads, sid, theirs, std, supplier, left):
+        proposal = super().next_terms(case, threads, sid, theirs, std, supplier, left)
+        if not self.raw or proposal is None or "unit_price" not in case["negotiable"]:
+            return proposal
+        events = threads[sid]
+        previous = self.last_proposal(events)
+        replies = [m for m in events if m.get("from") != "buyer" and m.get("term_sheets")]
+        if previous is None or previous.get("unit_price") is None or len(replies) < 3:
+            return proposal  # replies[0] is the opening quote: their first real move is replies[1]
+        _, before = self.their_sheet(case, [replies[-2]], std, supplier)
+        c_before, c_now = total_cost(case, before, std, supplier), total_cost(case, theirs, std, supplier)
+        their_move = c_before - c_now
+        if not their_move > 0:
+            return proposal  # it did not move: base's small step stands
+        c_prev = total_cost(case, complete_offer(case, previous), std, supplier)
+        c_prop = total_cost(case, proposal, std, supplier)
+        target = min(c_prev + RAW_RECIP * their_move, c_now * (1 - RAW_MIN_GAP))
+        if c_prop >= target - 0.01:
+            return proposal
+        price = levers.price_for(case, proposal, target, std, supplier)
+        if price is None or price <= proposal["unit_price"]:
+            return proposal
+        adjusted = {**proposal, "unit_price": price}
+        if total_cost(case, adjusted, std, supplier) > target:
+            adjusted["unit_price"] = round(price - 0.01, 2)
+        if adjusted["unit_price"] > proposal["unit_price"] and must_haves_ok(case, adjusted, std):
+            self.threads[sid].why += f"; reciprocity floor {RAW_RECIP:.0%} of their move"
+            return adjusted
+        return proposal
+
+    # ---------- 3. hedge-expiry sentence when the hedged series is cited ----------
+    def hedge_sentence(self, case, sid, main):
+        end = self.hedges.get(sid)
+        start = (main or {}).get("effective_date") or (case.get("fixed_terms") or {}).get("effective_date")
+        months = (main or {}).get("contract_months")
+        if not end or not start or not months:
+            return None
+        s = date.fromisoformat(start)
+        first_open = (end.year * 12 + end.month) + 1  # the month after the cover ends
+        total = int(months)
+        before = max(0, min(total, first_open - (s.year * 12 + s.month)))
+        exposed = total - before
+        if exposed <= 0:
+            return None
+        nxt = date((first_open - 1) // 12, (first_open - 1) % 12 + 1, 1)
+        return (
+            f"You wrote that your material is covered at fixed prices until {end:%B %Y}. Our agreement runs "
+            f"{total} months from {s:%B %Y}, so {exposed} of those {total} months, from {nxt:%B %Y} on, are "
+            f"follow the market, and the fall cited above reaches your cost."
+        )
+
+    def thread_move(self, case, threads, sid):
+        msg = super().thread_move(case, threads, sid)
+        if not self.raw or not msg or not msg.get("term_sheets") or not self.hedges.get(sid):
+            return msg
+        hedged = material_series(case)
+        if not any(r.startswith("idx:") and r[4:].split("@")[0] in hedged for r in msg.get("refs") or []):
+            return msg
+        main = {**(case.get("fixed_terms") or {}), **msg["term_sheets"][0]["terms"]}
+        line = self.hedge_sentence(case, sid, main)
+        if not line:
+            return msg
+
+        def add(body):
+            return body.replace(SIGN, line + "\n\n" + SIGN) if SIGN in body else body.rstrip() + "\n\n" + line
+
+        msg["body"] = add(msg["body"])
+        write = msg.get("_write")
+        if write:
+            msg["_write"] = lambda: add(write())
+        return msg
