@@ -1,0 +1,103 @@
+"""csee command line - run from starter-kit/ with .env filled in.
+
+    uv run python -m csee play case:P01            one case with our agent (prints score + replay link)
+    uv run python -m csee run [--set practice]     every hosted case of a set, in parallel
+    uv run python -m csee final                    THE LIVE FINAL: waits for wave 1, plays all 5 waves
+    uv run python -m csee eval [--set practice]    fetch finished sessions into runs/, report vs house agent
+    uv run python -m csee show <session_id>        one negotiation, move by move (from runs/)
+
+Without an LLM key (ANTHROPIC_API_KEY or LLM_API_KEY) the agent writes from templates.
+"""
+
+import argparse
+import json
+import logging
+import os
+from pathlib import Path
+
+from arena_kit.cli import load_env, summary
+from arena_kit.client import ArenaClient
+from arena_kit.play import hosted
+
+from . import evaluate
+from .agent import CseeAgent
+from .runner import play_all, play_case, play_waves
+
+
+def agent_factory(use_llm=True):
+    package = None
+    data = os.environ.get("ARENA_DATA", "data/package")
+    if Path(data).exists():
+        from arena_kit.data import DataPackage
+
+        package = DataPackage(data)
+        package.lookup("")  # build the ID index once, before agents share it
+    writer = None
+    if use_llm and (os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("LLM_API_KEY")):
+        from arena_kit.agents.llm import llm_from_env
+
+        from .writer import LLMWriter
+
+        writer = LLMWriter(llm_from_env())
+    return lambda: CseeAgent(package, writer)
+
+
+def main(argv=None):
+    load_env()
+    ap = argparse.ArgumentParser(prog="csee")
+    ap.add_argument("-v", "--verbose", action="store_true")
+    ap.add_argument("--no-llm", action="store_true", help="template e-mails even if an LLM key is set")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    p = sub.add_parser("play")
+    p.add_argument("case_id")
+    r = sub.add_parser("run")
+    r.add_argument("--set", default="practice", choices=["practice", "sandbox"])
+    r.add_argument("--parallel", type=int, default=8)
+    r.add_argument("--cases", nargs="*", help="only these case ids")
+    f = sub.add_parser("final")
+    f.add_argument("--parallel", type=int, default=10)
+    f.add_argument("--waves", type=int, default=5)
+    e = sub.add_parser("eval")
+    e.add_argument("--set", default="practice", choices=["practice", "sandbox", "final"])
+    s = sub.add_parser("show")
+    s.add_argument("session_id")
+    args = ap.parse_args(argv)
+    logging.basicConfig(
+        level=logging.INFO if args.verbose else logging.WARNING,
+        format="%(asctime)s %(threadName)s %(message)s",
+    )
+
+    if args.cmd == "play":
+        from arena_kit.play import RemoteTable
+
+        client = ArenaClient()
+        result = play_case(RemoteTable(client), args.case_id, agent_factory(not args.no_llm)())
+        print(json.dumps(summary(result), indent=2, ensure_ascii=False))
+        if result.get("replay_url") or result.get("session_id"):
+            print("replay:", result.get("replay_url"))
+    elif args.cmd == "run":
+        client = ArenaClient()
+        ids = args.cases or [c["case_id"] for c in hosted(client.cases(args.set))]
+        out = play_all(client, ids, agent_factory(not args.no_llm), min(args.parallel, 10))
+        for cid, res in out.items():
+            print(cid, json.dumps(summary(res)) if isinstance(res, dict) else f"ERROR {res}")
+    elif args.cmd == "final":
+        client = ArenaClient()
+        out = play_waves(client, agent_factory(not args.no_llm), args.waves, min(args.parallel, 10))
+        for cid, res in out.items():
+            print(cid, json.dumps(summary(res)) if isinstance(res, dict) else f"ERROR {res}")
+    elif args.cmd == "eval":
+        client = ArenaClient()
+        sessions = evaluate.fetch(client, args.set)
+        text = evaluate.report(sessions, evaluate.house_scores(os.environ.get("ARENA_URL", "https://arena.tacto.ai")))
+        (evaluate.RUNS / f"report-{args.set}.md").write_text(text)
+        print(text)
+    elif args.cmd == "show":
+        path = evaluate.RUNS / "sessions" / f"{args.session_id.replace('/', '_')}.json"
+        if not path.exists():
+            raise SystemExit(f"{path} not found - run `python -m csee eval` first")
+        print(evaluate.show(json.loads(path.read_text())))
+
+
+if __name__ == "__main__":
+    main()
