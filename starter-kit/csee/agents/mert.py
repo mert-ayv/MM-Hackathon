@@ -1066,6 +1066,7 @@ class PlanParams:
     default_rate: float = 0.08  # its money rate until its own sheets reveal it
     smooth_ticks: bool = False  # coarse price ticks: average its last two capped steps
     rfq: bool = False  # plan RFQ threads too (default: parent's RFQ logic)
+    tick_rule: bool = False  # steps >= 1 tick and a gap that leaves room for tick steps until its final (P11 lesson)
 
 
 class PlanMixin:
@@ -1253,11 +1254,17 @@ class PlanMixin:
         n_plan = min(n_plan, k + max(rl - self.p.reserve_moves, 1))
         n_rem = max(n_plan - (k + 1), 1)
         need = sum(c_hat * dec**i for i in range(1, n_rem + 1)) * (1 + 1 / P.m_lo) + P.safety * c_hat
+        if P.tick_rule:
+            # a coarse-tick supplier only drops a tick when our step is at least one (P11: +0.55 steps got 45.00,
+            # the planner's +0.02 last steps rounded to nothing): keep room for a tick step each side per reply
+            need = max(need, 2.1 * tickv * n_rem)
         gi = min(k, len(P.gmax) - 1)  # gmax[0] = after reply 1; the next reply is k + 1
         g_target = min(need, P.gmax[gi] * A_k)
         B_gap = (A_k - c_hat) - g_target
         B_ext = B_k + c_hat / P.m_lo
         B_new = max(B_gap, B_ext)
+        if P.tick_rule:
+            B_new = max(B_new, B_k + 1.05 * tickv)
         B_cross = A_k - max(tickv, min(P.cross_buf * c_hat, 0.5 * (A_k - B_k)))
         why = f"r{k + 1}: c^ {c_hat / V0:.2%} gap {((A_k - B_k) / A_k):.2%} -> target {g_target / A_k:.2%}"
         if B_new > B_cross:

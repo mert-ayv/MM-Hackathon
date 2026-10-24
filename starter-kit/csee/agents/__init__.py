@@ -87,6 +87,9 @@ from .records import (
     PledgeBase,
 )
 from .mert_dossier import (
+    PlannerTickClaims,
+    PlanMesoLeverTickClaims,
+    PlanMesoRawTickClaims,
     BaseDossier,
     PlanMesoLeverDossier,
     PlanMesoLeverDossierClaims,
@@ -153,6 +156,9 @@ AGENTS = {
     "mert-plan-meso-raw-dc": PlanMesoRawDossierClaims,  # claims hook only
     "mert-plan-soft": PlannerSoftClaims,  # 6 % anchor (P10 challenger)
     "mert-plan-meso-raw-soft": PlanMesoRawSoftClaims,  # 12 % raw anchor (P18 challenger)
+    "mert-plan-tick": PlannerTickClaims,  # + tick rule
+    "mert-plan-meso-lever-tick": PlanMesoLeverTickClaims,  # + tick rule
+    "mert-plan-meso-raw-tick": PlanMesoRawTickClaims,  # + tick rule
     "router": RouterAgent,
     "router-plan": RouterPlanAgent,  # A/B candidate: the planner on every non-RFQ type
 }

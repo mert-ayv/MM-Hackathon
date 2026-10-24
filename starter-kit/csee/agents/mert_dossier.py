@@ -98,3 +98,16 @@ class PlannerSoftClaims(PlannerDossierClaims):
 
 class PlanMesoRawSoftClaims(PlanMesoRawDossierClaims):
     plan = _replace(PlanParams(), anchor_raw=0.12)
+
+
+# tick rule (P11 lesson) on the planner routes: candidates until the engine and a practice run confirm them
+class PlannerTickClaims(PlannerDossierClaims):
+    plan = _replace(PlanParams(), tick_rule=True)
+
+
+class PlanMesoLeverTickClaims(PlanMesoLeverDossierClaims):
+    plan = _replace(PlanParams(), tick_rule=True)
+
+
+class PlanMesoRawTickClaims(PlanMesoRawDossierClaims):
+    plan = _replace(PlanParams(), tick_rule=True)
