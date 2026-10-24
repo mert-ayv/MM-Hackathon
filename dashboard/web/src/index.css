@@ -1,0 +1,23 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  font-size: 15px;
+}
+/* Presentation mode: everything is rem-based, so this scales the whole UI for a projector */
+:root.presentation {
+  font-size: 19px;
+}
+html,
+body {
+  background: #ffffff;
+  color: #0b0b0c;
+  font-feature-settings: "cv11", "ss01", "ss03";
+  -webkit-font-smoothing: antialiased;
+}
+::selection {
+  background: #ff5a1f;
+  color: white;
+}
