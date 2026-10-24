@@ -103,11 +103,13 @@ from .mert_dossier import (
     SkipHedgeDossier,
 )
 from .router import RouterAgent, RouterClaimsAgent, RouterPlanAgent
-from .unified import UnifiedAgent, UnifiedSingleAgent
+from .unified import UnifiedAgent, UnifiedFastAgent, UnifiedReviewAgent, UnifiedSingleAgent
 
 AGENTS = {
     "unified": UnifiedAgent,
     "unified-single": UnifiedSingleAgent,
+    "unified-fast": UnifiedFastAgent,
+    "unified-review": UnifiedReviewAgent,
     "base": CseeAgent,
     "annika": AnnikaAgent,
     "annika-k": AnnikaCapacityAgent,  # capacity expert (P10/P09 evidence: docs/playbooks/capacity.md), H2 3.75 %

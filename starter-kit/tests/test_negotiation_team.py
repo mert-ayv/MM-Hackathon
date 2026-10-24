@@ -64,13 +64,19 @@ def test_one_failed_specialist_and_failed_lead_preserve_grounded_trade():
     def complete(system, user):
         if system.startswith(("ROLE: counterpart.", "ROLE: preparation_lead.")):
             return "invalid JSON"
-        return json.dumps({"findings": [proof()], "requests": [request()], "priorities": ["payment_days"]})
+        return json.dumps(
+            {"findings": [proof()], "requests": [request()], "priorities": ["payment_days"], "claim_kinds": ["index"]}
+        )
 
-    briefs = preparation.research(complete, case, dossier(), 2, None)
+    evidence = dossier()
+    evidence["sup:alpha"]["claims"] = {"E1": {"kind": "index", "text": "Index fell"}}
+    briefs = preparation.research(complete, case, evidence, 2, None)
     brief = briefs["sup:alpha"]
     assert brief["diagnostic"] == "JSONDecodeError"
     assert brief["requests"] and brief["priorities"] == ["payment_days"]
     assert brief["stance"] == "balanced"
+    assert brief["claim_kinds"] == ["index"]
+    assert proof() in brief["hypotheses"]
 
 
 @pytest.mark.parametrize(
@@ -88,7 +94,7 @@ def test_unsupported_or_illegal_requests_do_not_reach_pricing(bad):
     assert preparation.trade_requests([bad], case, {"doc:unseen": SOURCE}) == []
 
 
-def test_grounded_stance_changes_opening_but_not_without_support():
+def test_model_stance_alone_cannot_change_opening_even_with_a_quote():
     agent, case, threads = fixture()
     sid = "sup:alpha"
     quote = threads[sid][-1]["term_sheets"][0]["terms"]
@@ -97,7 +103,7 @@ def test_grounded_stance_changes_opening_but_not_without_support():
     assert engine.propose(agent, case, threads, sid, quote, {}, None, 10) == ordinary
     agent.briefs[sid]["stance_evidence"] = [proof()]
     stronger = engine.propose(agent, case, threads, sid, quote, {}, None, 10)
-    assert total_cost(case, stronger) < total_cost(case, ordinary)
+    assert stronger == ordinary
     assert must_haves_ok(case, stronger)
 
 
@@ -108,41 +114,34 @@ def test_combined_trade_is_code_priced_and_keeps_existing_candidate_ids():
     before = engine.menu(agent, case, threads, sid, main, {}, None)
     after = engine.add_requests(agent, case, threads, sid, before, [request()], {}, None)
     assert after[: len(before)] == before
-    combined = next(c for c in after if c["kind"] == "requested_trade")
+    combined = next(c for c in after if c["kind"] == "requested_trade" and c["terms"]["payment_days"] == 14)
     assert combined["terms"]["payment_days"] == 14 and combined["terms"]["lead_time_days"] == 35
     assert combined["terms"]["unit_price"] < main["unit_price"]
     assert total_cost(case, combined["terms"]) <= total_cost(case, main) + 0.01
 
 
-def test_analyst_and_challenger_feed_lead_and_live_request_becomes_a_real_sheet():
+def test_single_strategist_live_request_becomes_a_real_code_priced_sheet():
     calls = []
     source = "We need delivery in forty two days and payment within thirty days."
 
     def complete(system, user):
         payload = json.loads(user)
-        if system.startswith("ROLE: reply_analyst."):
-            calls.append("analyst")
-            ref = next(k for k, text in payload["live_sources"].items() if source in text)
-            return json.dumps(
-                {
-                    "requests": [
-                        {
-                            "terms": {"payment_days": 30, "lead_time_days": 42},
-                            "source": ref,
-                            "quote": source,
-                            "interpretation": "joint request",
-                        }
-                    ]
-                }
-            )
-        if system.startswith("ROLE: deal_challenger."):
-            calls.append("challenger")
-            return json.dumps({"prefer": ["C0"], "avoid": ["invented"], "risks": ["Do not give payment away"]})
-        assert set(calls) == {"analyst", "challenger"}
-        assert payload["advisers"]["deal_challenger"]["avoid"] == []
-        chosen = next(c for c in payload["candidates"] if c["kind"] == "requested_trade")
+        assert system.startswith("ROLE: live_lead.")
+        ref = next(k for k, text in payload["live_sources"].items() if source in text)
         calls.append("lead")
-        return json.dumps({"candidate_id": chosen["id"], "alternative_ids": [], "claim_ids": []})
+        return json.dumps(
+            {
+                "candidate_id": "C0",
+                "alternative_ids": [],
+                "claim_ids": [],
+                "trade_request": {
+                    "terms": {"payment_days": 30, "lead_time_days": 42},
+                    "source": ref,
+                    "quote": source,
+                    "interpretation": "joint request",
+                },
+            }
+        )
 
     agent, case, threads = fixture(complete)
     threads["sup:alpha"][-1]["body"] = source
@@ -151,7 +150,7 @@ def test_analyst_and_challenger_feed_lead_and_live_request_becomes_a_real_sheet(
     terms = message["term_sheets"][0]["terms"]
     assert terms["payment_days"] == 30 and terms["lead_time_days"] == 42
     assert must_haves_ok(case, terms)
-    assert calls[-1] == "lead" and agent.role_counts["ok"] == 3
+    assert calls == ["lead"] and agent.role_counts["ok"] == 1
 
 
 def test_short_clock_skips_advisers_and_calls_only_lead():

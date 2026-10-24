@@ -1,156 +1,149 @@
-# Unified negotiation team
+# Unified negotiation architecture
 
-`--agent unified` is the candidate architecture for all seven negotiation types. It is an original
-implementation inspired by Codacabana's division of responsibilities, built on our cost, evidence,
-and runner utilities. It is not yet promoted to the final `router`.
+`unified` is an experimental shared agent for every case type. The existing `router` is unchanged.
+Python owns prices, legal terms, evidence sentences and closing. Models interpret evidence and
+choose among bounded proposals; they cannot send arbitrary prices or accept deals.
 
-## Runtime workflow
+## Preparation and evidence
+
+`negotiation/evidence.py` retains source IDs, supplier/part scope, periods, observations,
+calculations and uncertainty. Index changes are recomputed from documented endpoints. Incomplete
+sources remain incomplete; should-cost remains an estimate, not a supplier reservation price.
+Complaint-only ppm averages are excluded because they do not establish a supplier-wide denominator.
+
+Four parallel specialists receive targeted should-cost, recent price, invoice and negotiation
+history digests alongside document excerpts. Missing tables supply no evidence. A buyer planner
+and supplier advocate challenge the findings; a lead synthesizes the brief. The whole preparation
+budget is 80 seconds before session opening. Active resumed sessions skip heavy preparation.
+
+The brief contains grounded trade requests, evidence priorities, hypotheses and conditional
+playbooks. Every playbook entry needs a source quotation, an allowed trigger and an invalidation
+condition. Rehearsal stays hypothetical. Failed synthesis retains successful specialist findings.
+
+## Commercial state and pacing
+
+`negotiation/control.py` rebuilds state from the transcript, including on resume. Price changes
+are comparable only when completed non-price packages match. It tracks stalls, unadopted terms
+and cumulative comparable gaps. Non-adoption is not explicit rejection; cumulative gap is not
+a known supplier patience threshold.
+
+A model stance alone cannot change the opening. In leverage cases, a valid rival bid or a
+calculated falling cost driver permits a competitive opening (at least 20%, capped at 25%
+discount). Otherwise the configured opening applies. Relationship goals retain cost-optimum and
+capacity protections. These constants are experimental policy settings, not learned floors.
+
+One hold probe is allowed after a first comparable supplier concession closes at least as much
+price distance as remains, with more than three estimated moves left. It cannot repeat and does
+not apply to changed terms. Other moves use the configured concession schedule. Repeated stalls
+and unadopted trades inform live decisions and conditional review.
+
+The code-priced menu includes bounded pacing choices, competitive bids, trades and the structures
+of current supplier alternatives. Candidates show term changes, non-adoption counts, cost-band
+comparability and the isolated cost of index changes at an unchanged price. Rounding differences
+should not decide between economically equivalent strategies. Exact cost guards still apply.
+
+## Live reasoning
 
 ```mermaid
 flowchart TD
-    D[Public case, full documents, evidence bank] --> E[Economics specialist]
-    D --> P[Counterpart and constraints specialist]
-    D --> F[Evidence specialist]
-    D --> C[Competition and sourcing specialist]
-    E & P & F & C --> R[Checked findings with source quotations]
-    R --> B[Buyer planner]
-    R --> S[Supplier advocate]
-    B & S --> L[Preparation lead resolves disagreements]
-    L --> O[Open session]
-    O --> M[Code prices candidate packages]
-    M --> A[Reply analyst]
-    M --> X[Deal challenger]
-    A & X --> J[Code prices grounded combined-trade requests]
-    J --> T[Live lead selects primary, alternatives, claims and wording]
-    T --> V[Code validates, reserves evidence and sends]
-    V --> M
-    V --> G[Deterministic auction close]
+    B[Prepared evidence and conditional playbook] --> L[One live strategist]
+    T[Transcript-derived commercial state] --> C[Code-priced candidates]
+    C --> L
+    L --> V[Validate IDs and compile grounded joint trade]
+    V --> Q{Consequential concern and enough time?}
+    Q -->|yes| R[Independent reviewer]
+    Q -->|no| G[Cost, terms and evidence guards]
+    R --> G
+    G --> S[Send proposal]
+    S --> T
+    T --> F[Deterministic standing-offer close]
 ```
 
-### Preparation: seven roles per supplier
+One strategist chooses candidate/claim IDs, alternatives and a short acknowledgement. It may
+also interpret one joint non-price request from a live quotation. Code validates the source and
+allowed values, then prices it at no higher buyer cost than the selected candidate. Invalid
+requests leave the original proposal intact. Alternatives must satisfy the same numeric guards.
 
-Four specialists run concurrently. Economics examines cost drivers, should-cost uncertainty and
-term economics. Counterpart examines authority, liquidity, capacity, hedges and contractual
-constraints. Evidence checks relevance, freshness and conflicting facts. Competition examines
-alternatives, sourcing history, rival quotations and dependence.
+Review changes replace the primary and alternative IDs as one proposal, within the original
+turn cost ceiling. Changing a package clears the earlier paragraph; code renders the final terms.
+A reviewer needs a supported supplier constraint, an observed stall or an uncompensated concession
+to change the primary. A marginal hypothetical cost advantage alone is insufficient. Logs show
+the lead selection, final bundle and any intervening adjustments.
 
-An independent buyer planner and supplier advocate then run in parallel over their checked
-findings. The advocate challenges the plan and identifies possible objections; its rehearsal is
-explicitly hypothetical, never evidence of the real supplier's reservation price. A preparation
-lead reconciles both perspectives and produces:
+Costly term concessions are measured against our prior terms and available protection in the
+same index structure. Merely introducing an index is not classified as losing deadband protection.
+Compensation is observed only when a current supplier package offers an equal or better complete
+cost than a valid earlier supplier quote containing the protected terms. Our own proposed discount
+does not count. An unconfirmed concession is kept as a conditional alternative alongside a
+code-priced protected primary. If none is feasible within the turn budget, no new proposal is sent.
+An ignored alternative is not a refusal; repeated values in one message count only once per reply.
 
-- Evidence-backed opening stance: competitive, balanced, or protect supply.
-- Ranked evidence kinds and identified claims to avoid.
-- Grounded requests for combined non-price trades, using allowed term values only.
-- Priorities, unresolved risks and hypotheses with exact source quotations.
+Routine turns use one call with up to 25 seconds. Additional review is considered for weaker
+uncompensated terms, disputed evidence, repeated stalls or a repeatedly unadopted selected trade.
+It needs at least eight seconds remaining and receives at most ten seconds. Total model time is
+capped at 40 seconds and shortened by the actual reply/wave deadline. Failed review preserves a
+valid lead decision; failed lead uses the deterministic fallback. Protocol lookahead and closing
+make no model calls. Model requests disable Anthropic SDK retries, cap output at 4,096 tokens,
+and distinguish output-limit stops from malformed JSON. Preparation/live pools are separate.
 
-Code translates stance into bounded opening parameters. Relationship cost bounds still apply.
-Code prices trade requests; no role can invent a unit price, change a fixed term, or authorize a
-deal. A failed specialist does not erase its colleagues' findings. Failed synthesis retains
-independently grounded trade requests while falling back to a balanced opening.
+Cheaper supplier alternatives are proposed back for confirmation. Only current valid standing
+offers below the alternative can be awarded. Historical quotes are never executable. No new
+unconditional push after a final offer was added.
 
-The preparation budget is at most 80 seconds including dossier construction: research receives
-up to 30 seconds, rehearsal up to 25 seconds, and the lead the remaining budget. This happens
-before the session opens. The runner skips preparation when a session is already active or a
-wave has insufficient time. Sources include actual document text, not just titles, with a
-bounded mix of recent source families. Ordinary no-model runs skip model preparation entirely.
+## Empirical memory
 
-### Live turns: parallel advice, then a deciding lead
+`negotiation/memory.py` imports completed local practice logs without network or model calls.
+Records contain normalized price paths and package features, evidence feedback, policy labels
+and outcomes. Retrieval uses case type, goal, negotiable fields and bidder counts, not supplier
+or case IDs. Sample counts and uncertainty are explicit; different policy configurations are
+retained where possible. Simulation and final results are excluded.
 
-The reply analyst reads the latest correspondence, sheets and claim feedback; only recent
-thread/attachment quotations can substantiate its observations and trade requests. Old dossiers
-remain hypotheses. In parallel, a deal challenger critiques the priced menu and auction state,
-looking for unnecessary concessions, better packages and unreliable assumptions.
+These are uncontrolled observations, not causal rules, calibrated probabilities or guaranteed
+scores. Completed logged unified practice runs append local observations. Missing memory is
+valid. `CSEE_EXPERIENCE_PATH` overrides `csee/negotiation/experience.jsonl`; include the snapshot
+when moving to another machine if the same memory is desired. Schema versions permit reimport.
 
-Code can add the analyst's combined-term request to the menu without changing existing candidate
-IDs. The lead receives both advisers, the refreshed menu, evidence and complete bid comparisons.
-It chooses the primary candidate, zero to two alternatives, claims and a short acknowledgement.
-It can disagree with either adviser. Empty alternative or claim selections are respected.
+From `starter-kit/`, import existing logs offline:
 
-A turn has at most 40 seconds of model time, shortened by the remaining supplier reply clock and
-wave cap. Advisers share at most 18 seconds; the lead uses the remainder. With less than 20 seconds
-available, advisers are skipped and the lead acts directly. Late or invalid lead output returns
-to the deterministic proposal. There is no extra writer call or model call needed to close.
-
-Preparation and live work have separate process-wide concurrency pools (16 and 24 slots), so
-research cannot occupy every live decision slot. Queue time consumes the same absolute deadline.
-Timed-out model workers return data only and cannot mutate agent state. Anthropic requests cap
-output at 2,048 tokens and disable SDK retries inside the request budget.
-
-### Deterministic economics and execution
-
-The engine advances concessions in estimated supplier value and searches non-price terms at
-that value. It preserves a cost-equivalent supplier term instead of undoing the previous turn's
-trade. Menus include pace choices, single-lever exchanges, grounded combined trades and a
-code-priced option to beat a valid live rival on complete buyer cost. Supplier estimates remain
-uncertain; a cost-neutral trade is not proof of supplier acceptance.
-
-All candidates must have finite numbers, legal fields/options, preserved fixed terms and valid
-must-haves. Reciprocal trades cannot exceed the baseline buyer cost. We do not retract a price
-already offered for the same package or silently retract a mutually offered index structure.
-Alternative sheets must have different non-price packages, not just different prices for the
-same package. Code writes the exact sheets and citations, with shared evidence reservations
-protected against competing supplier threads.
-
-The coordinator accepts only a live first sheet below the buyer's alternative, valued on that
-supplier's defaults. A supplier alternative requires confirmation. Final offers do not trigger
-speculative extra price pushes. No team member can independently award an RFQ and close its rivals.
-
-## Code map
-
-| File | Responsibility |
-| --- | --- |
-| `csee/agents/unified.py` | State, evidence retrieval, team integration, message composition and auction close |
-| `csee/negotiation/preparation.py` | Specialist/rehearsal/lead workflow and grounded output contracts |
-| `csee/negotiation/council.py` | Live reply analyst, deal challenger and lead |
-| `csee/negotiation/engine.py` | Value-based proposal calculation and priced candidate generation |
-| `csee/negotiation/strategy.py` | Bounded model calls, parallel stages and output helpers |
-| `csee/runner.py` | Session lifecycle, preparation before opening, supplier clocks and run reporting |
-
-The existing `CseeAgent` still supplies protocol handling and quote parsing; the new team does
-not route into Mert/Ege variants. Existing `Params` remain compatible for explicit experiments.
-No new framework dependency is needed: the workflow is an explicit staged graph of model roles.
-These roles may use the same configured model, but have separate instructions, inputs and outputs.
-
-## Run, observe and compare
-
-From `starter-kit/`, exercise the team against local scripted suppliers with the configured model:
-
-```sh
-uv run python -m csee -v --agent unified sim --llm \
-  --variants base --cases case:P05 --seeds 1
+```bash
+uv run python -m csee.negotiation.memory --runs ../runs
 ```
 
-This uses model API credits, not arena quota. For P05's three suppliers, preparation can make up
-to 21 model calls, followed by up to three calls per active supplier turn. `-v` prints role
-completion and latency. Run logs contain `unified_role`, preparation reports, adviser reports,
-menus, selections and fallback reasons. The terminal also prints a case-level team-call and
-validated-decision summary, so a fallback-only run cannot be mistaken for a working strategy layer.
+## Evaluation modes
 
-Compare against the single-call workflow using the same updated engine and validators:
+| Agent | Preparation | Live reasoning |
+|---|---|---|
+| `unified` | Full team | One strategist; selective review |
+| `unified-fast` | Full team | One strategist; no reviewer |
+| `unified-review` | Full team | Review every successful decision when time permits |
+| `unified-single` | Legacy single research call | Legacy single-call contract |
 
-```sh
-uv run python -m csee -v sim --llm --agents unified-single unified \
-  --variants base --cases case:P05 --seeds 1
+The first three share preparation and policy to isolate review effects. `unified-single` is a
+broader ablation, not a frozen old version. `--no-llm` uses the same code policy without reasoning.
+Local simulation validates mechanics, not hosted supplier performance:
+
+```bash
+uv run python -m csee --no-llm --agent unified sim --variants base --cases case:P05 case:P18 --seeds 1
 ```
 
-`unified-single` is an ablation, not a frozen copy of the previous commit. Its model budgets differ
-from the full team, so this comparison evaluates complete configurations, not agent count alone.
-For zero model/API calls, omit `--llm` and use `--no-llm` before `sim`. The local simulator is useful
-for correctness and controlled comparisons, but is not a reliable predictor of hosted scores.
+Hosted practice command (spends quota and model credits; do not execute automatically):
 
-## Evidence so far
+```bash
+uv run python -m csee -v --agent unified --variant base play case:P05 --confirm
+```
 
-Before the multi-agent extension, a deterministic one-seed ten-case simulation averaged 0.348
-versus the router's 0.313, with regressions on P11 and P18. The user's first model-enabled P05 run
-returned 0.205830 with all 16 calls timing out. After correcting request budgets, the next run
-(`runs/20261024-233327-unified-sim`) returned 0.212760: all three preparation calls and all 13 live
-calls succeeded. Nine live selections merely changed lead time, three selected a patient price
-step, and one selected the baseline. Live calls averaged 10.46 seconds. This exposed a narrow
-menu, repeated use of old document metadata, and term concessions being undone on later turns.
+## Observed results and limits
 
-The multi-agent extension is validated with controlled model responses, including real parallel
-execution, stage dependencies, failed specialists, deadline fallback, grounded combined-trade
-requests and unknown suppliers. No paid model run or hosted negotiation was started by the coding
-agent for this extension. There is no new performance claim yet. Promote only after a paired
-hosted comparison with the existing router under the normal quota rules.
+The first hosted team runs scored P05 **0.487049** and P18 **0.419031**. Preparation leads failed
+JSON parsing, protocol lookahead duplicated live calls, and keyword filtering removed useful
+P18 indices. Those defects were corrected before the next user runs.
+
+`20261025-000804-unified-practice` scored P05 **0.566336** with 52 successful role calls and no
+failures. `20261025-000805-unified-practice` scored P18 **0.566809** with 18 successful calls,
+one adviser timeout, and four successful decisions. P18 reached 5.30 at 90-day payment but
+finished with a 3% rather than 5% deadband. These runs motivated this extension; they did not test it.
+
+Validation is offline: controlled model responses, transcript reconstruction, unknown suppliers,
+pricing/validation, deadline/fallback checks and hosted-case smoke tests. No hosted negotiation
+or paid model evaluation was started by the coding agent. Promotion requires repeated comparisons
+with the existing router; passing tests does not establish a score gain.

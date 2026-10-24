@@ -9,9 +9,11 @@ We're building an **AI buyer agent** for Hollerau Pumpenwerke, a fictional Germa
 Tacto's materials live alongside our code: [challenge deck notes](docs/tacto-challenge.md) · [brief](brief/brief.md) · [API docs](brief/api.md) · [submission](brief/submission.md) · [starter kit](starter-kit/README.md) · [data](data/README.md) · [FAQ](https://arena.tacto.ai/faq) · [build page](https://arena.tacto.ai/live)
 
 The new [unified baseline](docs/unified-baseline.md) (`--agent unified`) uses parallel specialist
-research, buyer/supplier rehearsal, a live analyst and deal challenger, and a lead strategist.
-Code prices and validates every offer. `unified-single` compares the one-call workflow using the
-same engine; `router` remains the measured final entry pending evaluation of the new team.
+research, conditional buyer/supplier playbooks, and one live strategist with selective review.
+Code prices and validates every offer, tracks comparable concessions, and exposes trade costs.
+Local practice memory retains observations with uncertainty. `unified-fast` and `unified-review`
+compare review policies with the same preparation and engine; `router` remains the final entry
+pending measured improvement.
 
 ## Team
 

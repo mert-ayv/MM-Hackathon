@@ -17,7 +17,7 @@ from arena_kit.play import ENDED, latest
 
 from .. import intel, levers
 from ..agent import CseeAgent, Params
-from ..negotiation import council, engine, preparation, strategy
+from ..negotiation import control, council, engine, evidence, memory, preparation, strategy
 from ..writer import SIGN, TemplateWriter, describe
 from .rfq_support import compare_bids, competitive_claims, quoted_bids
 from .strategy_support import EvidenceDesk, price_package
@@ -27,6 +27,8 @@ class UnifiedAgent(CseeAgent):
     USE_TEAM = True
     PREPARE_SECONDS = 80.0
     TURN_SECONDS = 40.0
+    REVIEW_MODE = "selective"
+    LEAD_SECONDS = 25.0
 
     def __init__(self, package=None, writer=None, params=None):
         self.complete = getattr(writer, "complete", None)
@@ -50,6 +52,7 @@ class UnifiedAgent(CseeAgent):
         self.source_cache, self.role_counts = {}, Counter()
         self.decision_counts = Counter()
         self.claim_families = {}
+        self.evidence_records = {}
 
     def sources(self, case, sid, threads):
         desk = EvidenceDesk(case, self.pkg, sid, threads)
@@ -104,12 +107,20 @@ class UnifiedAgent(CseeAgent):
         self.prepared_case = case["case_id"]
         self.source_cache, self.role_counts = {}, Counter()
         started, dossiers = time.monotonic(), {}
+        experience = memory.recall(case)
         for sid in case["suppliers"]:
             sources = self.sources(case, sid, {})
             info = intel.build(case, self.pkg, sid)
+            digests = evidence.digests(case, self.pkg, sid, info.claims)
             claims = {preparation.claim_id(c): {"kind": c.kind, "text": c.sentence} for c in info.claims}
             sources = {**sources, **{f"evidence:{key}": c["text"] for key, c in claims.items()}}
-            dossiers[sid] = {"sources": sources, "claims": claims, "profile": info.profile}
+            dossiers[sid] = {
+                "sources": sources,
+                "claims": claims,
+                "profile": info.profile,
+                "digests": digests,
+                "experience": experience,
+            }
         self.briefs = preparation.research(
             self.complete, case, dossiers, max(0, self.PREPARE_SECONDS - (time.monotonic() - started)), self.record_role
         )
@@ -159,11 +170,14 @@ class UnifiedAgent(CseeAgent):
         self.turns, self.observations, self.turn_deadlines = {}, {}, {}
         self.decision_counts = Counter()
         self.claim_families = {}
+        self.evidence_records = {}
         super().prepare(case, threads)
         for sid, events in threads.items():
+            self.evidence_records[sid] = evidence.records(case, self.pkg, self.threads[sid].intel.claims)
             cited = {ref for m in events if m.get("from") == "buyer" for ref in m.get("refs", [])}
             self.claim_families[sid] = {
-                (c.kind, c.tag) for c in self.threads[sid].intel.claims
+                (c.kind, c.tag)
+                for c in self.threads[sid].intel.claims
                 if c.kind != "rival" and any(ref in cited for ref in c.ids)
             }
         self.log.event("unified_preparation", briefs=self.briefs)
@@ -178,7 +192,8 @@ class UnifiedAgent(CseeAgent):
         # Profile prose is context, not a keyword blacklist: a recommendation to replace
         # index A with B mentions both, without invalidating measured changes in either.
         claims = [
-            c for c in st.intel.claims
+            c
+            for c in st.intel.claims
             if preparation.claim_id(c) not in skip
             # Complaint-level ppm averages are not a supplier-wide defect rate. The
             # generated history claims do not establish a comparable denominator.
@@ -214,12 +229,15 @@ class UnifiedAgent(CseeAgent):
         if baseline is None:
             return None
         brief = self.briefs.get(sid, {})
+        state = control.observe(case, threads[sid], std)
         candidates = engine.menu(
             self, case, threads, sid, baseline, std, supplier, brief.get("priorities", []), brief.get("requests", [])
         )
         if not candidates:
             self.threads[sid].why = "No valid proposal beats the alternative"
             return None
+        current = closing_terms(case, theirs, std)
+        control.annotate(case, candidates, current, std, supplier, state)
         arguments = self.arguments(case, threads, sid)
         sources = self.sources(case, sid, threads) if self.complete else {}
         live_sources = {ref: text for ref, text in sources.items() if ref.startswith(("thread:", "attachment:"))}
@@ -240,6 +258,10 @@ class UnifiedAgent(CseeAgent):
             "supplier": sid,
             "preparation": {k: v for k, v in brief.items() if k not in ("reports", "role_diagnostics")},
             "profile_hypothesis": self.threads[sid].intel.profile,
+            "commercial_state": state,
+            "evidence_records": {
+                k: self.evidence_records[sid][k] for k in arguments if k in self.evidence_records.get(sid, {})
+            },
             "sources": turn_sources,
             "live_sources": live_sources,
             "latest_reply": latest(threads[sid]),
@@ -264,16 +286,7 @@ class UnifiedAgent(CseeAgent):
             def emit(key, row):
                 self.record_role(f"{sid}/{key}", row)
 
-            # Reserve at least half of the available clock for the deciding agent. Near a
-            # deadline skip advisers and let the lead use the existing evidence directly.
-            if budget >= 20:
-                advisers = council.advise(self.complete, payload, case, min(end, started + min(18, budget / 2)), emit)
-                live_requests = advisers["reply_analyst"]["requests"]
-                if live_requests:
-                    candidates = engine.add_requests(self, case, threads, sid, candidates, live_requests, std, supplier)
-                    payload["candidates"] = candidates
-                payload["advisers"] = advisers
-            raw, diagnostic = council.decide(self.complete, payload, end, emit)
+            raw, diagnostic = council.decide(self.complete, payload, min(end, started + self.LEAD_SECONDS), emit)
         else:
             raw, diagnostic = strategy.ask(self.complete, strategy.TURN_SYSTEM, payload, budget)
         raw = raw or {}
@@ -281,33 +294,129 @@ class UnifiedAgent(CseeAgent):
         if diagnostic == "ok" and selected["id"] != raw.get("candidate_id"):
             diagnostic = "invalid_candidate"
             raw = {}
+        lead_selected = selected["id"]
+        turn_cost_ceiling = max(candidates[0]["cost"], selected["cost"])
+        adjustments = []
+        # Compile an interpreted joint request inside the selected candidate's cost budget.
+        requests = preparation.trade_requests([raw.get("trade_request")], case, live_sources)
+        if diagnostic == "ok" and requests:
+            compiled = engine.add_requests(self, case, threads, sid, [selected], requests, std, supplier)
+            if len(compiled) > 1:
+                selected = {**compiled[-1], "id": f"C{len(candidates)}"}
+                candidates.append(selected)
+                control.annotate(case, candidates, current, std, supplier, state)
+                raw["paragraph"] = ""
+                adjustments.append("compiled joint request; wording reset to final terms")
+        review_reasons = control.review_reasons(selected, state, latest(threads[sid]))
+        if self.REVIEW_MODE == "always":
+            review_reasons.append("explicit review ablation")
+        if (
+            self.USE_TEAM
+            and self.complete
+            and diagnostic == "ok"
+            and self.REVIEW_MODE != "off"
+            and review_reasons
+            and started + budget - time.monotonic() >= 8
+        ):
+            advisers = council.review(
+                self.complete,
+                {
+                    **payload,
+                    "candidates": candidates,
+                    "selected_id": selected["id"],
+                    "proposed_bundle": {
+                        "candidate_id": selected["id"],
+                        "alternative_ids": raw.get("alternative_ids", []),
+                    },
+                    "turn_cost_ceiling": turn_cost_ceiling,
+                    "proposed_claim_ids": raw.get("claim_ids", []),
+                    "review_reasons": review_reasons,
+                },
+                min(started + budget, time.monotonic() + 10),
+                emit,
+            )
+            if advisers["diagnostic"] == "ok":
+                reviewed = next((c for c in candidates if c["id"] == advisers["candidate_id"]), None)
+                if (
+                    reviewed
+                    and reviewed["cost"] <= turn_cost_ceiling + 0.01
+                    and advisers["alternative_ids"] is not None
+                    and control.review_change_allowed(selected, reviewed, advisers, state, live_sources)
+                ):
+                    if selected["id"] != reviewed["id"] or raw.get("alternative_ids") != advisers["alternative_ids"]:
+                        raw["paragraph"] = ""
+                        adjustments.append("review replaced complete proposal; wording reset")
+                    selected = reviewed
+                    raw["alternative_ids"] = advisers["alternative_ids"]
+                    raw["reason"] = advisers["reason"]
+                if isinstance(raw.get("claim_ids"), list):
+                    if any(k in advisers["drop_claim_ids"] for k in raw["claim_ids"]):
+                        raw["paragraph"] = ""
+                    raw["claim_ids"] = [k for k in raw["claim_ids"] if k not in advisers["drop_claim_ids"]]
+        # Keep costly concessions conditional until a supplier quote actually compensates
+        # them. Offer the trial beside a protected primary, not as the new default structure.
+        if selected.get("term_concession", {}).get("compensation") == "unconfirmed":
+            trial = selected
+            reference = trial["term_concession"]["reference_terms"]
+            restore = {f: reference[f] for f in trial["term_concession"]["fields"]}
+            compiled = engine.add_requests(self, case, threads, sid, [trial], [{"terms": restore}], std, supplier)
+            if len(compiled) > 1:
+                protected = {**compiled[-1], "id": f"C{len(candidates)}", "kind": "protected_trade"}
+                candidates.append(protected)
+                control.annotate(case, candidates, current, std, supplier, state)
+            else:
+                protected = None
+            safe = [
+                c
+                for c in candidates
+                if c["cost"] <= turn_cost_ceiling + 0.01
+                and c.get("term_concession", {}).get("compensation") != "unconfirmed"
+            ]
+            if not safe:
+                self.threads[sid].why = "No valid protected proposal within the turn's cost budget"
+                return None
+            selected = protected if protected in safe else safe[0]
+            raw["alternative_ids"] = list(
+                dict.fromkeys(
+                    [
+                        trial["id"],
+                        *strategy.choices(raw.get("alternative_ids"), {c["id"] for c in candidates}, 2),
+                    ]
+                )
+            )[:2]
+            raw["paragraph"] = ""
+            adjustments.append("unconfirmed concession retained only as conditional alternative")
         with self.shared_lock:
             self.decision_counts[diagnostic] += 1
         observation = strategy.grounded(raw.get("observations"), payload["live_sources"] if self.USE_TEAM else sources)
-        observation += advisers.get("reply_analyst", {}).get("observations", [])
         unique = {json.dumps(o, sort_keys=True): o for o in self.observations.get(sid, []) + observation}
         self.observations[sid] = list(unique.values())[-9:]
-        # Up to two distinct cost-neutral alternatives; pace variants are never a menu of prices
-        # for the identical package. The selected strategy determines the primary package.
+        # All components use the turn's approved cost ceiling. A reviewer switching to a
+        # slightly cheaper primary must not silently delete the original protected alternative.
         sheets = [selected["terms"]]
+        bundle_ids = [selected["id"]]
         alternatives = raw.get("alternative_ids")
         explicit_alternatives = (
             isinstance(alternatives, list)
             and len(alternatives) <= 2
             and all(isinstance(k, str) and any(c["id"] == k for c in candidates) for k in alternatives)
         )
-        for candidate in candidates:
-            if explicit_alternatives and candidate["id"] not in alternatives:
-                continue
+        ordered = (
+            [next(c for c in candidates if c["id"] == k) for k in dict.fromkeys(alternatives)]
+            if explicit_alternatives
+            else candidates
+        )
+        for candidate in ordered:
             if not explicit_alternatives and candidate["kind"] in ("baseline", "patient", "responsive"):
                 continue
-            if candidate["cost"] > selected["cost"] + 0.01:
+            if candidate["cost"] > turn_cost_ceiling + 0.01:
                 continue
             if all(
                 any(candidate["terms"].get(f) != t.get(f) for f in case["negotiable"] if f != "unit_price")
                 for t in sheets
             ):
                 sheets.append(candidate["terms"])
+                bundle_ids.append(candidate["id"])
             if len(sheets) == 3:
                 break
         self.turns[sid] = {
@@ -318,6 +427,11 @@ class UnifiedAgent(CseeAgent):
             and len(raw["claim_ids"]) <= 3
             and all(isinstance(k, str) and k in arguments for k in raw["claim_ids"]),
             "paragraph": strategy.paragraph(raw.get("paragraph")),
+            "conditional_trade": any(
+                c.get("term_concession", {}).get("compensation") == "unconfirmed"
+                for c in candidates
+                if c["id"] in bundle_ids
+            ),
         }
         self.threads[sid].why = f"unified {selected['id']}: {selected['reason']} ({diagnostic})"
         self.log.event(
@@ -327,9 +441,19 @@ class UnifiedAgent(CseeAgent):
             model_budget_s=round(budget, 3),
             model_elapsed_s=round(time.monotonic() - started, 3),
             selected=selected["id"],
+            lead_selected=lead_selected,
+            final_bundle=bundle_ids,
+            turn_cost_ceiling=turn_cost_ceiling,
+            proposal_adjustments=adjustments,
             candidates=candidates,
             observations=observation,
             advisers=advisers,
+            review_reasons=review_reasons,
+            commercial_state=state,
+            playbook_id=raw.get("playbook_id")
+            if isinstance(raw.get("playbook_id"), str)
+            and raw["playbook_id"] in {p["id"] for p in brief.get("playbook", [])}
+            else None,
             reason=str(raw.get("reason", ""))[:400],
         )
         # Base bookkeeping expects unit_price even when the case fixes it.
@@ -339,6 +463,10 @@ class UnifiedAgent(CseeAgent):
         return self.turns[sid]["sheets"]
 
     def report_run(self):
+        try:
+            memory.record_log(self.log)
+        except (OSError, ValueError, TypeError, KeyError):
+            logging.getLogger("csee").warning("Could not record local negotiation experience", exc_info=True)
         if self.complete and self.USE_TEAM:
             text = (
                 ", ".join(f"{key}={value}" for key, value in sorted(self.role_counts.items())) or "no roles completed"
@@ -386,6 +514,11 @@ class UnifiedAgent(CseeAgent):
                 turn["paragraph"] or "Thank you for your reply. Please consider the following proposal.",
             ]
             lines.extend(c.sentence for c in turn.get("sent_claims", []))
+            if turn.get("conditional_trade"):
+                lines.append(
+                    "Each option is a complete conditional package: its price and other terms must be "
+                    "considered together. A change to one requires repricing the package."
+                )
             for i, terms in enumerate(turn["sheets"]):
                 full = closing_terms(case, terms, standard_terms(threads[sid]))
                 text = describe(full)
@@ -421,3 +554,15 @@ class UnifiedSingleAgent(UnifiedAgent):
     USE_TEAM = False
     PREPARE_SECONDS = 25.0
     TURN_SECONDS = 25.0
+
+
+class UnifiedFastAgent(UnifiedAgent):
+    """Same preparation and policy; one live strategist, no additional reviewer."""
+
+    REVIEW_MODE = "off"
+
+
+class UnifiedReviewAgent(UnifiedAgent):
+    """Same preparation and policy; request review each turn if the clock permits."""
+
+    REVIEW_MODE = "always"

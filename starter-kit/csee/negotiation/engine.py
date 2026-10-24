@@ -12,6 +12,7 @@ from arena_kit.play import standing
 
 from .. import levers
 from ..agents.strategy_support import finite, normalise_sheet
+from . import control
 
 
 def key(terms):
@@ -66,17 +67,14 @@ def propose(agent, case, threads, sid, theirs, std, supplier, left):
     if previous:
         previous_value = value_fn(closing_terms(case, previous, std))
         share = p.concede_late if agent.rounds_left(sid, left) <= 3 else p.concede_early
+        state = control.observe(case, threads[sid], std)
+        if state["hold_probe_eligible"] and agent.rounds_left(sid, left) > 3:
+            share = 0.0  # one bounded test, only after a comparable substantial concession
         # Advance proportionally to the remaining value gap. The old follow-step cap can
         # collapse to penny-sized moves even when a meaningful reciprocal trade is available.
         target = previous_value + share * max(0, their_value - previous_value)
     else:
-        discount = p.anchor_below_open if relation else p.anchor_leverage or p.anchor_below_open
-        brief = agent.briefs.get(sid, {})
-        stance = brief.get("stance") if brief.get("stance_evidence") else "balanced"
-        if stance == "competitive" and not relation:
-            discount = min(0.25, max(discount, 0.20))
-        elif stance == "protect_supply":
-            discount = min(discount, 0.06)
+        discount = p.anchor_below_open if relation else control.opening_discount(agent, case, threads, sid)
         if "capacity" in agent.signals(sid, threads[sid]) and relation:
             discount = min(discount, 0.04)
         anchor = offered["unit_price"] * (1 - discount)
@@ -203,6 +201,16 @@ def menu(agent, case, threads, sid, main, std, supplier, priorities=(), requests
                     # A bounded exploration cost, never a model-defined budget.
                     if total_cost(case, candidate, std, supplier) <= baseline_cost * 1.015:
                         add(candidate, "Reciprocate an observed supplier price step", "responsive")
+
+    # Actual supplier alternatives are useful probes, not just textual requests. Price their
+    # non-price structures at our budget; never treat a historical alternative as acceptable.
+    quoted_requests = [
+        {"terms": {f: sh["terms"][f] for f in case["negotiable"]
+                   if f != "unit_price" and f in sh["terms"] and sh["terms"][f] != main.get(f)},
+         "source": sh.get("term_sheet_id")}
+        for sh in threads[sid][-1].get("term_sheets", [])
+    ]
+    requests = [*requests, *[r for r in quoted_requests if 1 <= len(r["terms"]) <= 3]]
 
     if "unit_price" not in case["negotiable"]:
         return add_requests(agent, case, threads, sid, out, requests, std, supplier)

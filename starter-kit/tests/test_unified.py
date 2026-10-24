@@ -283,8 +283,67 @@ def test_anthropic_strategy_limits_output_and_retries_without_changing_writer(mo
     monkeypatch.setenv("LLM_MODEL", "test-model")
     complete = complete_from_env()
     complete.bounded("system", "user", 25)
-    assert requests[-1]["max_tokens"] == 2048
+    assert requests[-1]["max_tokens"] == 4096
     assert options == [{"timeout": 24.75, "max_retries": 0}]
     complete("system", "user")
     assert requests[-1]["max_tokens"] == 16000
     assert len(options) == 1
+
+
+@pytest.mark.parametrize("lookahead", ["missing_field", "alternative"])
+def test_protocol_lookahead_does_not_run_or_overwrite_live_council(lookahead):
+    calls = []
+
+    def complete(system, user):
+        role = system.split("ROLE: ")[1].split(".")[0]
+        calls.append(role)
+        if role == "live_lead":
+            assert calls.count(role) == 1
+            return '{"candidate_id":"C0", "claim_ids":[], "alternative_ids":[]}'
+        return "{}"
+
+    agent, case, threads = fixture(complete)
+    sheets = threads["sup:alpha"][-1]["term_sheets"]
+    if lookahead == "missing_field":
+        sheets[0]["terms"].pop("lead_time_days")
+    else:
+        other = copy.deepcopy(sheets[0])
+        other["term_sheet_id"] = "offer:alternative"
+        other["terms"]["unit_price"] -= 0.1
+        sheets.append(other)
+    message = agent.thread_move(case, threads, "sup:alpha")
+    assert calls.count("live_lead") == 1
+    assert len(calls) == 1
+    assert message["term_sheets"] == [{"terms": agent.turns["sup:alpha"]["sheets"][0]}]
+
+
+def test_profile_index_mentions_do_not_blacklist_measured_changes_and_history_is_not_recycled():
+    agent, case, threads = fixture()
+    sid = "sup:alpha"
+    st = agent.threads[sid]
+    st.intel.profile["arguments_to_avoid"] = [
+        {"argument": "keeping PPI-X", "why": "that index spiked; AS-X is better for us"}
+    ]
+    index = Claim("AS-X fell 5% in three months.", ["idx:AS-X@a", "idx:AS-X@b"], "index", tag="AS-X")
+    history = Claim("Old orders were cheaper.", ["po:1", "po:2"], "history", tag="po")
+    recycled = Claim("Other old orders were cheaper.", ["po:3", "po:4"], "history", tag="po")
+    dubious = Claim("Complaints averaged 1000 ppm.", ["qn:1", "qn:2"], "scorecard", tag="ppm")
+    st.intel.claims = [index, history, recycled, dubious]
+    pool = agent.arguments(case, threads, sid)
+    assert index in pool.values() and dubious not in pool.values()
+    agent.turns[sid] = {"claims": pool, "claim_ids": [], "explicit_claims": False}
+    agent.pick_claims(case, threads, sid)
+    assert not any(c.kind == "history" for c in agent.arguments(case, threads, sid).values())
+
+
+def test_truncated_provider_output_is_distinguished_and_never_partially_accepted(caplog):
+    from csee.llm import CompletionText
+
+    text = CompletionText('{"candidate_id":"C0"}', stop_reason="max_tokens", output_tokens=4096)
+    raw, diagnostic = strategy.ask(lambda *args: text, "system", {}, 1)
+    assert raw is None and diagnostic == "output_limit"
+    assert "output_tokens=4096" in caplog.text
+    raw, diagnostic = strategy.ask(lambda *args: '{"private":', "system", {}, 1)
+    assert raw is None and diagnostic == "JSONDecodeError"
+    assert "chars=11 pos=11" in caplog.text
+    assert '"private"' not in caplog.text

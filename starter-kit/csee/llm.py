@@ -16,6 +16,15 @@ USAGE = {"calls": 0, "input": 0, "cache_read": 0, "cache_write": 0, "output": 0}
 _lock = threading.Lock()
 
 
+class CompletionText(str):
+    """String-compatible response with per-call metadata (safe for parallel callers)."""
+
+    def __new__(cls, text, *, stop_reason=None, output_tokens=None):
+        result = super().__new__(cls, text)
+        result.stop_reason, result.output_tokens = stop_reason, output_tokens
+        return result
+
+
 def _count(usage):
     with _lock:
         USAGE["calls"] += 1
@@ -50,12 +59,16 @@ def complete_from_env():
             model=model, max_tokens=max_tokens, system=system, messages=[{"role": "user", "content": content}], **extra
         )
         _count(r.usage)
-        return "".join(b.text for b in r.content if b.type == "text")
+        return CompletionText(
+            "".join(b.text for b in r.content if b.type == "text"),
+            stop_reason=getattr(r, "stop_reason", None),
+            output_tokens=getattr(r.usage, "output_tokens", None),
+        )
 
     complete.parts = True
-    # Strategy JSON is small. Keep existing writer defaults, but give bounded callers a
-    # short-output request with no SDK retries extending beyond their decision budget.
+    # Grounded research includes excerpts and nested term requests. Leave output headroom;
+    # concise role prompts and the unchanged wall-clock deadline bound actual work.
     complete.bounded = lambda system, user, budget: complete(
-        system, user, max_tokens=2048, timeout=max(0.1, budget - 0.25)
+        system, user, max_tokens=4096, timeout=max(0.1, budget - 0.25)
     )
     return complete
