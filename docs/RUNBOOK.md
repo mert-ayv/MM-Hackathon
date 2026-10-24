@@ -2,7 +2,9 @@
 
 All times are **CET, the new time** (clocks go back overnight: 03:00 → 02:00). Code freeze **13:00**, Live Final **13:30–14:30** (5 waves × 8 min), top-5 pitch **15:10**.
 
-**Owner of the final machine:** ________ (one person; a cloud VM is preferred over a laptop on venue Wi-Fi).
+**Owner of the final machine:** Mert (go49mor), his MacBook Pro: repo, `.env` and the uv environment are set up and tested there (decided Sat 21:15; a fresh cloud VM the night before would add more risk than it removes).
+- On power the whole time, `caffeinate -dims` running, lid open; venue Wi-Fi plus a **phone hotspot ready** as fallback. The runner retries failed cases while a wave runs and a restart resumes running sessions (409).
+- **Standby:** a second teammate laptop with the repo cloned at the `final` tag and `.env` copied, runner NOT started. Start it only if the MacBook is confirmed dead (two runners on one key would both answer the same sessions). Then the standby runs exactly the same command; it resumes the open sessions.
 
 ## Before 08:00 (Saturday night)
 
