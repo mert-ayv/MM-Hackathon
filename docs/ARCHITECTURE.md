@@ -280,3 +280,8 @@ necessary to establish performance; existing runs predate this implementation.
 - **Verdict:** where the LLM changed the move it never helped (D02, P07 worse; P10 equal). Its reasoning was sound ("it names the payment lever, offer it"), but these suppliers price numbers by rules. It also cost 10-20 s per move. Not routed.
 
 **Sandbox regression explained:** router 0.852 -> 0.800 on sandbox D01 since c595836 (price increase -> planner + payment MESO). Bisected with worktrees: the sweep fixes (a208143) are neutral. D01 is a Tacto demo bot outside the 46 final suppliers; on the real P01/P02 the planner route is neutral to +0.05. Kept, but the planner can under-anchor big-step suppliers.
+
+**Sat 00:20, lessons from reading the tool-agent P07 transcript:**
+- **Extra sheets redirect the concession.** The bot mirrors on the sheet worth most to it. The LLM's 60-day sheet drew the supplier's steps onto the 60-day track (5.55 -> 5.43) while the 90-day price we wanted fell more slowly (5.53 -> 5.44).
+- **Answering its questions pays.** "Which volume can you commit to?" answered with the fixed 30,000 kits: "with this binding commitment, we are pleased to reduce".
+- **Writer fix:** an ID the model added and we dropped left "the washer award ()." (3 of 337 e-mails, all P07). Empty brackets are now stripped, because the jury reads replays.

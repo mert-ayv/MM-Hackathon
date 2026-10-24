@@ -162,6 +162,9 @@ no notes or comments to our own team - everything you write is sent to the suppl
         text = ID_RE.sub("", text)
         for k, sentence in keep.items():
             text = text.replace(k, sentence)
+        # an ID the model added and we dropped can leave "the washer award ()." behind (3 of 337 practice e-mails;
+        # the jury reads every replay): drop empty brackets and the space before them
+        text = re.sub(r"\s*\(\s*[,;]?\s*\)", "", text)
         for c in claims:  # the checked sentences must survive word for word
             if c.sentence not in text:
                 text = text.replace(SIGN, "").rstrip() + "\n" + c.sentence + "\n\n" + SIGN
