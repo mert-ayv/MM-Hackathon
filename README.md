@@ -65,6 +65,31 @@ ARENA_URL=http://127.0.0.1:8000 ARENA_API_KEY=<sim key> uv run arena play case:S
 
 Pulling Tacto's kit updates: `git pull upstream main` (remote `upstream` = tacto-playground/negotiation-arena-kit).
 
+## Our agent (`starter-kit/csee/`)
+
+Run from `starter-kit/` with `.env` filled in:
+
+```bash
+uv run python -m csee play case:P01 -v        # our agent, one practice case → score + replay link
+uv run python -m csee run                     # all 10 hosted practice cases in parallel (uses 10 quota!)
+uv run python -m csee run --set sandbox       # free: D01, D02
+uv run python -m csee eval                    # pull every finished session into runs/, table vs house agent
+uv run python -m csee show <session_id>       # one negotiation move by move, with the supplier's reasons
+uv run python -m csee final                   # THE LIVE FINAL (start before 13:30, leave running)
+```
+
+Add `--no-llm` to use template e-mails. Without an LLM key it uses templates anyway.
+
+| Module | What |
+| --- | --- |
+| `levers.py` | the best value of every term for us, EUR value of each lever, price for a target cost |
+| `intel.py` | supplier cost-floor estimate, verified data arguments (indices, should-cost, notice periods, scorecards, rival offers), cost-breakdown parser |
+| `agent.py` | per-thread concessions and term sheets, trade sheets, the accept/walk decision |
+| `writer.py` | e-mail wording: templates, or a model (claim sentences kept verbatim) |
+| `runner.py` | all supplier threads of a case **in parallel** (the 60 s clock is per thread), practice runs, Live Final waves |
+| `evaluate.py` | fetch results + traces + back office, report vs house agent |
+| `profiles/` | one JSON profile per supplier: situation, pressures, what it values, arguments to use/avoid |
+
 ## How scoring works (short version)
 
 - Each deal is priced as a **total cost C** in € (price, uncovered need, payment terms, freight, lead time, quality, tooling, index clause and, for `stabilise`/`secure_supply`, the supplier's margin health). The formula is in [api.md](brief/api.md#cost-and-score); compute it with `arena_kit.total_cost`.
