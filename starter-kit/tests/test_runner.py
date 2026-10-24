@@ -300,3 +300,108 @@ def test_close_keeps_the_accept_when_the_re_read_loses_the_offers_terms():
     table = ReissuedTable()
     assert play_case(table, "case:T", RealisticAgent())["deal"]
     assert "walk_away" not in table.actions
+
+
+class FlakyTable(FakeTable):
+    """`fail` holds the errors its sends raise, one per call, before it answers normally."""
+
+    def __init__(self, fail):
+        super().__init__()
+        self.fail, self.bodies = list(fail), []
+
+    def send(self, sid, msg):
+        self.bodies.append(msg)
+        if self.fail:
+            raise self.fail.pop(0)
+        return super().send(sid, msg)
+
+
+@pytest.mark.parametrize("error", [ConnectionError("network down"), ArenaError(503, "unavailable")])
+def test_a_failed_send_is_retried_not_the_thread_stopped(monkeypatch, error):
+    from csee import runner
+
+    monkeypatch.setattr(runner, "SEND_RETRY_S", 0.01)
+    table = FlakyTable([error])
+    out = play_case(table, "case:T", SlowAgent(0.0))
+    assert out["deal"]
+    assert sorted(s for s, _ in table.sent) == SUPPLIERS  # every thread got its message through
+
+
+def test_a_422_is_sent_again_as_the_plain_email():
+    table = FlakyTable([ArenaError(422, "term sheet without every negotiable field")])
+    play_case(table, "case:T", SlowAgent(0.0))
+    plain = [m for m in table.bodies if "term_sheets" not in m]
+    assert len(plain) == 1 and plain[0]["body"] == "Our offer."
+    assert len(table.sent) == 3
+
+
+class NoCloseTable(FakeTable):
+    """The network is down while closing: every close and every read fails."""
+
+    client = object()  # a remote table
+
+    def close(self, sid, msg):
+        raise ConnectionError("network down")
+
+    def result(self):
+        raise ConnectionError("network down")
+
+
+def test_an_unconfirmed_close_raises_so_the_wave_loop_resumes_the_case(monkeypatch):
+    from csee import runner
+
+    monkeypatch.setattr(runner, "CLOSE_NET_S", 0.5)
+    with pytest.raises(ConnectionError):
+        play_case(NoCloseTable(), "case:T", SlowAgent(0.0))
+
+
+class FlakyTable(FakeTable):
+    """Its sends raise the errors in `fail`, one per call, before it answers normally."""
+
+    def __init__(self, fail):
+        super().__init__()
+        self.fail, self.bodies = list(fail), []
+
+    def send(self, sid, msg):
+        self.bodies.append(msg)
+        if self.fail:
+            raise self.fail.pop(0)
+        return super().send(sid, msg)
+
+
+@pytest.mark.parametrize("error", [ConnectionError("network down"), ArenaError(503, "unavailable")])
+def test_a_failed_send_is_retried_not_the_thread_stopped(monkeypatch, error):
+    from csee import runner
+
+    monkeypatch.setattr(runner, "SEND_RETRY_S", 0.01)
+    table = FlakyTable([error])
+    assert play_case(table, "case:T", SlowAgent(0.0))["deal"]
+    assert sorted(s for s, _ in table.sent) == SUPPLIERS  # every thread got its message through
+
+
+def test_a_422_is_sent_again_as_the_plain_email():
+    table = FlakyTable([ArenaError(422, "term sheet without every negotiable field")])
+    play_case(table, "case:T", SlowAgent(0.0))
+    plain = [m for m in table.bodies if "term_sheets" not in m]
+    assert len(plain) == 1 and plain[0]["body"] == "Our offer."
+    assert len(table.sent) == 3
+
+
+class NoCloseTable(FakeTable):
+    """A remote table whose network is down while closing: every close and every read fails."""
+
+    client = object()
+
+    def close(self, sid, msg):
+        raise ConnectionError("network down")
+
+    def result(self):
+        raise ConnectionError("network down")
+
+
+def test_an_unconfirmed_close_raises_so_the_wave_loop_resumes_the_case(monkeypatch):
+    from csee import runner
+
+    monkeypatch.setattr(runner, "CLOSE_NET_S", 0.5)
+    with pytest.raises(ConnectionError):
+        play_case(NoCloseTable(), "case:T", SlowAgent(0.0))

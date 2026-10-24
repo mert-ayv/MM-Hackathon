@@ -87,9 +87,32 @@ class TemplateWriter:
 NOTE_START = re.compile(
     r"^\s*(-{3,}|_{3,}|\*{3,})\s*$|"
     r"^\s*\**\s*(internal note|note for the (purchasing )?team|note to the (purchasing )?team|"
-    r"notes? for (the )?(purchasing|internal)|for the purchasing team)\b|\(not part of the e-?mail\)",
+    r"notes? (for|to) (the )?(purchasing |internal |our )?team|notes? for (the )?(purchasing|internal)|"
+    r"for the purchasing team)\b|\(not part of the e-?mail\)",
     re.I,
 )
+
+
+# a closing line the model writes in place of ours ("Kind regards", "Best wishes", ...)
+CLOSING = re.compile(r"^\s*((best|kind|warm|warmest|many)\s+(regards|wishes)|regards|sincerely|yours sincerely|"
+                     r"with (best|kind) regards|mit freundlichen grüßen|viele grüße|best)\s*,?\s*$", re.I)
+
+
+def insert_before_signature(text, line):
+    """`line` above the sign-off, whatever closing the model wrote: replacing only our own "Best regards" block put
+    checked claims under a "Kind regards" signature, followed by a second signature (15 e-mails, P02/P08)."""
+    lines = text.rstrip().splitlines()
+    company = SIGN.splitlines()[-1]
+    end = next((i for i in range(len(lines) - 1, -1, -1) if company in lines[i]), None)
+    if end is None:
+        return text.rstrip() + "\n" + line + "\n\n" + SIGN
+    start = end
+    for i in range(end - 1, max(end - 3, -1), -1):  # the closing line sits just above the company line
+        if CLOSING.match(lines[i]):
+            start = i
+            break
+    head = "\n".join(lines[:start]).rstrip()
+    return head + "\n" + line + "\n\n" + "\n".join(lines[start:])
 
 
 def strip_notes(text):
@@ -180,5 +203,5 @@ no notes or comments to our own team - everything you write is sent to the suppl
         text = re.sub(r"\s*\(\s*[,;]?\s*\)", "", text)
         for c in claims:  # the checked sentences must survive word for word
             if c.sentence not in text:
-                text = text.replace(SIGN, "").rstrip() + "\n" + c.sentence + "\n\n" + SIGN
+                text = insert_before_signature(text, c.sentence)
         return text[:8000]
