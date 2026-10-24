@@ -50,6 +50,23 @@ VARIANTS = {
         "adopt_revealed": True,
         "hold_on_internal": True,
     },
+    "v6": {
+        "adopt_insisted": True,
+        "rival_only_lower": True,
+        "cash_trade_always": True,
+        "anchor_leverage": 0.22,
+        "rfq_anchor_vs_leader": 0.08,
+        "adopt_revealed": True,
+        "hold_on_internal": True,
+    },
+    "v7": {
+        "adopt_insisted": True,
+        "rival_only_lower": True,
+        "cash_trade_always": True,
+        "anchor_leverage": 0.22,
+        "rfq_anchor_vs_leader": 0.08,
+        "adopt_revealed": True,
+    },
 }
 
 
@@ -65,6 +82,8 @@ DESCRIPTIONS = {
     "v5": "Fable review bets: anchor 22% below outside relationship goals with no floor; RFQ first ask <= 92% "
     "of the cheapest rival; keep terms the supplier's own alternative sheets show are cheaper for us; hold "
     "price while it asks its boss; v2's held-terms, lower-rival, cash sheet; concede at most half its step.",
+    "v6": "v5 with base's concession speed (follow_share 1.1): keep the RFQ gain without the D01 patience loss.",
+    "v7": "v6 without holding the price while the supplier asks its boss.",
     "v4": "base tactics (12% anchor, steady concessions keep the supplier conceding: D01) + v2's adopt-held-terms, "
     "lower-rival-only, cash sheet + floor guard (P05 anchored 0.5% below the opening) + RFQ: beat the leader.",
 }
