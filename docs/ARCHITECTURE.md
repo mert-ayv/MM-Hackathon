@@ -232,3 +232,13 @@ necessary to establish performance; existing runs predate this implementation.
   - base/v14a for quality;
   - base/basea for bundling;
   - base/v7a for RFQ.
+
+**Sat 22:50, P11 (quality) mechanism:**
+- **Results:** the quality menu (Astra session) scored 0.794 / 0.71; the planner scored 0.71 / 0.672; base-d scored 0.71 every time (about 8 runs).
+- **Why:** the supplier prices in 0.50 ticks, rounded up, and mirrors our step. It only drops a tick when our step is at least one tick.
+  - The menu kept +0.55 steps to the end and got 45.00 in its final.
+  - The planner closed the gap fast and its last steps (+0.16, +0.02) round to nothing.
+  - Base drew the final at reply 4.
+- **Lesson:** against coarse-tick suppliers, keep each step at least one tick and leave enough gap to keep stepping until the final.
+- **Router:** quality -> mert-quality-menu/v14a.
+- **Also rejected:** P02 fixed-price ladder (0.499: the bot stalls at 372 without the clause) and P18 joint payment/deadband menu (0.542).
