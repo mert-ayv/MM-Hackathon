@@ -149,7 +149,8 @@ class CseeAgent:
             _, terms = standing(threads[sid]) if threads.get(sid) else (None, {})
             first = next((m for m in threads.get(sid, []) if m.get("from") != "buyer" and m.get("term_sheets")), None)
             opening = dict(first["term_sheets"][0]["terms"]) if first else dict(terms)
-            info = intel_mod.build(case, self.pkg, sid, opening.get("unit_price"), (first or {}).get("body") or "", first)
+            body = (first or {}).get("body") or ""
+            info = intel_mod.build(case, self.pkg, sid, opening.get("unit_price"), body, opening=first)
             st = self.threads[sid] = ThreadState(info, opening=opening)
             for m in threads.get(sid, []):  # a resumed case: continue from our earlier asks, never re-anchor
                 if m.get("from") == "buyer" and m.get("term_sheets"):

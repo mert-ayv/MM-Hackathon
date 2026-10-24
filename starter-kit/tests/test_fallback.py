@@ -134,7 +134,7 @@ def test_hook_keeps_curated_and_fills_unknown(pkg):
     case = json.loads(CASES.read_text())[0]
     curated = intel.build(case, pkg, case["suppliers"][0])
     assert curated.profile == intel.load_profile(case["suppliers"][0]) and curated.profile.get("source") != "auto"
-    stranger = intel.build(NEW_CASE, pkg, "sup:79999", 42.8, OPENING)
+    stranger = intel.build(NEW_CASE, pkg, "sup:79999", 42.8, opening=OPENING)
     assert stranger.profile["source"] == "auto"
     assert stranger.full_cost == pytest.approx(44.0 * 0.82) and stranger.country == "PL"
 
