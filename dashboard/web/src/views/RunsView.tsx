@@ -6,20 +6,31 @@ import type { CaseSummary, RunMeta } from "../lib/types";
 import { Card, cx, Empty, Label, Mono, StatusBadge } from "../components/ui";
 
 export function RunsView({ data, error }: { data: RunsResponse | null; error: string | null }) {
-  const runs = data?.runs ?? [];
+  const all = data?.runs ?? [];
+  const [setF, setSetF] = useState<string>("all");
+  const [authorF, setAuthorF] = useState<string>("all");
+  const sets = useMemo(() => [...new Set(all.map((r) => r.set ?? "–"))].sort(), [all]);
+  const authors = useMemo(() => [...new Set(all.map((r) => r.author ?? (r.source === "imported" ? "unknown" : "local")))].sort(), [all]);
+  const runs = useMemo(
+    () =>
+      all.filter(
+        (r) => (setF === "all" || (r.set ?? "–") === setF) && (authorF === "all" || (r.author ?? (r.source === "imported" ? "unknown" : "local")) === authorF),
+      ),
+    [all, setF, authorF],
+  );
   const [chosen, setChosen] = useState<string[] | null>(null);
   const [baseline, setBaseline] = useState<string | null>(null);
 
   // default: the 4 latest runs; new runs that appear get added automatically
   const [known, setKnown] = useState<string[]>([]);
   useEffect(() => {
-    const ids = runs.map((r) => r.run_id);
+    const ids = all.map((r) => r.run_id);
     const fresh = ids.filter((id) => !known.includes(id));
     if (fresh.length) {
       setKnown(ids);
       setChosen((c) => (c === null ? ids.slice(0, 4) : [...fresh, ...c]));
     }
-  }, [runs, known]);
+  }, [all, known]);
 
   const selected = useMemo(
     () => runs.filter((r) => (chosen ?? []).includes(r.run_id)).sort((a, b) => (a.started_at ?? "").localeCompare(b.started_at ?? "")),
@@ -30,12 +41,13 @@ export function RunsView({ data, error }: { data: RunsResponse | null; error: st
   const caseIds = useMemo(() => {
     const ids: string[] = [];
     for (const r of selected) for (const c of r.case_summaries) if (!ids.includes(c.case_id)) ids.push(c.case_id);
+    // repeats of a case ("case:D01~2") sort right after it
     return ids.sort();
   }, [selected]);
 
   if (error && !data) return <Empty>Can't reach the dashboard server: {error}</Empty>;
   if (!data) return <div className="py-20 text-center text-ink-3">Loading runs…</div>;
-  if (!runs.length) return <Empty>No runs yet. Runs appear here as soon as the agent writes to <Mono>runs/</Mono>.</Empty>;
+  if (!all.length) return <Empty>No runs yet. Runs appear here as soon as the agent writes to <Mono>runs/</Mono>.</Empty>;
 
   const toggle = (id: string) => setChosen((c) => ((c ?? []).includes(id) ? (c ?? []).filter((x) => x !== id) : [...(c ?? []), id]));
 
@@ -51,6 +63,19 @@ export function RunsView({ data, error }: { data: RunsResponse | null; error: st
             <span className="rounded-full border border-dashed border-ink-4 px-3 py-1 text-xs text-ink-3">Showing fixture runs</span>
           )}
         </div>
+        {(sets.length > 1 || authors.length > 1) && (
+          <div className="mb-4 flex flex-wrap items-center gap-5 text-xs">
+            {sets.length > 1 && (
+              <Filter label="Set" value={setF} options={["all", ...sets]} onChange={setSetF} />
+            )}
+            {authors.length > 1 && (
+              <Filter label="Author" value={authorF} options={["all", ...authors]} onChange={setAuthorF} />
+            )}
+            <button className="text-ink-3 underline decoration-line underline-offset-2 hover:text-ink" onClick={() => setChosen(runs.slice(0, 4).map((r) => r.run_id))}>
+              Compare the 4 latest shown
+            </button>
+          </div>
+        )}
         <div className="grid grid-cols-[repeat(auto-fill,minmax(17rem,1fr))] gap-3">
           {runs.map((r) => (
             <RunCard key={r.run_id} r={r} on={(chosen ?? []).includes(r.run_id)} isBase={base?.run_id === r.run_id} onToggle={() => toggle(r.run_id)} onBase={() => setBaseline(r.run_id)} />
@@ -80,11 +105,11 @@ export function RunsView({ data, error }: { data: RunsResponse | null; error: st
                   {selected.map((r) => (
                     <th key={r.run_id} className="min-w-[13.5rem] px-4 py-3 align-bottom">
                       <div className="flex items-center gap-2">
-                        <AgentMark agent={r.agent} />
+                        <AgentMark agent={r.variant ?? r.agent} />
                         <div>
-                          <Mono className="block text-[0.72rem] font-medium text-ink">{r.run_id}</Mono>
+                          <Mono className="block text-[0.72rem] font-medium text-ink">{r.author ? `${r.author} · ${r.agent_name && r.agent_name !== "base" ? r.agent_name + "." : ""}${r.variant}` : r.run_id}</Mono>
                           <span className="text-[0.68rem] text-ink-3">
-                            {r.agent_version ?? "–"} · {r.set ?? "–"}
+                            {r.agent_version ?? "–"} · {r.set ?? "–"} · {dateTime(r.started_at)}
                             {base?.run_id === r.run_id && <span className="ml-1.5 font-semibold text-ink">baseline</span>}
                           </span>
                         </div>
@@ -96,12 +121,14 @@ export function RunsView({ data, error }: { data: RunsResponse | null; error: st
               <tbody>
                 {caseIds.map((cid) => {
                   const title = selected.map((r) => r.case_summaries.find((c) => c.case_id === cid)?.title).find(Boolean);
+                  const [realId, rep] = cid.split("~");
                   const type = selected.map((r) => r.case_summaries.find((c) => c.case_id === cid)?.type).find(Boolean);
                   const b = base?.case_summaries.find((c) => c.case_id === cid);
                   return (
                     <tr key={cid} className="border-b border-line-2 last:border-0">
                       <td className="sticky left-0 z-[1] bg-paper px-5 py-4 align-top">
-                        <Mono className="text-[0.75rem] font-semibold text-ink">{cid}</Mono>
+                        <Mono className="text-[0.75rem] font-semibold text-ink">{realId}</Mono>
+                        {rep && <span className="ml-2 rounded-full bg-paper-3 px-1.5 py-0.5 text-[0.65rem] text-ink-3">play {rep}</span>}
                         <div className="mt-0.5 text-[0.82rem] leading-snug text-ink-2">{title ?? "–"}</div>
                         {type && <div className="mt-1 text-[0.68rem] uppercase tracking-wider text-ink-4">{type.replace("_", " ")}</div>}
                       </td>
@@ -136,12 +163,12 @@ export function RunsView({ data, error }: { data: RunsResponse | null; error: st
 
 export function AgentMark({ agent, size = "md" }: { agent: string | null; size?: "md" | "lg" }) {
   const a = (agent ?? "?").slice(0, 5);
-  const accent = a === "A";
+  const accent = a === "A" || a === "base";
   return (
     <span
       className={cx(
         "inline-flex shrink-0 items-center justify-center rounded-lg font-mono font-semibold",
-        size === "lg" ? "h-10 min-w-10 px-2 text-base" : "h-8 min-w-8 px-1.5 text-[0.8rem]",
+        size === "lg" ? "h-10 min-w-10 px-2 text-base" : "h-8 min-w-8 px-1.5 text-[0.75rem]",
         accent ? "bg-accent text-white" : a === "C" ? "bg-ink text-white" : "border border-line bg-paper-3 text-ink-2",
       )}
     >
@@ -156,9 +183,11 @@ function RunCard({ r, on, isBase, onToggle, onBase }: { r: RunMeta; on: boolean;
     <Card className={cx("cursor-pointer p-4 transition-all", on ? "border-ink ring-1 ring-ink" : "opacity-70 hover:opacity-100")} onClick={onToggle}>
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-3">
-          <AgentMark agent={r.agent} />
+          <AgentMark agent={r.variant ?? r.agent} />
           <div>
-            <Mono className="block text-[0.78rem] font-medium">{r.run_id}</Mono>
+            <Mono className="block text-[0.78rem] font-medium">
+              {r.author ? `${r.author} · ${r.agent_name && r.agent_name !== "base" ? r.agent_name + "." : ""}${r.variant}` : r.run_id}
+            </Mono>
             <div className="text-[0.7rem] text-ink-3">
               {dateTime(r.started_at)} · {r.set ?? "–"} · <Mono>{r.agent_version ?? "–"}</Mono>
             </div>
@@ -186,9 +215,15 @@ function RunCard({ r, on, isBase, onToggle, onBase }: { r: RunMeta; on: boolean;
         </div>
       </div>
       {r.notes && <p className="mt-3 line-clamp-2 text-[0.75rem] text-ink-3">{r.notes}</p>}
+      <div className="mt-2 flex flex-wrap items-center gap-3">
+      {r.source === "imported" && (
+        <span className="inline-block rounded-full border border-dashed border-ink-4 px-2 py-0.5 text-[0.62rem] uppercase tracking-wider text-ink-3">
+          imported · arena
+        </span>
+      )}
       {on && !isBase && (
         <button
-          className="mt-2 text-[0.7rem] text-ink-3 underline decoration-line underline-offset-2 hover:text-ink"
+          className="text-[0.7rem] text-ink-3 underline decoration-line underline-offset-2 hover:text-ink"
           onClick={(e) => {
             e.stopPropagation();
             onBase();
@@ -197,6 +232,7 @@ function RunCard({ r, on, isBase, onToggle, onBase }: { r: RunMeta; on: boolean;
           Use as baseline
         </button>
       )}
+      </div>
     </Card>
   );
 }
@@ -240,5 +276,24 @@ function Cell({ r, c, base }: { r: RunMeta; c: CaseSummary; base?: CaseSummary }
         {c.errors ? ` · ${c.errors} error${c.errors > 1 ? "s" : ""}` : ""}
       </div>
     </a>
+  );
+}
+
+function Filter({ label, value, options, onChange }: { label: string; value: string; options: string[]; onChange: (v: string) => void }) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className="uppercase tracking-[0.12em] text-ink-3">{label}</span>
+      <div className="flex flex-wrap gap-1">
+        {options.map((o) => (
+          <button
+            key={o}
+            onClick={() => onChange(o)}
+            className={cx("rounded-full border px-2.5 py-0.5 transition-colors", value === o ? "border-ink bg-ink text-white" : "border-line text-ink-2 hover:border-ink-3")}
+          >
+            {o}
+          </button>
+        ))}
+      </div>
+    </div>
   );
 }

@@ -147,7 +147,7 @@ export function PlanPanel({
             <Label className="!text-white/60">Decision · {dec.kind.replace("_", " ")}</Label>
             {typeof dec.decided_in_s === "number" && <Mono className="text-[0.7rem] text-white/50">{duration(dec.decided_in_s)}</Mono>}
           </div>
-          <p className={cx("mt-1.5 leading-snug", big ? "text-base" : "text-[0.82rem]")}>{dec.reason || "–"}</p>
+          <p className={cx("mt-1.5 leading-snug", big ? "text-base" : "text-[0.82rem]")}>{dec.reason || "No reason logged."}</p>
         </div>
       )}
     </div>

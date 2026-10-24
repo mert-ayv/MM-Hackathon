@@ -20,7 +20,7 @@ Options (passed through to the server):
 | Flag | What |
 |---|---|
 | *(none)* | Reads `<repo>/runs/`. While that folder holds no runs, it falls back to the fixtures. |
-| `--fixtures` | Shows `runs/` **and** `dashboard/fixtures/runs/` |
+| `--fixtures` | Shows `runs/` **and** `dashboard/fixtures/runs/` (demo data) |
 | `--fixtures-only` | Shows only the fixtures (pitch rehearsal) |
 | `--no-fallback` | Never shows the fixtures |
 | `--runs PATH` | Reads another run folder (env `DASHBOARD_RUNS`) |
@@ -58,6 +58,37 @@ Press **`P`** (or "Presentation" top right) for projector-sized type. New runs a
 up on their own: the app polls `/api/version` every 2.5 s, and an open case follows a live run.
 Missing `dossier` / `specialists` / `plan` events (baseline agents) just leave those panels
 empty, and unknown event types are ignored.
+
+## The team's real games
+
+```bash
+# from the repo root
+uv run --project starter-kit python dashboard/import_sessions.py --fetch   # + read-only GETs on the arena
+uv run --project starter-kit python dashboard/import_sessions.py           # offline: saved sessions + cache
+```
+
+The importer turns finished arena sessions into runs under `runs/<run_id>/` (git-ignored), tagged
+`"source": "imported"`. It reads `starter-kit/runs/sessions/*.json` (from `csee eval`) and, with
+`--fetch`, the arena itself, using **GETs only** (`/sessions`, `/sessions/{sid}`, `/threads/…`,
+`/backoffice`, the quote PDFs). That costs no quota and never moves. Everything fetched is cached
+in `runs/.arena-cache/`.
+
+- **Events per game:** `case_opened`, `message_sent` (with the claims the arena read), `reply`
+  (with the supplier's alternative sheets and its reasons from the trace), `decision` for accept
+  and walk-away, `result`, `trace` and `backoffice`. The timeline shows the supplier's reasons and
+  back-office notes per round.
+- **Pricing:** every sheet is priced with `arena_kit.cost` and the supplier's standard terms from
+  its quote PDF, then checked against the arena's `c_open` / `c_deal`. Deals in
+  `stabilise` / `secure_supply` cases differ only in the relationship term, because the arena
+  knows the supplier's true cost.
+- **Grouping:** runs are grouped by the experiment ledger (`experiments/*.jsonl`: author, agent,
+  variant, commit, set). Sessions without a ledger row land in one `arena-<set>` run per day.
+  Repeated plays of a case in one run are `case_D01~2.jsonl` and line up across runs in the
+  comparison.
+- **Filters:** the runs view filters by set and author.
+
+Once `csee` writes its own run logs (`starter-kit/csee/runlog.py`), those runs show up next to the
+imported ones.
 
 ## Fixtures
 

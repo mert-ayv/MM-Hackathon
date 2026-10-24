@@ -27,15 +27,16 @@ def priced(case, terms, standard=None, supplier=None):
 
 
 def write_run(folder: Path, meta: dict, cases: dict[str, list[dict]]):
-    """Write run.json and one JSONL per case. `cases`: {case_id: [event dicts with ts and type]};
-    common fields and seq are filled in here."""
+    """Write run.json and one JSONL per case. `cases`: {key: [event dicts with ts and type]}; the key names
+    the file (":" -> "_"; a repeat of a case in the same run is "case:D01~2"), an event's own `case_id`
+    (default: the key) is the real case. Common fields and seq are filled in here."""
     folder.mkdir(parents=True, exist_ok=True)
     (folder / "run.json").write_text(json.dumps(meta, indent=2, ensure_ascii=False) + "\n")
-    for case_id, events in cases.items():
-        with (folder / f"{case_id.replace(':', '_')}.jsonl").open("w", encoding="utf-8") as f:
+    for key, events in cases.items():
+        with (folder / f"{key.replace(':', '_')}.jsonl").open("w", encoding="utf-8") as f:
             for seq, ev in enumerate(events):
                 line = {"ts": ev.pop("ts"), "seq": seq, "run_id": meta["run_id"], "agent": meta["agent"],
-                        "case_id": case_id, "session_id": ev.pop("session_id", None), "type": ev.pop("type"), **ev}
+                        "case_id": ev.pop("case_id", key), "session_id": ev.pop("session_id", None), "type": ev.pop("type"), **ev}
                 f.write(json.dumps(line, ensure_ascii=False, default=str) + "\n")
 
 

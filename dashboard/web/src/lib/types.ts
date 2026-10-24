@@ -25,6 +25,7 @@ export interface Opening {
   priced?: Priced;
   standard_terms?: Terms;
   body?: string;
+  reasons?: string[] | null;
 }
 
 export interface CaseFile {
@@ -116,6 +117,7 @@ export interface MessageSent extends BaseEvent {
   body?: string;
   sheets?: Priced[];
   refs?: string[];
+  claims?: { id: string; text: string }[];
 }
 
 export interface ClaimResult {
@@ -137,7 +139,19 @@ export interface Reply extends BaseEvent {
   missing_fields?: string[];
   signals?: Record<string, unknown>;
   attachments?: { attachment_id: string; name: string; type: string }[];
-  latency_s?: number;
+  latency_s?: number | null;
+  /** imported games: other sheets the supplier offered, and its reasons from the arena trace */
+  alternatives?: { offer_id?: string; priced?: Priced }[];
+  reasons?: string[] | null;
+}
+
+export interface BackofficeNote {
+  round?: number;
+  supplier_id?: string;
+  supplier?: string;
+  from?: string;
+  to?: string;
+  text?: string;
 }
 
 export interface ErrorEvent extends BaseEvent {
@@ -166,6 +180,8 @@ export interface Result extends BaseEvent {
 
 export interface CaseSummary {
   case_id: string;
+  real_case_id?: string;
+  repeat?: number;
   file: string;
   events: number;
   status: "running" | "ended";
@@ -198,7 +214,12 @@ export interface RunMeta {
   cases: string[];
   notes: string | null;
   source: string;
+  folder?: string;
   dir: string;
+  author?: string | null;
+  variant?: string | null;
+  agent_name?: string | null;
+  commit?: string | null;
   case_summaries: CaseSummary[];
   mean_score: number | null;
   saved_total: number;

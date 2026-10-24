@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { claimText, previousStanding, type RoundData, type Thread } from "../lib/model";
+import { claimText, previousStanding, sentClaims, type RoundData, type Thread } from "../lib/model";
 import { eur, eurDelta, termValue, time, duration } from "../lib/format";
 import type { Dossier, Priced } from "../lib/types";
 import { ClaimBadge, cx, Label, Mono, StatusBadge } from "./ui";
@@ -170,6 +170,12 @@ export function ThreadTimeline({
       {t.opening && (
         <Step label="Open" active={selectedRound === 0} onClick={() => onSelectRound(0)}>
           <Mail from={t.name} to="Hollerau" subject="Opening quote" body={t.opening.body} ts={open?.ts} right={<StatusBadge status="open" />}>
+            {t.opening.reasons && t.opening.reasons.length > 0 && (
+              <div className="mt-3 rounded-lg bg-paper-2 px-3 py-2 text-[0.78rem] text-ink-2">
+                <Label className="mb-1">Supplier's reasons</Label>
+                {t.opening.reasons.join(" · ")}
+              </div>
+            )}
             {t.opening.priced && (
               <div className="mt-3">
                 <SheetChip
@@ -235,7 +241,7 @@ function RoundBlock({
   const dec = rd.decision;
   const msg = rd.message;
   const rp = rd.reply;
-  const claimsSent = rd.plan?.candidates?.find((c) => c.id === dec?.candidate_id)?.claims ?? [];
+  const claimsSent = sentClaims(rd);
   const results = rp?.claim_results ?? [];
   return (
     <Step label={`R${rd.round}`} active={active} onClick={onSelect}>
@@ -253,7 +259,7 @@ function RoundBlock({
           </div>
           <div className="min-w-0 text-[0.82rem] leading-snug text-ink-2">
             <span className="mr-1.5 text-ink-3">Strategist{dec.candidate_id ? ` (${dec.candidate_id})` : ""}:</span>
-            {dec.reason || "–"}
+            {dec.reason || <span className="italic text-ink-4">no reason logged</span>}
             {typeof dec.decided_in_s === "number" && <Mono className="ml-2 text-[0.68rem] text-ink-4">{duration(dec.decided_in_s)}</Mono>}
           </div>
         </div>
@@ -316,6 +322,31 @@ function RoundBlock({
                 onClick={() => onPick({ priced: rp.standing!.priced!, label: `R${rd.round} · standing offer`, round: rd.round, sid: t.sid })}
               />
               {rp.standing.offer_id && <Mono className="text-[0.68rem] text-ink-4">{rp.standing.offer_id}</Mono>}
+              {rp.alternatives?.map((a, i) =>
+                a.priced ? (
+                  <SheetChip
+                    key={i}
+                    p={a.priced}
+                    tag={`alt ${i + 1}`}
+                    delta={prev?.c != null && a.priced.c != null ? a.priced.c - prev.c : null}
+                    selected={picked?.priced === a.priced}
+                    onClick={() => onPick({ priced: a.priced!, label: `R${rd.round} · alternative ${i + 1}`, round: rd.round, sid: t.sid })}
+                  />
+                ) : null,
+              )}
+            </div>
+          )}
+          {rp.reasons && rp.reasons.length > 0 && (
+            <div className="mt-3 rounded-lg bg-paper-2 px-3 py-2.5">
+              <Label className="mb-1">Supplier's reasons (arena trace)</Label>
+              <ul className="space-y-0.5 text-[0.78rem] text-ink-2">
+                {rp.reasons.map((x, i) => (
+                  <li key={i} className="flex gap-1.5">
+                    <span className="text-ink-4">–</span>
+                    {x}
+                  </li>
+                ))}
+              </ul>
             </div>
           )}
           {results.length > 0 && claimsSent.length === 0 && (
@@ -342,6 +373,24 @@ function RoundBlock({
             {typeof rp.latency_s === "number" && <span>Latency {duration(rp.latency_s)}</span>}
           </div>
         </Mail>
+      )}
+      {rd.backoffice.length > 0 && (
+        <details className="group/bo rounded-xl border border-dashed border-line px-4 py-2.5 text-[0.78rem]">
+          <summary className="cursor-pointer list-none text-ink-3 hover:text-ink">
+            <span className="mr-1.5 inline-block transition-transform group-open/bo:rotate-90">›</span>
+            Supplier back office · {rd.backoffice.length} note{rd.backoffice.length > 1 ? "s" : ""}
+          </summary>
+          <ul className="mt-2 space-y-1">
+            {rd.backoffice.map((n, i) => (
+              <li key={i} className="flex gap-2">
+                <span className="shrink-0 font-medium text-ink-2">
+                  {n.from ?? "?"} → {n.to ?? "?"}
+                </span>
+                <span className="text-ink-2">{n.text}</span>
+              </li>
+            ))}
+          </ul>
+        </details>
       )}
     </Step>
   );

@@ -93,6 +93,19 @@ Add `--no-llm` to use template e-mails. Without an LLM key it uses templates any
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | **how the agent works + changelog of architecture versions with evidence** |
 | `profiles/` | one JSON profile per supplier: situation, pressures, what it values, arguments to use/avoid |
 
+## Dashboard
+
+A local web app for debugging runs and for the pitch replay ([dashboard/README.md](dashboard/README.md)):
+
+```bash
+uv run --project starter-kit python dashboard/import_sessions.py --fetch   # our real arena games → runs/ (GET only, no quota)
+./dashboard/run.sh --open                                                  # http://127.0.0.1:8787
+```
+
+It compares runs (base vs variants per author), shows each case round by round (e-mails, term
+sheets with C, claim results, the supplier's reasons) and replays a negotiation for the pitch. It
+needs Node ≥ 18 and uv the first time, and works offline after that.
+
 ## How scoring works (short version)
 
 - Each deal is priced as a **total cost C** in € (price, uncovered need, payment terms, freight, lead time, quality, tooling, index clause and, for `stabilise`/`secure_supply`, the supplier's margin health). The formula is in [api.md](brief/api.md#cost-and-score); compute it with `arena_kit.total_cost`.

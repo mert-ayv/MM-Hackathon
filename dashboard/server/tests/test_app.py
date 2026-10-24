@@ -103,3 +103,63 @@ def test_every_fixture_follows_the_contract():
         assert all(required <= e.keys() for e in lines), f
         assert lines[0]["type"] == "case_opened"
         assert any(e["type"] == "result" for e in lines), f
+
+
+def test_repeated_case_plays_and_imported_source(runs_dir):
+    d = write_run(runs_dir)
+    meta = json.loads((d / "run.json").read_text())
+    (d / "run.json").write_text(json.dumps({**meta, "source": "imported", "author": "ege", "variant": "v5"}))
+    (d / "case_P01~2.jsonl").write_text((d / "case_P01.jsonl").read_text())
+    c = client(runs_dir)
+    run = c.get("/api/runs").json()["runs"][0]
+    assert run["source"] == "imported" and run["author"] == "ege" and run["variant"] == "v5"
+    keys = [s["case_id"] for s in run["case_summaries"]]
+    assert keys == ["case:P01", "case:P01~2"]
+    assert run["case_summaries"][1]["real_case_id"] == "case:P01" and run["case_summaries"][1]["repeat"] == 2
+    r = c.get("/api/runs/20261024-153012-A/cases/case:P01~2")
+    assert r.status_code == 200 and r.json()["events"][0]["case_id"] == "case:P01"
+
+
+def test_importer_converts_a_saved_session(tmp_path):
+    """The importer's conversion on a minimal arena session (no network)."""
+    import importlib.util
+    import sys
+
+    path = Path(__file__).resolve().parents[2] / "import_sessions.py"
+    try:
+        import arena_kit  # noqa: F401
+    except ImportError:
+        pytest.skip("arena_kit not installed in this env (run with uv run --project ../../starter-kit)")
+    spec = importlib.util.spec_from_file_location("import_sessions", path)
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules["import_sessions"] = mod
+    spec.loader.exec_module(mod)
+    case = {"case_id": "case:X", "negotiable": ["unit_price"], "fixed_terms": {"volume_per_year": 100, "contract_months": 12},
+            "term_options": {}, "suppliers": ["sup:1"],
+            "buyer": {"need_per_year": 100, "horizon_years": 1, "fallback_unit_price": 12, "interest_rate": 0.08,
+                      "reference_payment_days": 60, "need_lead_time_days": 30, "freight_eur_per_unit": {"EXW": 1, "FCA": 0.5, "DAP": 0},
+                      "alternative": {"kind": "none", "terms": {}}}}
+    sheet = lambda oid, p: {"term_sheet_id": oid, "terms": {"unit_price": p}}  # noqa: E731
+    state = {"session_id": "s1", "case_id": "case:X", "end_reason": "accepted", "created_at": 1792840266.0,
+             "quote_terms": {"sup:1": {"standard": {"payment_days": 60, "incoterm": "DAP", "lead_time_days": 30}}},
+             "messages": {"sup:1": [
+                 {"from": "sales@1", "from_name": "Owner, Sup One GmbH", "body": "quote", "term_sheets": [sheet("offer:1-0", 10.0)]},
+                 {"from": "buyer", "subject": "s", "body": "lower", "term_sheets": [{"terms": {"unit_price": 9.0}}]},
+                 {"from": "sales@1", "status": "final_offer", "body": "ok", "term_sheets": [sheet("offer:1-1", 9.5)], "claim_results": []},
+                 {"from": "buyer", "action": {"type": "accept", "term_sheet_id": "offer:1-1"}},
+                 {"from": "sales@1", "status": "agreed", "body": "thanks", "term_sheets": [sheet("offer:1-1", 9.5)]}]},
+             "result": {"deal": True, "supplier_id": "sup:1", "offer_id": "offer:1-1", "c_open": 1000.0, "c_deal": 950.0,
+                        "c_best": 900.0, "score": 0.5, "cost_breakdown": {},
+                        "trace": [{"round": 0, "actor": "sup:1", "move": {}, "reasons": ["r0"]},
+                                  {"round": 1, "actor": "buyer", "move": {"type": "message", "supplier_id": "sup:1",
+                                                                          "interpreted": {"claims": [{"type": "index_change", "refs": ["idx:A@1"]}]}}},
+                                  {"round": 1, "actor": "sup:1", "move": {}, "reasons": ["r1"]},
+                                  {"round": 1, "actor": "buyer", "move": {"type": "accept", "supplier_id": "sup:1"}}]}}
+    events, check = mod.convert(state, case, None, "https://arena.example")
+    types = [e["type"] for e in events]
+    assert types == ["case_opened", "message_sent", "reply", "decision", "reply", "result", "trace"]
+    assert events[0]["opening"]["sup:1"]["supplier_name"] == "Sup One GmbH"
+    assert events[0]["opening"]["sup:1"]["priced"]["c"] == 1000.0  # 100 x 10.00, DAP, 60 days
+    assert events[1]["claims"][0]["id"] == "idx:A@1" and events[2]["reasons"] == ["r1"]
+    assert events[3]["round"] == 2 and events[3]["kind"] == "accept" and events[4]["round"] == 2
+    assert check["open"] == (1000.0, 1000.0) and check["deal"] == (950.0, 950.0)

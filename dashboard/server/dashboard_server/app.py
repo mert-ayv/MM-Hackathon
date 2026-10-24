@@ -59,8 +59,11 @@ def read_events(path: Path) -> list[dict]:
 
 def summarize(events: list[dict], path: Path) -> dict:
     """What the run table needs from a case log."""
-    case_id = next((e.get("case_id") for e in events if e.get("case_id")), None) or path.stem.replace("_", ":", 1)
-    s = {"case_id": case_id, "file": path.name, "events": len(events), "status": "running",
+    # the file names the case within its run ("case_D01~2" = the second play of case:D01); events carry the real id
+    key = path.stem.replace("_", ":", 1)
+    real = next((e.get("case_id") for e in events if e.get("case_id")), None) or key.split("~")[0]
+    s = {"case_id": key, "real_case_id": real, "repeat": int(key.split("~")[1]) if "~" in key and key.split("~")[1].isdigit() else 1,
+         "file": path.name, "events": len(events), "status": "running",
          "title": None, "type": None, "suppliers": [], "rounds": 0, "deal": None, "score": None,
          "c_open": None, "c_deal": None, "c_best": None, "c_alt": None, "saved": None, "end_reason": None,
          "supplier_id": None, "supplier_name": None, "errors": 0,
@@ -153,7 +156,9 @@ class Store:
         agent = meta.get("agent") or (d.name.rsplit("-", 1)[-1] if "-" in d.name else None)
         return {"run_id": meta.get("run_id") or d.name, "agent": agent, "agent_version": meta.get("agent_version"),
                 "set": meta.get("set"), "started_at": meta.get("started_at"), "ended_at": meta.get("ended_at"),
-                "cases": meta.get("cases") or [], "notes": meta.get("notes"), "source": source, "dir": d.name}
+                "cases": meta.get("cases") or [], "notes": meta.get("notes"), "source": meta.get("source") or source,
+                "folder": source, "dir": d.name, "author": meta.get("author"), "variant": meta.get("variant"),
+                "agent_name": meta.get("agent_name"), "commit": meta.get("commit")}
 
     def runs(self) -> list[dict]:
         out, seen = [], set()
@@ -195,7 +200,7 @@ class Store:
         if not found:
             return None
         d, source = found
-        name = case_id.replace(":", "_")
+        name = case_id.replace(":", "_", 1)
         if "/" in name or "\\" in name or name.startswith("."):
             return None
         path = (d / f"{name}.jsonl").resolve()

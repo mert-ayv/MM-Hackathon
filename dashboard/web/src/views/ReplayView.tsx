@@ -384,7 +384,7 @@ function LaneItem({ it, t, typing, typeMs, compact }: { it: Item; t: Thread; typ
         <span className={cx("mt-0.5 shrink-0 self-start rounded px-1.5 py-0.5 text-[0.62rem] font-semibold uppercase tracking-wider", it.ev.kind === "send" ? "bg-paper-3 text-ink-2" : "bg-accent text-white")}>
           {it.ev.kind.replace("_", " ")}
         </span>
-        <span className={clamp}>{it.ev.reason}</span>
+        <span className={clamp}>{it.ev.reason || (it.ev.kind === "accept" ? "Accept the standing offer." : it.ev.kind === "walk_away" ? "Walk away." : "")}</span>
       </div>
     );
   if (it.kind === "error") return <div className="rounded-lg bg-accent-soft px-3 py-2 font-mono text-xs text-accent-deep">{it.text}</div>;
@@ -489,7 +489,7 @@ function AgentCard({ m, last }: { m: CaseModel; last?: BaseEvent }) {
   } else {
     const d = step.ev as Decision;
     title = d.kind === "send" ? "Decision: send" : d.kind === "accept" ? "Decision: accept" : "Decision: walk away";
-    body = <p>{d.reason}</p>;
+    body = <p>{d.reason || "No reason logged for this move."}</p>;
   }
   return (
     <div key={step.ev.seq} className={cx("rounded-2xl bg-ink p-6 text-white", fresh && "animate-rise")}>

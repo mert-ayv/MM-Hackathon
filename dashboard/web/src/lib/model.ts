@@ -1,4 +1,5 @@
 import type {
+  BackofficeNote,
   BaseEvent,
   CaseFile,
   CaseOpened,
@@ -23,6 +24,7 @@ export interface RoundData {
   message?: MessageSent;
   reply?: Reply;
   errors: ErrorEvent[];
+  backoffice: BackofficeNote[];
 }
 
 export interface StandingPoint {
@@ -119,7 +121,7 @@ export function buildModel(events: BaseEvent[], hints: { cBest?: number | null }
   const round = (t: Thread, r: number): RoundData => {
     let rd = t.rounds.find((x) => x.round === r);
     if (!rd) {
-      rd = { round: r, errors: [] };
+      rd = { round: r, errors: [], backoffice: [] };
       t.rounds.push(rd);
       t.rounds.sort((a, b) => a.round - b.round);
     }
@@ -201,6 +203,15 @@ export function buildModel(events: BaseEvent[], hints: { cBest?: number | null }
       case "result":
         result = e as Result;
         break;
+      case "backoffice": {
+        const notes = (e.messages as BackofficeNote[] | undefined) ?? [];
+        for (const n of notes) {
+          if (!n?.supplier_id || typeof n.round !== "number") continue;
+          const t = threads.get(n.supplier_id);
+          if (t) round(t, n.round).backoffice.push(n);
+        }
+        break;
+      }
       default:
         break; // unknown types are ignored
     }
@@ -255,8 +266,15 @@ export function buildModel(events: BaseEvent[], hints: { cBest?: number | null }
   };
 }
 
-/** Which of our claims a claim_result index refers to (the chosen candidate's claims, in order). */
+/** Our claims in the arena's order: message_sent.claims, else the chosen plan candidate's. */
+export function sentClaims(rd: RoundData | undefined): { id: string; text: string }[] {
+  if (rd?.message?.claims) return rd.message.claims;
+  return rd?.plan?.candidates?.find((c) => c.id === rd.decision?.candidate_id)?.claims ?? [];
+}
+
+/** Which of our claims a claim_result index refers to. */
 export function claimText(rd: RoundData | undefined, index: number): string | undefined {
+  if (rd?.message?.claims) return rd.message.claims[index]?.text;
   if (!rd?.plan || !rd.decision?.candidate_id) return undefined;
   const cand = rd.plan.candidates?.find((c) => c.id === rd.decision!.candidate_id);
   return cand?.claims?.[index]?.text;
