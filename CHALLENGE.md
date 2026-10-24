@@ -221,6 +221,8 @@ The **house agent** is Tacto's own reference agent (the orange tick on each bar 
 | P11 | quality | Kalwisz: bearing brackets in red | Odlewnia Kalwisz (PL, private, 210 staff, castings) | **0.31** |
 | P18 | raw_material | Alloy surcharge and base price, 1.4404 bar (Werdenfels) | Blankstahl Werdenfels (DE, family, 200 staff, raw material) | **0.39** |
 
+**⚠️ Practice bots can get dumber overnight.** If the arena's daily AI budget runs out, practice suppliers switch to a simpler rule-based brain ("still online, a bit less sharp"). **The final is never affected.** So don't trust late-night practice scores as much as daytime ones, and don't tune the agent to exploit the rule-based fallback. When comparing two versions of the agent, run them close together in time. The Tacto team is off-site overnight and back on Sunday morning.
+
 The other practice-case IDs (P06, P09, P12–P17, P19) have data in the package but aren't hosted. The final's hidden cases use **new** suppliers.
 
 ---
