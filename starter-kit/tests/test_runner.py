@@ -220,6 +220,41 @@ def test_close_retry_uses_timeout_offer_terms_even_when_message_history_is_old(s
     assert len(table.attempts) == 2
 
 
+def test_close_falls_back_to_the_threads_own_offer_after_two_refusals():
+    """P05, Sat 20:42 (both A/B runs): refused twice as "not a standing offer", closed at retry 2 on the
+    thread's own offer_id. The re-read alone cannot surface it when no timeout entry carries its terms."""
+
+    class ReadyAgent(SlowAgent):
+        def thread_move(self, case, threads, sid):
+            self.threads[sid].ready = True
+            return None
+
+        def close(self, case, threads, force=False):
+            sid = SUPPLIERS[0]
+            return {"supplier_id": sid, "message": {"action": {"type": "accept", "term_sheet_id": f"offer:{sid}"}}}
+
+    class StaleTable(FakeTable):
+        def __init__(self):
+            super().__init__()
+            self.client, self.attempts = self, []
+
+        def close(self, sid, msg):
+            self.attempts.append(msg["action"]["term_sheet_id"])
+            if self.attempts[-1] != "offer:current":
+                raise ArenaError(409, "not a standing offer in this session")
+            return {"deal": True}
+
+        def session(self, session_id):
+            return {"status": "open", "threads": {s: {} for s in SUPPLIERS}}
+
+        def thread(self, session_id, sid):
+            return {"messages": [quote(sid)], "offer_id": "offer:current", "status": "open"}
+
+    table = StaleTable()
+    assert play_case(table, "case:T", ReadyAgent())["deal"]
+    assert table.attempts == ["offer:sup:1", "offer:sup:1", "offer:current"]
+
+
 def test_refresh_never_attaches_a_new_offer_id_to_unconfirmed_old_terms():
     old = quote(SUPPLIERS[0])
     events = refreshed_thread({"offer_id": "offer:new-without-terms", "status": "open"}, [old])
