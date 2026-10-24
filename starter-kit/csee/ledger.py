@@ -7,9 +7,9 @@ Commit and push it; `python -m csee board` compares every variant across the who
 
 import getpass
 import hashlib
-import socket
-import os
 import json
+import os
+import socket
 import statistics
 import subprocess
 from datetime import UTC, datetime
@@ -66,12 +66,13 @@ def commit():
     return COMMIT
 
 
-def record(case_id, set_, result, variant, params, llm, note=""):
+def record(case_id, set_, result, variant, params, llm, note="", agent="base"):
     FOLDER.mkdir(exist_ok=True)
     now = datetime.now(UTC)
     row = {
         "ts": now.isoformat(timespec="seconds"),
         "author": author(),
+        "agent": agent,  # the team agent from csee/agents/ (rows before the split: base)
         "variant": variant,
         "commit": commit(),
         "patch": PATCH,  # uncommitted agent edits this run used (None = exactly the commit)
@@ -112,13 +113,20 @@ def load():
     return rows
 
 
+def label(row):
+    """[agent/]variant@commit[+llm]; the base agent keeps the bare variant label rows had before the split."""
+    agent = row.get("agent") or "base"
+    prefix = "" if agent == "base" else f"{agent}/"
+    return f"{prefix}{row['variant']}@{row['commit']}{'+llm' if row.get('llm') else ''}"
+
+
 def board(rows, house=None, set_="practice"):
-    """Variant x case: mean score (runs). Label = variant@commit[+llm]."""
+    """Agent/variant x case: mean score (runs)."""
     rows = [r for r in rows if r.get("set") == set_ and r.get("score") is not None]
     house = house or {}
     cases = sorted({r["case_id"] for r in rows} | set(house if set_ == "practice" else []))
-    labels = sorted({f"{r['variant']}@{r['commit']}{'+llm' if r.get('llm') else ''}" for r in rows})
-    head = "| Variant | Mean | " + " | ".join(c.replace("case:", "") for c in cases) + " |"
+    labels = sorted({label(r) for r in rows})
+    head = "| Agent/variant | Mean | " + " | ".join(c.replace("case:", "") for c in cases) + " |"
     out = [head, "|" + "---|" * (len(cases) + 2)]
     if house:
         hs = [house.get(c) for c in cases]
@@ -128,8 +136,8 @@ def board(rows, house=None, set_="practice"):
             + " | ".join(f"{h:.2f}" if h is not None else "-" for h in hs)
             + " |"
         )
-    for label in labels:
-        mine = [r for r in rows if f"{r['variant']}@{r['commit']}{'+llm' if r.get('llm') else ''}" == label]
+    for name in labels:
+        mine = [r for r in rows if label(r) == name]
         cells, means = [], []
         for c in cases:
             s = [r["score"] for r in mine if r["case_id"] == c]
@@ -139,5 +147,5 @@ def board(rows, house=None, set_="practice"):
             else:
                 cells.append("-")
         mean = f"{statistics.mean(means):.3f}" if means else "-"
-        out.append(f"| {label} | {mean} | " + " | ".join(cells) + " |")
+        out.append(f"| {name} | {mean} | " + " | ".join(cells) + " |")
     return "\n".join(out)

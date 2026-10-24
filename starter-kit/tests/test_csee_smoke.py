@@ -7,11 +7,14 @@ from pathlib import Path
 import pytest
 
 from arena_kit.data import DataPackage
-from csee import variants
-from csee.agent import CseeAgent
+from csee import agents, variants
 
 CASES = Path(__file__).parents[1] / "csee" / "cases" / "practice.json"
-DATA = Path(__file__).parents[1] / "data" / "package"
+# the unpacked package (`arena data`), else the copy committed at the repo root
+DATA = next(
+    (p for p in (Path(__file__).parents[1] / "data" / "package", Path(__file__).parents[2] / "data") if p.exists()),
+    Path(__file__).parents[1] / "data" / "package",
+)
 pytestmark = pytest.mark.skipif(not CASES.exists() or not DATA.exists(), reason="no case files or data package")
 
 
@@ -34,10 +37,11 @@ def pkg():
     return p
 
 
+@pytest.mark.parametrize("agent_name", list(agents.AGENTS))
 @pytest.mark.parametrize("variant", list(variants.VARIANTS))
-def test_every_practice_case(pkg, variant):
+def test_every_practice_case(pkg, agent_name, variant):
     for case in json.loads(CASES.read_text()):
-        agent = CseeAgent(pkg, params=variants.params(variant))
+        agent = agents.get(agent_name)(pkg, params=variants.params(variant))
         threads = {s: [opening(case, s)] for s in case["suppliers"]}
         agent.prepare(case, threads)
         for sid in case["suppliers"]:

@@ -37,7 +37,8 @@ How our agent negotiates, and how each architecture version is tracked. Code: [`
 | `levers.py` | Pure arithmetic over the published cost function: best value per term, € value of each lever, price for a target cost, the relationship-optimal price (for `stabilise`/`secure_supply`). |
 | `intel.py` | Cost-floor estimate, claim generation (the figure and its IDs in one sentence, as the arena checks them), profile loading, cost-breakdown parsing. |
 | `profiles/*.json` | One profile per detailed supplier (46): situation, pressures, what it values, likely trades, arguments that land or backfire, persona. Built offline from the notes, letters, news, history and SQL; every cited ID is verified. |
-| `agent.py` | `CseeAgent`: per-thread moves, trade sheets, claim selection, accept/walk coordinator. Behaviour switches live in `Params`. |
+| `agent.py` | `CseeAgent`: per-thread moves, trade sheets, claim selection, accept/walk coordinator. Behaviour switches live in `Params`. This is `base`, the champion. |
+| `agents/` | One competing agent per teammate (`ege`, `mert`, `annika`, `emre`), each a `CseeAgent` subclass, picked with `--agent`. The ledger records `agent` on every row, and the board labels non-base rows `agent/variant@commit`. |
 | `runner.py` | Plays every thread of a case in parallel (the 60 s clock is per thread), closes before the wave cap, falls back to the kit's closing move on any error, runs the Live Final waves. |
 | `writer.py` | E-mail wording: templates (no model), or an LLM in the supplier's register with the template as fallback. |
 | `variants.py` | Named parameter presets plus a one-line description of each. |
@@ -55,7 +56,7 @@ How our agent negotiates, and how each architecture version is tracked. Code: [`
 
 | Where | What |
 | --- | --- |
-| `experiments/<date>-<author>.jsonl` | Every run: who (`author`, `host`), `variant`, `variant_desc` (in words), `commit`, `patch`, `on_origin`, full `params`, score, session. |
+| `experiments/<date>-<author>.jsonl` | Every run: who (`author`, `host`), `agent`, `variant`, `variant_desc` (in words), `commit`, `patch`, `on_origin`, full `params`, score, session. |
 | `experiments/patches/<hash>.diff` | Uncommitted agent edits a run used. The row's commit reads `<commit>+<hash>`. Reproduce with `git checkout <commit> && git apply experiments/patches/<hash>.diff`. |
 | `starter-kit/csee/variants.py` | The behaviour switches of each variant, plus `DESCRIPTIONS`. |
 | git history | The exact code of any run: `git show <commit>:starter-kit/csee/agent.py`. |

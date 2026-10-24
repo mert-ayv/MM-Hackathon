@@ -7,11 +7,14 @@
     uv run python -m csee show <session_id>        one negotiation, move by move (from runs/)
     uv run python -m csee board                    every variant x case from the team ledger (experiments/)
     uv run python -m csee bench --variants base v2 --repeat 3   FREE: sandbox D01+D02, N times each
+    uv run python -m csee sim --agents base ege                FREE + offline: compare team agents
+
+`--agent NAME` picks a team agent from csee/agents/ (default `base`), `--variant` its parameter preset.
 
 Practice costs quota (200 / 24h for the whole team): `run`/`play` on practice cases need --confirm
 and refuse to go below the reserve of 30 sessions. Test on `bench` (free) first.
 
-Every play/run is logged to experiments/<date>-<author>.jsonl with --variant, commit and --note.
+Every play/run is logged to experiments/<date>-<author>.jsonl with --agent, --variant, commit and --note.
 
 Without an LLM key (ANTHROPIC_API_KEY or LLM_API_KEY) the agent writes from templates.
 """
@@ -26,12 +29,12 @@ from arena_kit.cli import load_env, summary
 from arena_kit.client import ArenaClient
 from arena_kit.play import hosted
 
-from . import evaluate, ledger, variants
-from .agent import CseeAgent
+from . import agents, evaluate, ledger, variants
 from .runner import play_all, play_case, play_waves
 
 
-def agent_factory(use_llm=True, variant="base"):
+def agent_factory(use_llm=True, variant="base", agent="base"):
+    cls = agents.get(agent)
     package = None
     data = os.environ.get("ARENA_DATA", "data/package")
     if Path(data).exists():
@@ -48,7 +51,7 @@ def agent_factory(use_llm=True, variant="base"):
         writer = LLMWriter(llm_from_env())
     params = variants.params(variant)
     agent_factory.llm = writer is not None
-    return lambda: CseeAgent(package, writer, params)
+    return lambda: cls(package, writer, params)
 
 
 def main(argv=None):
@@ -56,6 +59,7 @@ def main(argv=None):
     ap = argparse.ArgumentParser(prog="csee")
     ap.add_argument("-v", "--verbose", action="store_true")
     ap.add_argument("--no-llm", action="store_true", help="template e-mails even if an LLM key is set")
+    ap.add_argument("--agent", default="base", choices=list(agents.AGENTS), help="a team agent from csee/agents/")
     ap.add_argument("--variant", default="base", help="a preset from csee/variants.py")
     ap.add_argument("--note", default="", help="free text stored with every ledger row")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -68,10 +72,12 @@ def main(argv=None):
     r.add_argument("--confirm", action="store_true", help="practice only: yes, spend the quota")
     p.add_argument("--confirm", action="store_true", help="practice only: yes, spend the quota")
     sm = sub.add_parser("sim", help="FREE + offline: local supplier simulator on all practice case files")
+    sm.add_argument("--agents", nargs="+", help="team agents to compare (default: --agent)")
     sm.add_argument("--variants", nargs="+", default=["base"])
     sm.add_argument("--seeds", type=int, default=3)
     sm.add_argument("--cases", nargs="*")
     bn = sub.add_parser("bench", help="FREE: sandbox cases, several times per variant")
+    bn.add_argument("--agents", nargs="+", help="team agents to compare (default: --agent)")
     bn.add_argument("--variants", nargs="+", default=["base"])
     bn.add_argument("--repeat", type=int, default=3)
     bn.add_argument("--parallel", type=int, default=8)
@@ -96,7 +102,7 @@ def main(argv=None):
         client = ArenaClient()
         if args.case_id.startswith("case:P"):
             guard_quota(client, 1, args.confirm)
-        factory = agent_factory(not args.no_llm, args.variant)
+        factory = agent_factory(not args.no_llm, args.variant, args.agent)
         result = play_case(RemoteTable(client), args.case_id, factory())
         log_row(args, args.case_id, "practice" if "case:P" in args.case_id else "sandbox", result)
         print(json.dumps(summary(result), indent=2, ensure_ascii=False))
@@ -107,13 +113,14 @@ def main(argv=None):
         ids = args.cases or [c["case_id"] for c in hosted(client.cases(args.set))]
         if args.set == "practice":
             guard_quota(client, len(ids), args.confirm)
-        out = play_all(client, ids, agent_factory(not args.no_llm, args.variant), min(args.parallel, 10))
+        out = play_all(client, ids, agent_factory(not args.no_llm, args.variant, args.agent), min(args.parallel, 10))
         for cid, res in out.items():
             log_row(args, cid, args.set, res)
             print(cid, json.dumps(summary(res)) if isinstance(res, dict) else f"ERROR {res}")
     elif args.cmd == "final":
         client = ArenaClient()
-        out = play_waves(client, agent_factory(not args.no_llm, args.variant), args.waves, min(args.parallel, 10))
+        factory = agent_factory(not args.no_llm, args.variant, args.agent)
+        out = play_waves(client, factory, args.waves, min(args.parallel, 10))
         for cid, res in out.items():
             log_row(args, cid, "final", res)
             print(cid, json.dumps(summary(res)) if isinstance(res, dict) else f"ERROR {res}")
@@ -125,55 +132,63 @@ def main(argv=None):
         logging.getLogger("csee").setLevel(logging.ERROR)
         cases = [c for c in localsim.cases() if not args.cases or c["case_id"] in args.cases]
         rows = []
-        for v in args.variants:
-            factory = agent_factory(False, v)
-            for case in cases:
-                for seed in range(args.seeds):
-                    table = localsim.LocalTable(case, factory().pkg, seed)
-                    try:
-                        res = play_case(table, case["case_id"], factory())
-                    except Exception as e:
-                        res = {"score": 0.0, "error": repr(e)}
-                        print(v, case["case_id"], seed, "ERROR", e)
-                    rows.append(
-                        {
-                            "variant": v,
-                            "commit": ledger.commit(),
-                            "llm": False,
-                            "set": "localsim",
-                            "case_id": case["case_id"],
-                            "score": res.get("score") or 0.0,
-                        }
-                    )
+        for a in args.agents or [args.agent]:
+            for v in args.variants:
+                factory = agent_factory(False, v, a)
+                for case in cases:
+                    for seed in range(args.seeds):
+                        table = localsim.LocalTable(case, factory().pkg, seed)
+                        try:
+                            res = play_case(table, case["case_id"], factory())
+                        except Exception as e:
+                            res = {"score": 0.0, "error": repr(e)}
+                            print(a, v, case["case_id"], seed, "ERROR", e)
+                        rows.append(
+                            {
+                                "agent": a,
+                                "variant": v,
+                                "commit": ledger.commit(),
+                                "llm": False,
+                                "set": "localsim",
+                                "case_id": case["case_id"],
+                                "score": res.get("score") or 0.0,
+                            }
+                        )
         print(ledger.board(rows, None, "localsim"))
-        for v in args.variants:
-            print(v, "mean", round(statistics.mean(r["score"] for r in rows if r["variant"] == v), 3))
+        for label in sorted({ledger.label(r) for r in rows}):
+            print(label, "mean", round(statistics.mean(r["score"] for r in rows if ledger.label(r) == label), 3))
     elif args.cmd == "bench":
         client = ArenaClient()
         ids = [c["case_id"] for c in client.cases("sandbox")]
-        jobs = [(v, cid) for v in args.variants for cid in ids for _ in range(args.repeat)]
+        names = args.agents or [args.agent]
+        jobs = [(a, v, cid) for a in names for v in args.variants for cid in ids for _ in range(args.repeat)]
         from concurrent.futures import ThreadPoolExecutor
 
         from arena_kit.play import RemoteTable
 
-        factories = {v: agent_factory(not args.no_llm, v) for v in args.variants}
+        factories = {(a, v): agent_factory(not args.no_llm, v, a) for a in names for v in args.variants}
+        llm = getattr(agent_factory, "llm", False)
 
         def one(job):
-            v, cid = job
+            a, v, cid = job
             try:
-                res = play_case(RemoteTable(client), cid, factories[v]())
+                res = play_case(RemoteTable(client), cid, factories[a, v]())
             except Exception as e:  # keep the bench going
                 res = e
-            args.variant = v
-            ledger.record(cid, "sandbox", res, v, variants.describe(v), getattr(agent_factory, "llm", False), args.note)
-            return v, cid, res
+            ledger.record(cid, "sandbox", res, v, variants.describe(v), llm, args.note, agent=a)
+            return a, v, cid, res
 
         with ThreadPoolExecutor(max_workers=min(args.parallel, 9)) as pool:
-            for v, cid, res in pool.map(one, jobs):
-                print(
-                    v, cid, f"{res.get('score'):.3f}" if isinstance(res, dict) and res.get("score") is not None else res
-                )
-        rows = [r for r in ledger.load() if r["variant"] in args.variants and r.get("commit") == ledger.commit()]
+            for a, v, cid, res in pool.map(one, jobs):
+                score = f"{res.get('score'):.3f}" if isinstance(res, dict) and res.get("score") is not None else res
+                print(a, v, cid, score)
+        rows = [
+            r
+            for r in ledger.load()
+            if (r.get("agent") or "base") in names
+            and r["variant"] in args.variants
+            and r.get("commit") == ledger.commit()
+        ]
         print(ledger.board(rows, None, "sandbox"))
     elif args.cmd == "eval":
         client = ArenaClient()
@@ -207,7 +222,8 @@ def guard_quota(client, n, confirm):
 
 def log_row(args, case_id, set_, result):
     llm = getattr(agent_factory, "llm", False)
-    ledger.record(case_id, set_, result, args.variant, variants.describe(args.variant), llm, args.note)
+    params = variants.describe(args.variant)
+    ledger.record(case_id, set_, result, args.variant, params, llm, args.note, agent=args.agent)
 
 
 if __name__ == "__main__":
