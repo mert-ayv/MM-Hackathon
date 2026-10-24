@@ -239,3 +239,39 @@ from csee.agents.mert import MertSkipHedgeAgent  # noqa: E402
 class PlanMesoRaw(PlanMixin, PayMesoMixin, MertSkipHedgeAgent):
     """Raw material: mert-skiphedge's packages (Emre's clause sheets, hedged index last) + payment choice + the
     planner's value-unit pacing. P18 record = 3 % db / 45 d / 5.20 or 5 % / 14 d / 5.21 (supplier rate 10.5 %)."""
+
+
+# ---------- soft-anchor study (Sat 24 Oct, 21:00): the bots that go final on a deep gap ----------
+# Evidence (runs/20261024-204254-router*-practice): Werdenfels (P18, "KAM <= 2 % per step") moved 6.10 -> 5.60 -> 5.40
+# -> 5.30 final at reply 3 in EVERY 22 %-anchor run (5 agents, all exactly 0.552; the record is 0.688 = ~5.10): its gap
+# after our reply-2/3 asks was still 8-10 %, above what keeps it open. Ravensteiner (P10, "desk authority 2 %, the
+# committee above") answers a 12 %-below ask with a final offer at reply 1 (both routers; 0.57 / 0.671 via its own
+# alternative). These agents keep every package of their parents and only move the planner's first ask and gap budget.
+from csee.agents.mert import PlanParams, PlannerAgent  # noqa: E402
+
+TIGHT_GAPS = (0.08, 0.05, 0.03, 0.025, 0.02, 0.02)  # max gap after reply 1, 2, 3 ... (share of its ask)
+
+
+class PlanMesoRawSoft(PlanMesoRaw):
+    """P18 arm A: 15 % raw anchor + the tight gap budget (never more than 8 % below its ask after reply 1)."""
+
+    plan = PlanParams(anchor_raw=0.15, gmax=TIGHT_GAPS)
+
+
+class PlanMesoRawSoft12(PlanMesoRaw):
+    """P18 arm B: 12 % raw anchor, the default gap budget (risk: we converge above its final 5.30)."""
+
+    plan = PlanParams(anchor_raw=0.12)
+
+
+class PlanMesoRawSoft18(PlanMesoRaw):
+    """P18 arm C: 18 % raw anchor + the tight gap budget."""
+
+    plan = PlanParams(anchor_raw=0.18, gmax=TIGHT_GAPS)
+
+
+class PlannerSoftRel(PlannerAgent):
+    """P10 arm: relationship-goal anchor 4 % below its opening value (inside the desk's 2-4 % authority), so a
+    capacity-full group supplier answers 'open' instead of 'final offer' at reply 1. Terms stay base's."""
+
+    plan = PlanParams(anchor_rel=0.04)

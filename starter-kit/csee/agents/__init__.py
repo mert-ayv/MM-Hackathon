@@ -67,7 +67,18 @@ from .mert import (
     PlannerLeverAgent,
     PlannerRawAgent,
 )
-from .records import MesoBase, MesoLever, MesoMert, PlanMesoLever, PlanMesoRaw, PledgeBase
+from .records import (
+    MesoBase,
+    MesoLever,
+    MesoMert,
+    PlanMesoLever,
+    PlanMesoRaw,
+    PlanMesoRawSoft,
+    PlanMesoRawSoft12,
+    PlanMesoRawSoft18,
+    PlannerSoftRel,
+    PledgeBase,
+)
 from .mert_dossier import (
     BaseDossier,
     PlanMesoLeverDossier,
@@ -109,6 +120,10 @@ AGENTS = {
     "mert-meso-raw": MesoMert,
     "mert-plan-meso-lever": PlanMesoLever,  # planner + payment MESO + levers (P01 14-day route)
     "mert-plan-meso-raw": PlanMesoRaw,  # planner + payment MESO + skip-hedge raw packages
+    "mert-plan-raw-soft": PlanMesoRawSoft,  # soft-anchor study: 15 % raw anchor + tight gap budget (P18)
+    "mert-plan-raw-soft12": PlanMesoRawSoft12,  # 12 % raw anchor, default gaps
+    "mert-plan-raw-soft18": PlanMesoRawSoft18,  # 18 % raw anchor + tight gap budget
+    "mert-plan-softrel": PlannerSoftRel,  # 4 % anchor for relationship goals (P10 capacity)
     "mert-pledge": PledgeBase,  # P11 record: on-time-payment commitment when payment is fixed and we paid late
     # dossier (csee/dossier): hedge-aware claims; "-d" planners also take the supplier's fitted persona priors
     "base-d": BaseDossier,
