@@ -5,14 +5,11 @@ Numbers come from the data package, never from a model. Each claim is one senten
 next to its IDs, the format the arena checks (`brief/api.md`, What counts).
 """
 
-import json
 import logging
 import re
 from dataclasses import dataclass, field
-from pathlib import Path
 
 log = logging.getLogger("unified")
-PROFILES = Path(__file__).parent / "profiles"
 # company.md: other countries' full cost relative to the German should-cost base
 COUNTRY_COST = {"DE": 1.0, "AT": 1.05, "CH": 1.1, "CZ": 0.82, "PL": 0.82, "HU": 0.82, "TR": 0.75, "CN": 0.7}
 
@@ -36,14 +33,6 @@ class Intel:
     full_cost_source: str = ""
     claims: list = field(default_factory=list)
     country: str = "DE"
-
-
-def load_profile(supplier_id):
-    path = PROFILES / f"{supplier_id.split(':')[-1]}.json"
-    try:
-        return json.loads(path.read_text())
-    except (FileNotFoundError, json.JSONDecodeError):
-        return {}
 
 
 def _fact(case, pkg, ref):
@@ -135,15 +124,14 @@ def estimate_full_cost(case, pkg, supplier_id, country):
 
 def build(case, pkg, supplier_id, opening_price=None, opening_text="", opening=None):
     """Everything we know about one supplier in this case, before the first counter-offer."""
-    intel = Intel(supplier_id, load_profile(supplier_id))
-    if not intel.profile:  # no curated profile: generate one (fallback.py); curated suppliers unchanged
-        from .fallback import profile_for
+    from .fallback import profile_for
 
-        intel.profile = profile_for(supplier_id, case, pkg, opening or opening_text)
+    # from the data package and the case only (no hand-written profiles): practice plays like the final
+    intel = Intel(supplier_id, profile_for(supplier_id, case, pkg, opening or opening_text))
     rows = _q(pkg, "SELECT country FROM suppliers WHERE id = ?", (supplier_id,))
     intel.country = (rows[0]["country"] if rows else None) or intel.profile.get("country") or "DE"
     intel.full_cost, intel.full_cost_source = estimate_full_cost(case, pkg, supplier_id, intel.country)
-    if intel.full_cost is None and intel.profile.get("floor_feed"):  # auto profiles only
+    if intel.full_cost is None and intel.profile.get("floor_feed"):
         intel.full_cost, intel.full_cost_source = intel.profile["floor_estimate"], intel.profile["floor_source"]
     intel.claims = claims_for(case, pkg, supplier_id, opening_price, opening_text)
     return intel

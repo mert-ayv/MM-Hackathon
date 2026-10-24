@@ -1,18 +1,15 @@
-"""A profile for a supplier nobody profiled by hand: the Live Final's hidden cases bring strangers.
+"""Every supplier's profile, from the data package and the case alone (no hand-written profiles): the Live
+Final's hidden cases bring strangers, so practice suppliers are profiled the same way.
 
-`auto_profile(supplier_id, case, package, opening)` returns a profile in the `profiles/SCHEMA.md` shape,
-marked `"source": "auto"` and `"confidence": "low"`, from three layers:
+`auto_profile(supplier_id, case, package, opening)` returns a profile in csee's `profiles/SCHEMA.md` shape,
+marked `"source": "auto"` and `"confidence": "low"`, from two layers:
 
 1. **Data** (deterministic): supplier master, intel, spend, sourcing, should-cost, POs, invoices,
    scorecards, contracts, quotes, negotiation history, documents and news for this supplier_id; the
    case file (parts, `cost:` facts, category goal, `case.facts` naming the supplier); the opening
    e-mail and quote PDF (standard terms, validity, the reasons it states). Keyword rules turn text
    into pressures (cash, capacity, utilisation, energy, ...).
-2. **Archetype priors** from the 46 curated profiles (`profiles/_archetypes.json`, regenerate with
-   `uv run python -m unified.fallback archetypes`), grouped by category x owner type x country group:
-   settle-to-ask ratio, share with a cash pressure, what it values, tradeables, persona style,
-   price-to-should-cost ratio. They fill what the data does not say.
-3. **Optional model** (`enrich_async`): a time-boxed Haiku call over the opening e-mail, the quote
+2. **Optional model** (`enrich_async`): a time-boxed Haiku call over the opening e-mail, the quote
    remarks and the case facts that refines situation, pressures and persona. It merges into the
    profile dict in place only if it finishes in time; the agent reads the profile on every move, so
    it uses the result once it is there and never waits for it. Off unless CSEE_ENRICH=1.
@@ -20,8 +17,7 @@ marked `"source": "auto"` and `"confidence": "low"`, from three layers:
 Stage 1 (case file, before `POST /sessions`) and stage 2 (opening e-mail + quote PDF) are the same
 call with and without `opening`; both take a few milliseconds.
 
-Hook: `intel.build` calls `profile_for` when no curated profile exists, so the 46 curated suppliers
-behave exactly as before.
+Hook: `intel.build` calls `profile_for` for every supplier.
 """
 
 import json
@@ -29,32 +25,19 @@ import logging
 import os
 import re
 import statistics
-import sys
 import time
-from collections import Counter, defaultdict
+from collections import defaultdict
 from concurrent.futures import Future, ThreadPoolExecutor
 from functools import lru_cache
-from pathlib import Path
 
 log = logging.getLogger("unified")
-PROFILES = Path(__file__).parent / "profiles"
-ARCHETYPES = PROFILES / "_archetypes.json"
 # use the price-heuristic floor as the agent's full cost: off, it lost 0.016 in the local simulator
 FEED_QUOTE_FLOOR = False
 PRIOR_PRESSURE_SHARE = 0.5  # a stranger gets a pressure most similar suppliers have
+NO_PRIOR = {"level": "none", "n": 0}  # no archetype priors: they came from hand-written profiles
 
 # company.md: full cost relative to the German should-cost base (mid-points of the stated ranges)
 COUNTRY_COST = {"DE": 1.0, "AT": 1.05, "CH": 1.1, "CZ": 0.82, "PL": 0.82, "HU": 0.82, "TR": 0.75, "CN": 0.7}
-COUNTRY_GROUP = {
-    "DE": "DE",
-    "AT": "DACH",
-    "CH": "DACH",
-    "CZ": "CEE",
-    "PL": "CEE",
-    "HU": "CEE",
-    "TR": "FAR",
-    "CN": "FAR",
-}
 # company.md: category strategies
 CATEGORY_GOAL = {
     "castings": "stabilise",
@@ -95,21 +78,7 @@ VALUE_LEVER = {
     "quality": "ppm_commitment",
     "price": "effective_date",
 }
-STYLE_RULES = [
-    ("personal", r"personal|loyal|partnership|proud|warm|eager"),
-    ("formal", r"formal|policy|letter|list|committee|standard"),
-    ("brief", r"short|brief|terse|cool|confident|conditional"),
-    ("informal", r"informal|friendly|plain|chatty"),
-    ("data-open", r"data|numbers|transparen|open|pragmatic|factual|practical|business.?like"),
-    ("defensive", r"defensive|anxious|stubborn|firm|guarded"),
-]
 CLAIM_KINDS = ("index", "should_cost", "rival", "scorecard", "notice", "forecast", "news", "history")
-
-
-def _avoid_kinds(p):
-    """Claim kinds the agent drops for this profile: agent.pick_claims tests `kind in <avoid text>`."""
-    text = " ".join(a.get("argument", "") for a in p.get("arguments_to_avoid") or []).lower()
-    return sorted(k for k in CLAIM_KINDS if k in text)
 
 
 # keyword rules over the supplier's own words: (pressure type, regex)
@@ -192,7 +161,7 @@ CATEGORY_WORDS = [
 ]
 
 
-# ---------- the archetype priors ----------
+# ---------- text tokens (model enrichment) ----------
 def _tokens(texts, rules):
     """Ordered canonical tokens of a list of free-text items (first matching rule per item)."""
     out = []
@@ -205,118 +174,6 @@ def _tokens(texts, rules):
                 break
     return out
 
-
-def _cgroup(country):
-    return COUNTRY_GROUP.get(country or "DE", "OTHER")
-
-
-def _features(p):
-    parts = p.get("parts") or []
-    ratios = [
-        x["current_price"] / x["should_cost_unit"]
-        for x in parts
-        if x.get("current_price") and x.get("should_cost_unit")
-    ]
-    persona = p.get("persona") or {}
-    return {
-        "category": p.get("category") or "?",
-        "owner": (p.get("owner_type") or "?").lower(),
-        "cgroup": _cgroup(p.get("country")),
-        "ratio": (p.get("negotiation_history") or {}).get("settle_to_ask_ratio"),
-        "pressures": sorted({x.get("type") for x in p.get("pressures") or [] if x.get("type")}),
-        "values": _tokens(p.get("what_it_values") or [], VALUE_RULES),
-        "levers": [t.get("lever") for t in p.get("likely_tradeables") or [] if t.get("lever")],
-        "styles": _tokens([persona.get("style", "")], STYLE_RULES)
-        + [k for k, rx in STYLE_RULES if re.search(rx, (persona.get("style") or "").lower())],
-        "committee": bool(re.search(r"committee|approval|>\s*2|board|head office", json.dumps(persona).lower())),
-        "avoid": _avoid_kinds(p),
-        "price_to_cost": statistics.median(ratios) if ratios else None,
-        "staff": p.get("staff"),
-    }
-
-
-def _summarise(feats):
-    n = len(feats)
-
-    def ranked(key, top):
-        score = Counter()
-        for f in feats:
-            for i, tok in enumerate(dict.fromkeys(f[key])):
-                score[tok] += 1.0 / (1 + i)
-        return [k for k, _ in score.most_common(top)]
-
-    def share(pred):
-        return round(sum(1 for f in feats if pred(f)) / n, 2)
-
-    ratios = [f["ratio"] for f in feats if f["ratio"] is not None]
-    ptc = [f["price_to_cost"] for f in feats if f["price_to_cost"]]
-    press = Counter(t for f in feats for t in f["pressures"])
-    return {
-        "n": n,
-        "settle_to_ask_ratio": round(statistics.median(ratios), 2) if ratios else None,
-        "cash_share": share(lambda f: "cash" in f["pressures"]),
-        "pressure_share": {k: round(v / n, 2) for k, v in press.most_common()},
-        "what_it_values": ranked("values", 5),
-        "tradeables": ranked("levers", 4),
-        "persona_style": ranked("styles", 2),
-        "committee_share": share(lambda f: f["committee"]),
-        "avoid_share": {k: round(v / n, 2) for k, v in Counter(t for f in feats for t in f["avoid"]).most_common()},
-        "price_to_should_cost": round(statistics.median(ptc), 3) if ptc else None,
-        "members": sorted(f["sid"] for f in feats),
-    }
-
-
-LEVELS = [
-    ("category", "owner", "cgroup"),
-    ("category", "owner"),
-    ("category", "cgroup"),
-    ("category",),
-    ("owner", "cgroup"),
-    ("owner",),
-    (),
-]
-
-
-def curated_profiles(exclude=()):
-    out = []
-    for path in sorted(PROFILES.glob("[0-9]*.json")):
-        p = json.loads(path.read_text())
-        if p.get("supplier_id") not in exclude:
-            out.append(p)
-    return out
-
-
-def build_archetypes(profiles):
-    """Priors per group at every level of detail: {"category|owner|cgroup": summary, ..., "*": all}."""
-    feats = [{**_features(p), "sid": p.get("supplier_id")} for p in profiles]
-    groups = defaultdict(list)
-    for f in feats:
-        for level in LEVELS:
-            groups["|".join(f"{k}={f[k]}" for k in level) or "*"].append(f)
-    return {k: _summarise(v) for k, v in sorted(groups.items())}
-
-
-@lru_cache(maxsize=1)
-def archetypes():
-    try:
-        return json.loads(ARCHETYPES.read_text())
-    except (FileNotFoundError, json.JSONDecodeError):
-        return build_archetypes(curated_profiles())
-
-
-def prior(category, owner, country, table=None, min_n=3):
-    """The most specific archetype with at least `min_n` members; numeric fields fall back level by level."""
-    table = table or archetypes()
-    f = {"category": category or "?", "owner": (owner or "?").lower(), "cgroup": _cgroup(country)}
-    chain = [table.get("|".join(f"{k}={f[k]}" for k in level) or "*") for level in LEVELS]
-    chain = [g for g in chain if g]
-    best = next((g for g in chain if g["n"] >= min_n), chain[-1] if chain else {})
-    out = dict(best)
-    for key in ("settle_to_ask_ratio", "price_to_should_cost"):
-        if out.get(key) is None:
-            out[key] = next((g[key] for g in chain if g.get(key) is not None and g["n"] >= 2), None)
-    out["level"] = next((k for k, g in table.items() if g is best), "*")
-    return out
 
 
 # ---------- the deterministic layer ----------
@@ -518,7 +375,7 @@ def _floor(case, pkg, sid, country, ref_price, pri):
             return round(unit * k, 4), f"{ref} ({cb} base x{k:.2f})", "should_cost"
     if ref_price:
         r = pri.get("price_to_should_cost") or 1.0
-        # curated suppliers sell at ~should-cost; a DE-based ratio, so scale by the country factor
+        # no archetype ratio without hand-written profiles: the quote itself is the (unused) floor guess
         return (
             round(ref_price / r, 4),
             f"price heuristic: {ref_price:.2f} / {r:.2f} (archetype price-to-should-cost)",
@@ -527,8 +384,8 @@ def _floor(case, pkg, sid, country, ref_price, pri):
     return None, "", ""
 
 
-def auto_profile(supplier_id, case, package, opening=None, table=None):
-    """A SCHEMA-shaped profile from data, case file, opening e-mail/quote PDF and archetype priors."""
+def auto_profile(supplier_id, case, package, opening=None):
+    """A SCHEMA-shaped profile from data, case file and opening e-mail/quote PDF."""
     t0 = time.perf_counter()
     sid, pkg, case = supplier_id, package, case or {}
     b = case.get("buyer") or {}
@@ -539,8 +396,7 @@ def auto_profile(supplier_id, case, package, opening=None, table=None):
     country = master.get("country") or _guess_country(name, case, otext)
     category = _guess_category(case, pkg, master)
     owner = irow.get("owner_type") or _guess_owner(name, otext, irow.get("staff"))
-    pri = prior(category, owner, country, table)
-    owner = owner or _majority_owner(category, table)
+    pri = NO_PRIOR
     evidence = []
 
     # spend, parts, prices
@@ -848,14 +704,6 @@ def _opening_price(opening):
     return None
 
 
-def _majority_owner(category, table=None):
-    """The most common owner type among curated suppliers of this category (None if none)."""
-    table = table or archetypes()
-    prefix = f"category={category}|owner="
-    owners = {k[len(prefix) :]: g["n"] for k, g in table.items() if k.startswith(prefix) and k.count("|") == 1}
-    return max(owners, key=owners.get) if owners else None
-
-
 # ---------- the optional model ----------
 ENRICH_SYSTEM = """You read a supplier's quote e-mail to an industrial buyer (a German pump maker) and the
 facts the buyer has. Return ONE JSON object, nothing else:
@@ -991,7 +839,7 @@ def enrich_async(profile, case, opening=None, complete=None, budget_s=8.0):
 
 # ---------- the hook ----------
 def profile_for(supplier_id, case, package, opening=None):
-    """intel.build's fallback when no curated profile exists. Never raises: worst case {}."""
+    """The profile intel.build uses for every supplier. Never raises: worst case {}."""
     try:
         profile = auto_profile(supplier_id, case, package, opening)
     except Exception:
@@ -1002,16 +850,3 @@ def profile_for(supplier_id, case, package, opening=None):
     log.info("%s: auto profile (%s, floor %s)", supplier_id, profile.get("archetype"), profile.get("floor_estimate"))
     return profile
 
-
-def main(argv=None):
-    argv = argv if argv is not None else sys.argv[1:]
-    if argv[:1] == ["archetypes"]:
-        table = build_archetypes(curated_profiles())
-        ARCHETYPES.write_text(json.dumps(table, indent=1, ensure_ascii=False) + "\n")
-        print(f"wrote {ARCHETYPES} ({len(table)} groups from {table['*']['n']} profiles)")
-    else:
-        raise SystemExit("usage: python -m unified.fallback archetypes")
-
-
-if __name__ == "__main__":
-    main()
