@@ -231,7 +231,8 @@ The other practice-case IDs (P06, P09, P12–P17, P19) have data in the package 
 
 - **5 themed waves, 8 minutes each** (the host may extend one, so read `seconds_left` and don't assume). Every team plays at the same time.
 - Hidden cases appear when a wave starts. `GET /v1/cases?set=final` returns **`403` until wave 1**. Each team gets the cases in its own order.
-- **New suppliers, parts and situations that practice never showed.** Same world, case types and rules. Some cases cite the **Sunday 08:00 data release**.
+- **New parts and situations that practice never showed, but no new companies.** Tacto (Discord, Sat 20:24): "Every supplier in the final is one of the **46 main suppliers with full detail in the data package**." We have a profile for each (`starter-kit/csee/profiles/`). Same world, case types and rules.
+- **Sunday 08:00 data release** (Discord, Sat 20:31): new market news, supplier letters and a memo, which some final cases cite. Run `uv run arena data` again; it adds `data/release-sunday` and the DataPackage merges it automatically (own client: `GET https://arena.tacto.ai/v1/data` -> `/v1/data/release-sunday.zip`). The agent must read it **before the 13:00 freeze**. See RUNBOOK 08:05.
 - Play all of a wave's cases **in parallel** (up to 10 open sessions). **One session per case**: a second `POST /v1/sessions` returns `409`, so pick it back up instead.
 - **At the cap, every open session ends with no deal** (it scores our alternative). The kit closes each case **90 s before the cap** (`CLOSE_BEFORE_CAP_S = 90` in `arena_kit/play.py`): it accepts the cheapest standing sheet that keeps the must-haves and beats our alternative, or walks away.
 - **Start the runner before 13:30 and leave it running** until the 5th wave closes:
