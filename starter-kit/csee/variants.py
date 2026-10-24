@@ -96,6 +96,16 @@ VARIANTS = {
         "sticky_terms": True,
         "push_after_final": 1,
     },
+    "v11": {
+        "adopt_insisted": True,
+        "rival_only_lower": True,
+        "cash_trade_always": True,
+        "anchor_leverage": 0.22,
+        "rfq_anchor_vs_leader": 0.08,
+        "adopt_revealed": True,
+        "sticky_terms": True,
+        "final_push": 0.005,
+    },
 }
 
 
@@ -118,6 +128,8 @@ DESCRIPTIONS = {
     "v9": "v7 + sticky terms: after our first ask keep the non-price terms of the supplier's cheapest-for-us "
     "sheet and negotiate price (P11 flipped quality terms 3x and accepted the dearest set).",
     "v10": "v9 + push once more after the supplier's final offer (0 walk-aways in ~630 real supplier moves).",
+    "v11": "v9 + after a final offer one small push (0.5 % below it, same terms), only with the leading bidder "
+    "(sandbox: D01 agreed 49.80 -> 49.55; a far-off push made DEMO-C1 walk away).",
     "v4": "base tactics (12% anchor, steady concessions keep the supplier conceding: D01) + v2's adopt-held-terms, "
     "lower-rival-only, cash sheet + floor guard (P05 anchored 0.5% below the opening) + RFQ: beat the leader.",
 }

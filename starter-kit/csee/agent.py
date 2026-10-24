@@ -64,6 +64,8 @@ class Params:
     # v8 switches (trade every lever; read the supplier's own words)
     generic_trades: bool = False  # trade sheets over every negotiable term, cheapest concession for us first
     push_after_final: int = 0  # rounds we still push after its final_offer (0 = accept the final offer)
+    final_push: float = 0.0  # >0: after a final offer, ask only this small step below it (D01 agreed to 0.5 %;
+    #                          a far-off push made DEMO-C1 walk away) - and only with the bidder holding the best deal
     time_aware: bool = True  # Live Final: pace concessions to the rounds that fit before the wave's cap
     sticky_terms: bool = False  # after our first ask, keep the non-price terms of its cheapest sheet (P11)
     text_signals: bool = False  # infer cash/capacity/volume pressure from the supplier's e-mails, not only profiles
@@ -243,6 +245,27 @@ class CseeAgent:
                 "term_sheets": [{"terms": terms}],
                 "refs": [],
             }
+        if (
+            status == "final_offer"
+            and self.p.final_push
+            and st.pushed < 1
+            and left > self.p.reserve_moves
+            and sheet_id
+            and theirs.get("unit_price")
+            and self.is_leader(case, threads, sid)
+        ):
+            st.pushed += 1
+            ask = complete_offer(
+                case, {**theirs, "unit_price": round(theirs["unit_price"] * (1 - self.p.final_push), 2)}
+            )
+            st.our_prices.append(ask["unit_price"])
+            return {
+                "subject": f"Re: {case['title']}"[:300],
+                "body": "Good day,\n\nthank you for your offer. We are very close. If you can meet us at "
+                f"{describe(ask)}, we can confirm the order today.\n\n{SIGN}",
+                "term_sheets": [{"terms": ask}],
+                "refs": [],
+            }
         if status == "final_offer" and st.pushed < self.p.push_after_final and left > self.p.reserve_moves and sheet_id:
             st.pushed += 1  # replays: 0 walk-aways in ~630 supplier moves; test whether a final offer still moves
             status = "open"
@@ -271,6 +294,16 @@ class CseeAgent:
             events = list(ev)
             msg["_write"] = lambda: self.writer.write(case, self, sid, events, sheets, claims, ask_breakdown)
         return msg
+
+    def is_leader(self, case, threads, sid):
+        """This thread holds our cheapest standing deal (always true with one supplier)."""
+        if len(case["suppliers"]) == 1:
+            return True
+        std = standard_terms(threads[sid])
+        sheet_id, terms = standing(threads[sid])
+        if not sheet_id or terms.get("unit_price") is None:
+            return False
+        return total_cost(case, terms, std) <= self.leader_cost(case, threads, exclude=sid)
 
     def nothing_to_win(self, case, threads, sid, theirs, std, left):
         """next_terms would stop here (its sheet is as cheap as ours): the moment to close this thread."""
