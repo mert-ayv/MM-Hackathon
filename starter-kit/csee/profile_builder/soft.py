@@ -74,6 +74,8 @@ Rules:
   consequences): list them under `noise` and do not build pressures on them.
 - The supplier's own words in letters, e-mails, call and meeting notes are the strongest evidence of what
   moves it. Name the lever it would trade (payment days, contract length, volume, effective date, ...).
+- Negotiation-history event IDs (EV-...) are NOT citable: use past asks/settlements to judge the supplier
+  (situation, tradeables), not as arguments.
 - Arguments that should land must be checkable data arguments (figure + IDs). Arguments to avoid are those
   that would backfire (e.g. index moves that support the supplier's ask, empty threats to move volume).
 - key_quotes: short quotes copied CHARACTER FOR CHARACTER from one document (no paraphrase, no ellipsis),

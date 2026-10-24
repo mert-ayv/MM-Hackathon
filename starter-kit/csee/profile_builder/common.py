@@ -3,6 +3,7 @@
 import json
 import os
 import re
+import threading
 from pathlib import Path
 
 from arena_kit.data import DataPackage
@@ -35,6 +36,14 @@ def open_package(data=None, release=None):
     """DataPackage over the package; `release` = a release folder to merge (else DataPackage's own lookup)."""
     pkg = DataPackage(find_data(data), release=str(release) if release else None)
     pkg.lookup("")  # build the ID index once
+    # one SQLite connection is shared by the worker threads: serialise its use
+    lock, query = threading.Lock(), pkg.query
+
+    def locked_query(*a, **k):
+        with lock:
+            return query(*a, **k)
+
+    pkg.query = locked_query
     return pkg
 
 

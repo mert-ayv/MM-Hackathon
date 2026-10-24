@@ -22,9 +22,8 @@ def repair_id(pkg, ref, known=()):
     for cand in (ref.lower(), ref.replace(" ", "")):
         if id_exists(pkg, cand):
             return cand
-    pool = [k for k in known if k.split(":")[0] == ref.split(":")[0]]
-    close = difflib.get_close_matches(ref, pool, n=1, cutoff=0.92)
-    return close[0] if close else None
+    # no fuzzy matching: a near-miss date may be a different document, so it is dropped, not guessed
+    return None
 
 
 class Checker:

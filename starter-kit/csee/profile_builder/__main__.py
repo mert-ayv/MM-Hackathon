@@ -48,6 +48,11 @@ def main(argv=None):
     u.add_argument("--suppliers", nargs="*", help="only these suppliers (default: all affected)")
     u.add_argument("--workers", type=int, default=16)
     u.add_argument("--apply", action="store_true", help="also copy the staged files into profiles/")
+    u.add_argument(
+        "--market-fanout",
+        action="store_true",
+        help="also update suppliers whose category a company-wide item affects (more calls, same wall time)",
+    )
     a = sub.add_parser("apply", help="copy a staged update into profiles/")
     a.add_argument("staged")
     a.add_argument("--only", nargs="*", help="only these suppliers (+ _market.json)")
@@ -75,7 +80,9 @@ def main(argv=None):
 
         pkg = open_package(args.data, args.release)
         model = llm.model_from(args.model)
-        res = update.run(pkg, model, args.profiles, args.out, args.suppliers, args.workers)
+        res = update.run(
+            pkg, model, args.profiles, args.out, args.suppliers, args.workers, market_fanout=args.market_fanout
+        )
         if args.apply:
             update.apply(res["out_dir"], args.profiles)
         return 1 if res["errors"] and not res["results"] else 0

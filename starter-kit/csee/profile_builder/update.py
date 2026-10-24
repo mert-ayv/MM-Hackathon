@@ -168,6 +168,8 @@ Rules:
   where it changes this supplier's negotiation (e.g. an index move that supports or undercuts its ask).
 - Pressure types: pick the specific type (cash, capacity, utilisation, volume, energy, labour, quality,
   succession, ownership, competition); use "other" only if none fits.
+- If the current profile already reflects a new item (cites its ID or states the same fact), add nothing
+  for it; never restate an existing entry.
 - persona_note: one sentence on tone/relationship the new items reveal, or "" if nothing new.
 - change_summary: 1-3 sentences for the human reviewer: what changed and why it matters for negotiating."""
 
@@ -201,6 +203,20 @@ def _key(field, e):
     return e if isinstance(e, str) else (e.get(KEY_FIELD.get(field, ""), "") or json.dumps(e, ensure_ascii=False))
 
 
+def _duplicate(field, e, have):
+    """An added entry the profile already holds: same text, or (pressures) same type citing the same IDs."""
+    for h in have:
+        if _matches(_key(field, e), _key(field, h)):
+            return True
+        if field == "pressures" and isinstance(h, dict) and h.get("type") == e.get("type"):
+            if set(e.get("ids") or []) and set(e.get("ids") or []) <= set(h.get("ids") or []):
+                return True
+        if field == "key_quotes" and isinstance(h, dict) and h.get("id") == e.get("id"):
+            if _matches(e.get("quote"), h.get("quote")):
+                return True
+    return False
+
+
 def _matches(a, b):
     a, b = (a or "").strip().lower(), (b or "").strip().lower()
     return bool(a) and (a == b or a in b or b in a or difflib.SequenceMatcher(None, a, b).ratio() > 0.85)
@@ -231,15 +247,24 @@ def merge(pkg, cur, patch, items, release_date):
     situation = c.text(patch.get("situation") or "", "situation").strip()
     if situation and len(situation) > 80:
         out["situation"] = situation
-    for f, need in (("pressures", True), ("likely_tradeables", False), ("arguments_that_should_land", True)):
-        out[f] = (out.get(f) or []) + c.entries(patch.get(f"add_{f}"), f"add_{f}", need_ids=need)
-    out["arguments_to_avoid"] = (out.get("arguments_to_avoid") or []) + [
+    adds = {
+        f: c.entries(patch.get(f"add_{f}"), f"add_{f}", need_ids=need)
+        for f, need in (("pressures", True), ("likely_tradeables", False), ("arguments_that_should_land", True))
+    }
+    adds["arguments_to_avoid"] = [
         {k: c.text(v, "add_arguments_to_avoid") for k, v in a.items()}
         for a in patch.get("add_arguments_to_avoid") or []
     ]
-    out["noise"] = (out.get("noise") or []) + [c.text(n, "add_noise") for n in patch.get("add_noise") or []]
-    # quotes must come from the new items or the supplier's documents
-    out["key_quotes"] = (out.get("key_quotes") or []) + c.quotes(patch.get("add_key_quotes"))
+    adds["noise"] = [c.text(n, "add_noise") for n in patch.get("add_noise") or []]
+    adds["key_quotes"] = c.quotes(patch.get("add_key_quotes"))  # verbatim in its document, or dropped
+    for f, new in adds.items():
+        have = list(out.get(f) or [])
+        for e in new:
+            if _duplicate(f, e, have):
+                log.append(f"skipped duplicate {f} entry: {_key(f, e)[:80]}")
+            else:
+                have.append(e)
+        out[f] = have
     # what_it_values: the model's order, but no curated entry silently lost
     values = [c.text(v, "what_it_values") for v in patch.get("what_it_values") or []] or list(
         out.get("what_it_values", [])
@@ -374,6 +399,28 @@ def _diff(a, b, name):
     )
 
 
+CLAIM_KINDS = ("index", "should_cost", "rival", "scorecard", "notice", "forecast", "news", "history")
+
+
+def agent_signals(p):
+    """What the csee agent reads from a profile by keyword (agent.py / localsim.py), as a comparable dict."""
+    values = " ".join(p.get("what_it_values", [])).lower()
+    levers = sorted({t.get("lever") for t in p.get("likely_tradeables", []) if t.get("lever")})
+    avoid = " ".join(a.get("argument", "") for a in p.get("arguments_to_avoid", [])).lower()
+    return {
+        "pressure_types": sorted({x.get("type") for x in p.get("pressures", [])}),
+        "cash_rate (pressure 'cash')": "cash" in " ".join(x.get("type", "") for x in p.get("pressures", [])),
+        "payment trade sheet": "cash" in values or "payment" in values or "payment_days" in levers,
+        "tradeable levers": levers,
+        "claim kinds suppressed by arguments_to_avoid": [k for k in CLAIM_KINDS if k in avoid],
+    }
+
+
+def signal_changes(r):
+    a, b = agent_signals(r["before"]), agent_signals(r["after"])
+    return {k: (a[k], b[k]) for k in a if a[k] != b[k]}
+
+
 def supplier_report(r):
     s = r["supplier"]
     lines = [f"# {s} {r['after'].get('name', '')}", ""]
@@ -419,6 +466,11 @@ def supplier_report(r):
         f"- **{x['field']}**: `{json.dumps(x['entry'], ensure_ascii=False)[:300]}` - {x['reason']}"
         for x in r["removed"]
     ] or ["(nothing)"]
+    ch = signal_changes(r)
+    lines += ["", "## Agent behaviour signals (keywords agent.py reads)", ""]
+    lines += [f"- **{k}**: {a} -> {b}" for k, (a, b) in ch.items()] or ["- unchanged"]
+    if ch.get("claim kinds suppressed by arguments_to_avoid"):
+        lines.append("- WARNING: a new arguments_to_avoid text names a claim kind; the agent will skip those claims")
     lines += ["", "## Checks (IDs, quotes)", ""] + (
         [f"- {x}" for x in r["log"]] or ["- all cited IDs exist; all quotes verbatim"]
     )
@@ -426,7 +478,11 @@ def supplier_report(r):
     return "\n".join(lines)
 
 
-def run(pkg, model, profiles=PROFILES, out_dir=None, suppliers=None, workers=16, release_date=None):
+def run(
+    pkg, model, profiles=PROFILES, out_dir=None, suppliers=None, workers=16, release_date=None, market_fanout=False
+):
+    """`market_fanout`: also update suppliers with no item of their own whose category a company-wide item
+    affects (the market file is built first, then those suppliers get its items as their new items)."""
     t0 = time.time()
     found = detect(pkg, profiles)
     t_detect = time.time() - t0
@@ -436,6 +492,12 @@ def run(pkg, model, profiles=PROFILES, out_dir=None, suppliers=None, workers=16,
     by_sup = found["by_supplier"]
     if suppliers:
         by_sup = {s: v for s, v in by_sup.items() if s in {sid(x) for x in suppliers}}
+    # items of suppliers without a curated profile (long tail): company-wide file, not an error
+    no_profile = {s: v for s, v in by_sup.items() if not (Path(profiles) / f"{digits(s)}.json").is_file()}
+    for s, its in no_profile.items():
+        print(f"  {s}: no curated profile -> its items go to _market.json")
+        found["market"] += [i for i in its if i not in found["market"]]
+    by_sup = {s: v for s, v in by_sup.items() if s not in no_profile}
     print(
         f"release {pkg.release}: {len(found['items'])} new IDs, {len(by_sup)} suppliers affected, "
         f"{len(found['market'])} company-wide items (detect {t_detect:.1f} s)"
@@ -443,12 +505,30 @@ def run(pkg, model, profiles=PROFILES, out_dir=None, suppliers=None, workers=16,
     for s, its in sorted(by_sup.items()):
         print(f"  {s}: {', '.join(i['id'] for i in its)}")
     results, errors = [], []
+    fanout = set()
     with ThreadPoolExecutor(max_workers=workers) as ex:
+        mfut = ex.submit(market_update, pkg, found["market"], model, release_date, profiles)
+        if market_fanout:  # needs the market file's categories first (one call, ~10-20 s)
+            market_doc, _ = mfut.result()
+            new_market = {i["id"]: i for i in (market_doc or {}).get("items", [])}
+            for path in sorted(Path(profiles).glob("7*.json")):
+                s_ = f"sup:{path.stem}"
+                if s_ in by_sup or (suppliers and s_ not in {sid(x) for x in suppliers}):
+                    continue
+                cat = json.loads(path.read_text(encoding="utf-8")).get("category") or ""
+                its = [
+                    dict(i, mapped_by=f"market item for category {cat}")
+                    for i in found["market"]
+                    if cat in (new_market.get(i["id"]) or {}).get("affected_categories", [])
+                ]
+                if its:
+                    by_sup[s_] = its
+                    fanout.add(s_)
+            print(f"  market fan-out: {len(fanout)} more suppliers by category")
         futs = {
             ex.submit(update_one, pkg, s, its, found["market"], model, release_date, profiles): s
             for s, its in by_sup.items()
         }
-        mfut = ex.submit(market_update, pkg, found["market"], model, release_date, profiles)
         for f in as_completed(futs):
             s = futs[f]
             try:
@@ -459,6 +539,9 @@ def run(pkg, model, profiles=PROFILES, out_dir=None, suppliers=None, workers=16,
                 continue
             if r.get("error"):
                 errors.append((s, r["error"]))
+                continue
+            if s in fanout and _unchanged(r):
+                print(f"  {s}: market items change nothing -> not staged")
                 continue
             results.append(r)
             (out_dir / f"{digits(s)}.json").write_text(dump(r["after"]), encoding="utf-8")
@@ -490,6 +573,19 @@ def run(pkg, model, profiles=PROFILES, out_dir=None, suppliers=None, workers=16,
     }
 
 
+def _unchanged(r):
+    skip = ("updated_from", "update_notes", "confidence")
+    return {k: v for k, v in r["before"].items() if k not in skip} == {
+        k: v for k, v in r["after"].items() if k not in skip
+    }
+
+
+def _added(r, field):
+    """Entries actually added to `field` (after dedup and checks)."""
+    gone = sum(1 for x in r["removed"] if x["field"] == field)
+    return len(r["after"].get(field) or []) - (len(r["before"].get(field) or []) - gone)
+
+
 def _index_report(found, results, errors, market_doc, mrow, model, wall, out_dir):
     lines = [f"# Release update - staged in `{out_dir}`", ""]
     lines.append(
@@ -498,15 +594,16 @@ def _index_report(found, results, errors, market_doc, mrow, model, wall, out_dir
     )
     lines += [
         "",
-        "| supplier | new items | relevant | +press. | +args | removed | checks | s | $ |",
-        "|---|---|---|---:|---:|---:|---:|---:|---:|",
+        "| supplier | new items | relevant | +press. | +args | removed | checks | agent signals changed | s | $ |",
+        "|---|---|---|---:|---:|---:|---:|---|---:|---:|",
     ]
     for r in sorted(results, key=lambda r: r["supplier"]):
         p = r["patch"]
         lines.append(
             f"| [{r['supplier']}]({digits(r['supplier'])}.md) {r['after'].get('name', '')[:28]} | "
-            f"{', '.join(i['id'] for i in r['items'])} | {p.get('relevant')} | {len(p.get('add_pressures') or [])} | "
-            f"{len(p.get('add_arguments_that_should_land') or [])} | {len(r['removed'])} | {len(r['log'])} | "
+            f"{', '.join(i['id'] for i in r['items'])} | {p.get('relevant')} | {_added(r, 'pressures')} | "
+            f"{_added(r, 'arguments_that_should_land')} | {len(r['removed'])} | {len(r['log'])} | "
+            f"{', '.join(signal_changes(r)) or '-'} | "
             f"{r['seconds']} | {r['cost']['usd']:.4f} |"
         )
     if errors:
