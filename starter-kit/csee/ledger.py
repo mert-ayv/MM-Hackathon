@@ -68,6 +68,8 @@ def commit():
 
 def record(case_id, set_, result, variant, params, llm, note="", agent="base"):
     FOLDER.mkdir(exist_ok=True)
+    if "arena.tacto.ai" not in os.environ.get("ARENA_URL", "https://arena.tacto.ai"):
+        set_ = f"sim-{set_}"  # a local arena-sim run (e.g. the final rehearsal) never counts as the real set
     now = datetime.now(UTC)
     row = {
         "ts": now.isoformat(timespec="seconds"),
