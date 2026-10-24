@@ -242,3 +242,8 @@ necessary to establish performance; existing runs predate this implementation.
 - **Lesson:** against coarse-tick suppliers, keep each step at least one tick and leave enough gap to keep stepping until the final.
 - **Router:** quality -> mert-quality-menu/v14a.
 - **Also rejected:** P02 fixed-price ladder (0.499: the bot stalls at 372 without the clause) and P18 joint payment/deadband menu (0.542).
+
+**Sat 23:10, planner tick rule:** P11 scored 0.71 in both runs; not routed.
+- **What the logs show:** the planner closes the gap to one tick by reply 5 (its no-cross cap), so its last step is +0.01 again.
+- **What worked instead:** the menu agent kept a wide gap (41.99 vs 45.50) and +0.55 steps, and got 45.00 in the supplier's final.
+- **Why this is not a planner fix:** the planner keeps the gap small on purpose (P02/P18 go final or walk on a 2.5-4 % gap). P11 tolerates 8-15 %. Gap tolerance is per supplier, and only the quality route (menu agent) uses wide-gap pacing.
