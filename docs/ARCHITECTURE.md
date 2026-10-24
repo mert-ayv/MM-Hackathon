@@ -74,3 +74,20 @@ How our agent negotiates, and how each architecture version is tracked. Code: [`
 | v1.3 `base` | `43665e0` | **Bug: only a reply's first sheet is acceptable** (arena 422 "not a standing offer"; caught on the free sandbox, 4 D01 runs scored 0). A better alternative sheet is now proposed back word for word (the supplier agrees, then we accept); accept retries fall back to the thread's standing offer. The simulator enforces the same rule. | Sandbox repro; sim: no failed accepts on 19×3 cases. |
 | v1.4 `base` | `2d5e642` | **Regression fix (sandbox D01 0.90 → 0.63 in v1.3):** (a) a better alternative sheet is proposed back only when we would close the thread anyway, not mid-negotiation (D01 closed after 2 rounds instead of 6); (b) terms are chosen at the expected deal price (halfway between the asks), not at our anchor (an anchor below today's price picked the earliest start date for a deal that ends above it). | P08 still opens at 36 months; sandbox re-run pending. |
 
+## Experiment log (free tools: sandbox D01/D02 are deterministic real bots; sim = calibrated local simulator)
+
+| Variant | Idea | Sandbox D01 / D02 / mean | Sim | Practice | Verdict |
+| --- | --- | --- | --- | --- | --- |
+| `base` v1.4 | all bug fixes | 0.90 / 0.54 / 0.721 | 0.354 | (v1: P-mean 0.48) | champion until v9 is confirmed |
+| v5 | Fable bets, slow concessions | 0.82 / 0.60 / 0.707 | 0.383 | – | slow concessions hurt D01 |
+| v6 | v5 at base speed | 0.86 / 0.65 / 0.753 | 0.373 | – | – |
+| v7 | v6 without hold-on-internal | 0.84 / 0.74 / 0.790 | 0.373 | P05 **0.81** (was 0.35, house 0.56), P08 0.52 (0.44), P11 0.06 (0.23) | RFQ win; P11 flipped terms |
+| v8 | v7 + generic trades + text signals | – | 0.374 | – | untested on real bots |
+| **v9** | v7 + **sticky terms** | **0.95** / 0.72 / **0.835** | **0.385** | – | **best; next practice candidate** |
+| v10 | v9 + push after final offer | 0.99 / 0.72 / 0.855 | 0.272* | – | D01 agreed lower; **DEMO-C1 walked away** when pushed far |
+| v11 | v9 + small 0.5 % push, leader only | 0.97 / 0.72 / 0.846 | – | – | safe, no gain this time |
+
+\* sim recalibrated to 626 real supplier moves before this row (final offer around reply 4, 3 personalities), so sim numbers above and below that line are not comparable.
+
+**Lessons so far:** suppliers converge on our anchor; they turn final around their 4th reply, so the anchor and first moves decide; steady visible concessions buy more rounds than stubbornness; changing terms lets them re-price (13 % of real moves went *up*); only a reply's first sheet is acceptable; a far push after a final offer can make a supplier walk.
+
