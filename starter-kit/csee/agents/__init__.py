@@ -74,6 +74,7 @@ from .mert import (
 )
 from .records import (
     PlanDb0Raw,
+    PlanMesoBase,
     MesoBase,
     MesoLever,
     MesoMert,
@@ -159,6 +160,7 @@ AGENTS = {
     "mert-plan-tick": PlannerTickClaims,  # + tick rule
     "mert-plan-meso-lever-tick": PlanMesoLeverTickClaims,  # + tick rule
     "mert-plan-meso-raw-tick": PlanMesoRawTickClaims,  # + tick rule
+    "mert-plan-meso": PlanMesoBase,  # planner + payment MESO on base terms (renewal / capacity / bundling candidate)
     "router": RouterAgent,
     "router-plan": RouterPlanAgent,  # A/B candidate: the planner on every non-RFQ type
 }

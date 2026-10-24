@@ -318,3 +318,13 @@ class PinDb0Mixin:
 
 class PlanDb0Raw(PlanMixin, PinDb0Mixin, PayMesoMixin, MertSkipHedgeAgent):
     pass
+
+
+# value menu for the remaining types (renewal, capacity, quality-free bases): the payment MESO that took P01 from
+# 0.926 to 0.988 - the shortest and longest payment term at equal C next to the main sheet; the supplier's pick
+# reveals its money rate and the main sheet adopts it
+from csee.agents.mert import PlannerAgent  # noqa: E402
+
+
+class PlanMesoBase(PlanMixin, PayMesoMixin, CseeAgent):
+    pass

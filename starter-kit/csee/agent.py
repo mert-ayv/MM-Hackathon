@@ -160,6 +160,23 @@ class ThreadState:
     why: str = ""  # which branch of next_terms decided the last move (for the run log only)
 
 
+EVIDENCE_FLOOR = {"index": 1.8, "forecast": 1.5}  # moved a price 41/44 and 23/26 times; QN complaints 1.4 (9/12) come next
+
+
+def evidence_order(claims):
+    """Claims ordered by their measured effect on the practice bots (296 replies, Sat 24 Oct, docs/notes): order
+    history never moved a price (0/26) and earlier-quarter delivery is always a "duplicate" - both dropped; the
+    delivery record (14/37) ranks below index, forecast, should-cost (11/11) and notice (6/6). Mixins that reorder
+    afterwards (dossier: hedged index series last) keep the last word."""
+    kept = [c for c in claims if not (c.tag == "po" or (c.tag == "otd" and c.source == "history"))]
+
+    def strength(c):
+        s = max(c.strength, EVIDENCE_FLOOR.get(c.kind, 0.0))
+        return s * (0.4 if c.tag == "otd" else 1.0)
+
+    return sorted(kept, key=lambda c: -strength(c))
+
+
 class CseeAgent:
     """The runner's contract (who calls what, which lock is held) is in `csee/agents/__init__.py`."""
 
@@ -187,6 +204,8 @@ class CseeAgent:
                 case, self.pkg, sid, opening.get("unit_price"), body, opening=first,
                 should_cost_margin=self.p.should_cost_margin,
             )
+            if self.p.claim_evidence:
+                info.claims = evidence_order(info.claims)
             st = self.threads[sid] = ThreadState(info, opening=opening)
             for m in threads.get(sid, []):  # a resumed case: continue from our earlier asks, never re-anchor
                 if m.get("from") == "buyer" and m.get("term_sheets"):
@@ -816,9 +835,6 @@ class CseeAgent:
     def pick_claims(self, case, threads, sid):
         st = self.threads[sid]
         claims = [c for c in st.intel.claims if self.p.history_claims or c.source != "history"]
-        if self.p.claim_evidence:
-            claims = [c for c in claims if not (c.tag == "po" or (c.tag == "otd" and c.source == "history"))]
-            claims = sorted(claims, key=lambda c: -(c.strength * (0.4 if c.tag == "otd" else 1.0)))
         if len(case["suppliers"]) > 1:
             stand = {s: standing(threads[s]) for s in threads}
             rivals = intel_mod.rival_claims(case, stand, sid)

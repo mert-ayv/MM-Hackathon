@@ -35,3 +35,38 @@ reply 1, Nordmark P02 agrees at reply 1). Is our first ask the cause, and is the
 The identical agent scored 0.81 and 0.748 on P05 in the two router A/B runs (20:43) and 0.70-0.754 over four P08
 runs. Treat single-run differences under ~0.08 as ties; prefer the mechanism argument (why it should generalise to a
 supplier we have not met) over the score.
+
+## Cross-supplier patterns in all of Saturday's practice logs (296 supplier replies, 22:50)
+
+**Which arguments move a price.** Parsed from the bots' own wording ("it holds and we took it into account" vs
+"it holds, but it does not change our calculation"):
+
+| Claim kind | cited | moved the price |
+| --- | --- | --- |
+| should-cost (`cost:`) | 11 | 11 (100 %) |
+| notice period (`doc:` + `ctr:`) | 6 | 6 (100 %) |
+| rival quote / alternative quote | 5 | 5 (100 %) |
+| index change (`idx:` pair) | 44 | 41 (93 %) |
+| demand forecast (`fc:`) | 26 | 23 (88 %) |
+| quality record (`qn:` complaints) | 12 | 9 (75 %) |
+| delivery record (`sc:` on-time %) | 37 | 14 (38 %) |
+| **order history (`po:` prices)** | **26** | **0 (0 %)** |
+| earlier-quarter delivery | - | always "duplicate" (12 of the 13 duplicates) |
+
+No citation came back `contradicted` or `irrelevant`. We led round 1 with a delivery claim 49 times and spent
+29 round-2/3 slots on order history. `Params.claim_evidence` (on in every routed variant: v14a, v16a, v7a,
+basea, v14s) drops order history and the earlier-quarter delivery claim, floors index at 1.8 and forecast at
+1.5, and scales the delivery record by 0.4, so index / forecast / should-cost / notice go first and the
+delivery record is a filler. Mixins that reorder afterwards (dossier: hedged index last) keep the last word.
+
+**When concessions are wasted.** After we moved, the supplier gave nothing in 33 % of replies, rising with the
+reply number: reply 2: 17 %, 3: 20 %, 4: 43 %, 5: 67 %, 6: 80 %. Steps under 0.5 % of the price were held 40 %
+of the time, steps of 2 % or more 22 %. Median mirror: the supplier gives 0.41 of our step. The mode of the
+final offer is reply 3 (20 of 62), with a median gap of 6 % between its price and our ask at that moment.
+Lesson for every slot: be within closing distance by reply 4, never dribble sub-tick steps late, and stop
+after two holds (the planner's `frozen_after` rule). v7c / v14c (concede_early 0.35) are a sandbox A/B of
+front-loading for the base slots.
+
+**Instant agreements.** Five "agreed" at our first message, all P02 (the clause sheet). Other agreed-at-reply-2+
+cases landed our ask 2-6 % below the supplier's previous price (P05, P10, P18 soft arms): the supplier would have
+moved at least that far anyway, so those asks were at or above its next step.
