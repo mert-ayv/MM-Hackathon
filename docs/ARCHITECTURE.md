@@ -264,3 +264,19 @@ necessary to establish performance; existing runs predate this implementation.
 **Sat 23:50, payment MESO on renewal (P03, P04; mert-plan-meso): no effect** (0.923 / 0.86 = before).
 - **Why:** both holders froze at their reply-1 price and ignored the 14/30-day sheets. These suppliers value cash below our 8 % (P03 4.1 %), so a sheet at equal cost to us is worth less to them. The MESO only pays with cash-hungry suppliers (P01 9.5 %, on the price-increase route).
 - **Next lead:** with holders, our first message decides everything (P03 freezes after reply 1). Check whether round-1 arguments lower the first counter.
+
+**Sat 23:55, experiment "LLM with our functions as tools" (router-tools; code kept in the session scratchpad, not shipped).**
+- **Design:** per move the router computes the default. Claude Opus 5.5 sees the supplier's e-mail and our functions (`price_package` = exact cost; `submit_move`) and may change the packages. Code checks every move: must-haves, cheaper than the alternative, not dearer than the supplier's offer, at most 3 % deeper than the default. Timeout or error falls back to the default; accept and walk stay deterministic.
+- **Results:**
+
+| Case | Tool agent | Router (same evening) |
+|---|---|---|
+| sandbox D01 / D02 | 0.92 / 0.67 | 0.89 / 0.72 |
+| P01 | 0.973 | 0.975 / 0.988 |
+| P07 | 0.728 (LLM added 60-day options twice) | 0.747 / 0.766 |
+| P10 | 0.679 (LLM added a 42-day option) | 0.679 |
+| P11 | 0.71 | 0.71 |
+
+- **Verdict:** where the LLM changed the move it never helped (D02, P07 worse; P10 equal). Its reasoning was sound ("it names the payment lever, offer it"), but these suppliers price numbers by rules. It also cost 10-20 s per move. Not routed.
+
+**Sandbox regression explained:** router 0.852 -> 0.800 on sandbox D01 since c595836 (price increase -> planner + payment MESO). Bisected with worktrees: the sweep fixes (a208143) are neutral. D01 is a Tacto demo bot outside the 46 final suppliers; on the real P01/P02 the planner route is neutral to +0.05. Kept, but the planner can under-anchor big-step suppliers.
