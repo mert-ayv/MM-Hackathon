@@ -8,6 +8,7 @@ from arena_kit.cost import total_cost, must_haves_ok
 from csee import variants
 from csee.agent import CseeAgent
 from csee.agents.mert import MertQualityMenuAgent, MertFixedProbeAgent, MertLeverAgent
+from csee.agents.mert import MertRawJointMenuAgent
 
 
 def setup(cls, case_id):
@@ -76,3 +77,26 @@ def test_quality_full_message_contains_each_package():
         t=sheet['terms']
         assert f"{t['unit_price']:.2f}" in msg['body']
         assert str(t['ppm_commitment']) in msg['body']
+
+
+def test_raw_joint_menu_keeps_coverage_and_cost():
+    a,c,threads,sid = setup(MertRawJointMenuAgent,'case:P18')
+    clause=max([t for t in c['term_options']['index_clause'] if t],key=lambda t:t['deadband_pct'])
+    main=dict(unit_price=5.1,payment_days=90,contract_months=24,index_clause=clause)
+    sheets=a.sheets(c,sid,main,{},None)
+    assert len(sheets)==3
+    assert sheets[1]['payment_days']==45
+    assert sheets[1]['index_clause']['deadband_pct']==3
+    for t in sheets:
+        assert set(t)==set(c['negotiable'])
+        assert t['contract_months']==24
+        assert must_haves_ok(c,t)
+        assert total_cost(c,t)<=total_cost(c,main)+1e-7
+
+
+def test_raw_joint_menu_does_not_change_other_case_types():
+    a,c,threads,sid=setup(MertRawJointMenuAgent,'case:P11')
+    from csee.agents.mert import MertSkipHedgeAgent
+    b=MertSkipHedgeAgent(params=variants.params('v14a'))
+    b.prepare(c,copy.deepcopy(threads))
+    assert a.thread_move(c,threads,sid)['term_sheets']==b.thread_move(c,threads,sid)['term_sheets']
