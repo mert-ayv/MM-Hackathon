@@ -9,21 +9,216 @@
  "turnover_eur": null,
  "our_spend_fy2026_eur": 93374,
  "our_share_of_their_turnover_pct": 2.7,
- "parts": [{"part_id": "part:320050", "name": "Adapter piece HI", "current_price": 15.88, "price_unit": 1, "quota_pct": 100, "qualified_alternatives": [], "should_cost_id": null, "should_cost_unit": null}],
- "contract": {"id": "ctr:4600070270", "valid_to": "2027-06-30", "payment_days": 45, "incoterm": "EXW", "notice_days": 90, "index_clauses": []},
- "standard_terms_hint": {"payment_days": 45, "incoterm": "EXW", "lead_time_days": 42, "skonto": null},
- "quality": {"latest_scorecard_id": "sc:70270@2026Q3", "otd_pct": 84.6, "ppm": 1531, "colour": "amber", "trend": "vs 2025Q3: OTD 68.0->84.6%, ppm 1590->1531; colours last 4Q: amber/amber/amber/amber", "open_8d_overdue": 0},
- "payment_behaviour": {"avg_days_late_by_us": 5.4, "note": "58 of 68 paid invoices after due date; 4 open invoices EUR 13,022 at 2026-09-30"},
- "financial_health": {"equity_ratio_pct": 44.8, "credit_index": 245, "credit_index_12m_ago": 245, "signal": "stable (credit 245, equity 44.8%); turnover filed only as band 2-5 M EUR; our FY2026 spend is 1.9-4.7% of turnover (2.7 at band midpoint)"},
- "negotiation_history": {"events": 4, "avg_asked_pct": 1.5, "avg_settled_pct": -0.9, "settle_to_ask_ratio": 0.31, "notes": ["Asked +5.8% settled +2.7% (EV-2025-70270-320050); asked +2.8% settled 0.0% (EV-2026-70270-320050).", "ratio = settled/asked over the 2 renewals where it asked an increase (sum basis); 3 renewals in total"]},
- "situation": "Founder-led CZ shop, 30 staff, sole source of the HI adapter piece (part:320050, 15.88, 45 d, EXW). The owner works from his own spreadsheet last updated two years ago and asked where we get our index figures (doc:20260809-70270-M1) - he is open to data. He also reminded us that in 2022 he kept supplying at the old price and expects partnership (doc:20260318-70270-M3); the sales director is reviewing small accounts and will focus on volume (doc:20260223-70270-M2). Quality amber but improving (sc:70270@2026Q3 OTD 84.6% from 68.0%, ppm 1531).",
- "pressures": [{"type": "other", "evidence": "Outdated 2-year-old cost spreadsheet; asks for index sources", "ids": ["doc:20260809-70270-M1"]}, {"type": "volume", "evidence": "Focusing on customers with volume; we are a small account", "ids": ["doc:20260223-70270-M2"]}, {"type": "quality", "evidence": "Amber all 9 quarters; porosity/coating QNs", "ids": ["sc:70270@2026Q3", "qn:20004969"]}],
- "what_it_values": ["partnership / recognition for 2022", "volume", "transparent, data-backed pricing"],
- "likely_tradeables": [{"lever": "volume_per_year", "give": "commit forecast +13.1% (fc:320050@2026-09)", "get": "price hold", "why": "answers 'focus on volume'", "ids": ["fc:320050@2026-09"]}, {"lever": "contract_months", "give": "24 months", "get": "fixed price", "why": "partnership signal", "ids": ["doc:20260318-70270-M3"]}, {"lever": "incoterm", "give": "longer term", "get": "DAP instead of EXW", "why": "CZ freight is ours under EXW", "ids": ["ctr:4600070270#5.1"]}, {"lever": "ppm_commitment", "give": "volume", "get": "ppm target ~1000", "why": "ppm 1531 costs us", "ids": ["sc:70270@2026Q3"]}],
- "arguments_that_should_land": [{"argument": "Here are our sources: industrial power -3.7% in 12 months (idx:PPI-D351@2025-08 to @2026-08)", "ids": ["idx:PPI-D351@2025-08", "idx:PPI-D351@2026-08", "doc:20260809-70270-M1"], "why": "he asked for index sources"}, {"argument": "Labour cost index only +2.7% (idx:LCI-C@2025-06 to @2026-06)", "ids": ["idx:LCI-C@2025-06", "idx:LCI-C@2026-06"], "why": "caps wage-based asks"}, {"argument": "Recognise his 2022 support and offer a longer partnership", "ids": ["doc:20260318-70270-M3"], "why": "his explicit expectation"}],
- "arguments_to_avoid": [{"argument": "PPI-C2431 cold-drawn bars (+12.3% 12m, +7.2% over 2 years)", "why": "his spreadsheet probably understates bar prices; data would support an increase"}, {"argument": "Threats to resource", "why": "sole source, no qualified alternative"}],
- "persona": {"who_writes": "owner of a CZ founder company / sales director", "style": "practical, curious about numbers, partnership language", "decision_making": "owner, with a homemade spreadsheet - persuadable with clean data", "relationship_notes": "feels owed for 2022; we are small for him"},
- "noise": ["doc:20251211-70270-N (returnable packaging)"],
- "key_quotes": [{"id": "doc:20260809-70270-M1", "quote": "he works from his own spreadsheet, last updated two years ago"}],
- "confidence": "medium"
+ "parts": [
+  {
+   "part_id": "part:320050",
+   "name": "Adapter piece HI",
+   "current_price": 15.88,
+   "price_unit": 1,
+   "quota_pct": 100,
+   "qualified_alternatives": [],
+   "should_cost_id": null,
+   "should_cost_unit": null
+  }
+ ],
+ "contract": {
+  "id": "ctr:4600070270",
+  "valid_to": "2027-06-30",
+  "payment_days": 45,
+  "incoterm": "EXW",
+  "notice_days": 90,
+  "index_clauses": []
+ },
+ "standard_terms_hint": {
+  "payment_days": 45,
+  "incoterm": "EXW",
+  "lead_time_days": 42,
+  "skonto": null
+ },
+ "quality": {
+  "latest_scorecard_id": "sc:70270@2026Q3",
+  "otd_pct": 84.6,
+  "ppm": 1531,
+  "colour": "amber",
+  "trend": "vs 2025Q3: OTD 68.0->84.6%, ppm 1590->1531; colours last 4Q: amber/amber/amber/amber",
+  "open_8d_overdue": 0
+ },
+ "payment_behaviour": {
+  "avg_days_late_by_us": 5.4,
+  "note": "58 of 68 paid invoices after due date; 4 open invoices EUR 13,022 at 2026-09-30"
+ },
+ "financial_health": {
+  "equity_ratio_pct": 44.8,
+  "credit_index": 245,
+  "credit_index_12m_ago": 245,
+  "signal": "stable (credit 245, equity 44.8%); turnover filed only as band 2-5 M EUR; our FY2026 spend is 1.9-4.7% of turnover (2.7 at band midpoint)"
+ },
+ "negotiation_history": {
+  "events": 4,
+  "avg_asked_pct": 1.5,
+  "avg_settled_pct": -0.9,
+  "settle_to_ask_ratio": 0.31,
+  "notes": [
+   "Asked +5.8% settled +2.7% (EV-2025-70270-320050); asked +2.8% settled 0.0% (EV-2026-70270-320050).",
+   "ratio = settled/asked over the 2 renewals where it asked an increase (sum basis); 3 renewals in total"
+  ]
+ },
+ "situation": "Founder-led CZ shop, 30 staff, sole source of the HI adapter piece (part:320050, 15.88, 45 d, EXW). It lost an automotive order and puts its turning shop on short-time work from November. The owner is looking for new customers in Germany (news:20261020-S16, doc:20261023-HPW-MEMO), so he now needs volume more than before. The owner works from his own spreadsheet last updated two years ago and asked where we get our index figures (doc:20260809-70270-M1); he is open to data. He expects partnership for keeping prices in 2022 (doc:20260318-70270-M3), and the sales director is focusing on volume accounts (doc:20260223-70270-M2). Quality is amber but improving (sc:70270@2026Q3 OTD 84.6% from 68.0%, ppm 1531).",
+ "pressures": [
+  {
+   "type": "other",
+   "evidence": "Outdated 2-year-old cost spreadsheet; asks for index sources",
+   "ids": [
+    "doc:20260809-70270-M1"
+   ]
+  },
+  {
+   "type": "volume",
+   "evidence": "Focusing on customers with volume; we are a small account",
+   "ids": [
+    "doc:20260223-70270-M2"
+   ]
+  },
+  {
+   "type": "quality",
+   "evidence": "Amber all 9 quarters; porosity/coating QNs",
+   "ids": [
+    "sc:70270@2026Q3",
+    "qn:20004969"
+   ]
+  },
+  {
+   "type": "utilisation",
+   "evidence": "Lost an automotive order; turning shop on short-time work from November; owner seeking new customers in Germany",
+   "ids": [
+    "news:20261020-S16",
+    "doc:20261023-HPW-MEMO"
+   ]
+  }
+ ],
+ "what_it_values": [
+  "volume",
+  "partnership / recognition for 2022",
+  "transparent, data-backed pricing"
+ ],
+ "likely_tradeables": [
+  {
+   "lever": "volume_per_year",
+   "give": "commit forecast +13.1% (fc:320050@2026-09)",
+   "get": "price hold",
+   "why": "answers 'focus on volume'",
+   "ids": [
+    "fc:320050@2026-09"
+   ]
+  },
+  {
+   "lever": "contract_months",
+   "give": "24 months",
+   "get": "fixed price",
+   "why": "partnership signal",
+   "ids": [
+    "doc:20260318-70270-M3"
+   ]
+  },
+  {
+   "lever": "incoterm",
+   "give": "longer term",
+   "get": "DAP instead of EXW",
+   "why": "CZ freight is ours under EXW",
+   "ids": [
+    "ctr:4600070270#5.1"
+   ]
+  },
+  {
+   "lever": "ppm_commitment",
+   "give": "volume",
+   "get": "ppm target ~1000",
+   "why": "ppm 1531 costs us",
+   "ids": [
+    "sc:70270@2026Q3"
+   ]
+  }
+ ],
+ "arguments_that_should_land": [
+  {
+   "argument": "Here are our sources: industrial power -3.7% in 12 months (idx:PPI-D351@2025-08 to @2026-08)",
+   "ids": [
+    "idx:PPI-D351@2025-08",
+    "idx:PPI-D351@2026-08",
+    "doc:20260809-70270-M1"
+   ],
+   "why": "he asked for index sources"
+  },
+  {
+   "argument": "Labour cost index only +2.7% (idx:LCI-C@2025-06 to @2026-06)",
+   "ids": [
+    "idx:LCI-C@2025-06",
+    "idx:LCI-C@2026-06"
+   ],
+   "why": "caps wage-based asks"
+  },
+  {
+   "argument": "Recognise his 2022 support and offer a longer partnership",
+   "ids": [
+    "doc:20260318-70270-M3"
+   ],
+   "why": "his explicit expectation"
+  },
+  {
+   "argument": "We are a German customer offering firm volume (forecast +13.1%, fc:320050@2026-09) just as your turning shop goes on short-time work; filling capacity is worth more to you than a price increase",
+   "ids": [
+    "news:20261020-S16",
+    "fc:320050@2026-09"
+   ],
+   "why": "matches his stated search for German customers and idle capacity"
+  }
+ ],
+ "arguments_to_avoid": [
+  {
+   "argument": "PPI-C2431 cold-drawn bars (+12.3% 12m, +7.2% over 2 years)",
+   "why": "his spreadsheet probably understates bar prices; data would support an increase"
+  },
+  {
+   "argument": "Threats to resource",
+   "why": "sole source, no qualified alternative"
+  },
+  {
+   "argument": "Openly exploiting the short-time work to squeeze price",
+   "why": "he expects partnership recognition for 2022; we remain sole-sourced on him and his stability matters to us"
+  }
+ ],
+ "persona": {
+  "who_writes": "owner of a CZ founder company / sales director",
+  "style": "practical, curious about numbers, partnership language",
+  "decision_making": "owner, with a homemade spreadsheet - persuadable with clean data",
+  "relationship_notes": "feels owed for 2022; we are small for him [2026-10-23] The owner is now under utilisation pressure and actively courting German customers, so he is likely receptive to a volume-for-price partnership offer."
+ },
+ "noise": [
+  "doc:20251211-70270-N (returnable packaging)"
+ ],
+ "key_quotes": [
+  {
+   "id": "doc:20260809-70270-M1",
+   "quote": "he works from his own spreadsheet, last updated two years ago"
+  },
+  {
+   "id": "news:20261020-S16",
+   "quote": "the owner says he is looking for new customers in Germany"
+  }
+ ],
+ "confidence": "medium",
+ "updated_from": [
+  "doc:20261023-HPW-MEMO",
+  "news:20261020-S16"
+ ],
+ "update_notes": [
+  {
+   "release": "2026-10-23",
+   "ids": [
+    "doc:20261023-HPW-MEMO",
+    "news:20261020-S16"
+   ],
+   "summary": "Kraslin lost an automotive order and puts its turning shop on short-time work from November; the owner is actively looking for new German customers (news:20261020-S16, doc:20261023-HPW-MEMO). This shifts leverage toward us: idle capacity makes our volume commitment and a longer contract worth more to him, so a price hold, a ppm target or DAP should be easier to obtain."
+  }
+ ]
 }
