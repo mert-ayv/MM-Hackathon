@@ -98,3 +98,24 @@ class PlannerSoftClaims(PlannerDossierClaims):
 
 class PlanMesoRawSoftClaims(PlanMesoRawDossierClaims):
     plan = _replace(PlanParams(), anchor_raw=0.12)
+
+
+# tick rule (P11 lesson) on the planner routes: candidates until the engine and a practice run confirm them
+class PlannerTickClaims(PlannerDossierClaims):
+    plan = _replace(PlanParams(), tick_rule=True)
+
+
+class PlanMesoLeverTickClaims(PlanMesoLeverDossierClaims):
+    plan = _replace(PlanParams(), tick_rule=True)
+
+
+class PlanMesoRawTickClaims(PlanMesoRawDossierClaims):
+    plan = _replace(PlanParams(), tick_rule=True)
+
+
+from .mert import MertRfqAnchorAgent  # noqa: E402
+
+
+class RfqAnchorDossierClaims(DossierClaimsMixin, MertRfqAnchorAgent):
+    """Final RFQ route (Sun 07:50): the deeper RFQ opening (28 % / 15 % vs rivals) + hedge-aware claims.
+    Live: P05 0.831 / 0.831 / 0.854, sandbox D02 0.786 / 0.77 / 0.77 vs 0.736, no walk-aways in 6 runs."""

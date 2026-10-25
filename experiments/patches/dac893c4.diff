@@ -1,0 +1,134 @@
+diff --git a/starter-kit/csee/agents/__init__.py b/starter-kit/csee/agents/__init__.py
+index 7e3662f..3ca2b88 100644
+--- a/starter-kit/csee/agents/__init__.py
++++ b/starter-kit/csee/agents/__init__.py
+@@ -105,7 +105,7 @@ from .mert_dossier import (
+     SkipHedgeDossier,
+ )
+ from .router import RouterAgent, RouterClaimsAgent, RouterPlanAgent
+-from .mert_sunday import MertRfqLeadMenuAgent, MertRawLongAgent
++from .mert_sunday import MertRfqLeadMenuAgent, MertRawLongAgent, MertRawCashFirstAgent, MertRfqCashFirstAgent, MertQualityReciprocalAgent, MertQualityReciprocalSingleAgent, MertSundayRouterAgent
+ from .unified import UnifiedAgent, UnifiedFastAgent, UnifiedReviewAgent, UnifiedSingleAgent
+ 
+ AGENTS = {
+@@ -133,6 +133,11 @@ AGENTS = {
+     "mert-rfq-anchor": MertRfqAnchorAgent,
+     "mert-rfq-lead-menu": MertRfqLeadMenuAgent,
+     "mert-raw-long": MertRawLongAgent,
++    "mert-raw-cash-first": MertRawCashFirstAgent,
++    "mert-rfq-cash-first": MertRfqCashFirstAgent,
++    "mert-quality-reciprocal": MertQualityReciprocalAgent,
++    "mert-quality-reciprocal-single": MertQualityReciprocalSingleAgent,
++    "mert-sunday-router": MertSundayRouterAgent,
+     "mert-clause": MertClauseAgent,
+     "mert-raw": MertRawAgent,
+     "mert-hedge": MertHedgeAgent,
+diff --git a/starter-kit/csee/agents/mert_sunday.py b/starter-kit/csee/agents/mert_sunday.py
+index 710c638..9710558 100644
+--- a/starter-kit/csee/agents/mert_sunday.py
++++ b/starter-kit/csee/agents/mert_sunday.py
+@@ -3,8 +3,103 @@ import math
+ 
+ from arena_kit.cost import complete_offer, must_haves_ok, total_cost
+ from csee import levers
+-from .mert import MertRfqAnchorAgent
++from .mert import MertRfqAnchorAgent, MertQualityMenuAgent
+ from .mert_dossier import PlanMesoRawDossierClaims
++from .router import RouterAgent
++
++
++class MertSundayRouterAgent(RouterAgent):
++    """Reviewable combined candidate; inherits all other current router slots."""
++
++    @staticmethod
++    def routes():
++        return {**RouterAgent.routes(),
++                'rfq': 'mert-rfq-anchor/v7a',
++                'quality': 'mert-quality-reciprocal/v14a'}
++
++
++class CashFirstMixin:
++    """Put a feasible fast-payment package first, preserving the main clause.
++
++    Require the price cut to cover our financing cost. Keep the original main
++    package as an alternative, and never retract a previously quoted price on
++    the same structure. This is a research candidate, not a supplier-rate claim.
++    """
++
++    def sheets(self, case, sid, ours, std, supplier):
++        out = super().sheets(case, sid, ours, std, supplier)
++        if case.get('type') not in ('raw_material', 'rfq') or not out:
++            return out
++        if not {'unit_price', 'payment_days'} <= set(case['negotiable']):
++            return out
++        main = out[0]
++        faster = [d for d in levers.options(case, 'payment_days') if d < main['payment_days']]
++        if not faster:
++            return out
++        t = complete_offer(case, {**main, 'payment_days': min(faster)})
++        if not must_haves_ok(case, t, std):
++            return out
++        target = total_cost(case, main, std, supplier)
++        price = levers.price_for(case, t, target, std, supplier)
++        if price is None or price <= 0:
++            return out
++        t['unit_price'] = math.floor(price * 100) / 100
++        if total_cost(case, t, std, supplier) > target + .01:
++            t['unit_price'] = round(t['unit_price'] - .01, 2)
++        fields = [f for f in case['negotiable'] if f != 'unit_price']
++        previous = [s['terms']['unit_price']
++                    for m in self.threads[sid].events if m.get('from') == 'buyer'
++                    for s in m.get('term_sheets', [])
++                    if all(s.get('terms', {}).get(f) == t.get(f) for f in fields)
++                    and s.get('terms', {}).get('unit_price') is not None]
++        if previous:
++            t['unit_price'] = max(t['unit_price'], max(previous))
++        if total_cost(case, t, std, supplier) > target + .01:
++            return out
++        # CseeAgent records ours.unit_price after sheets(); keep its concession
++        # history aligned with the actual first sheet sent to the supplier.
++        ours.clear()
++        ours.update(t)
++        return [t, main]
++
++
++class MertRawCashFirstAgent(CashFirstMixin, PlanMesoRawDossierClaims):
++    pass
++
++
++class MertRfqCashFirstAgent(CashFirstMixin, MertRfqAnchorAgent):
++    pass
++
++
++class MertQualityReciprocalAgent(MertQualityMenuAgent):
++    """Test larger reciprocal steps while a quality supplier is still open.
++
++    Infer a price increment from observed concessions, without hard-coded case
++    prices. Offer up to twice that increment, staying one increment below its
++    current ask. The ordinary final-offer and must-have guards still apply.
++    """
++
++    def next_terms(self, case, threads, sid, theirs, std, supplier, left):
++        ours = super().next_terms(case, threads, sid, theirs, std, supplier, left)
++        st = self.threads[sid]
++        if not ours or case.get('type') != 'quality' or not st.our_prices or 'unit_price' not in case['negotiable']:
++            return ours
++        prices = st.their_prices[-4:]
++        steps = [a-b for a,b in zip(prices,prices[1:]) if a-b > .009]
++        if not steps:
++            return ours
++        tick = min(steps)
++        target = min(st.our_prices[-1]+2*tick, theirs['unit_price']-tick)
++        candidate = {**ours,'unit_price':round(max(ours['unit_price'],target),2)}
++        return candidate if must_haves_ok(case,candidate,std) else ours
++
++
++class MertQualityReciprocalSingleAgent(MertQualityReciprocalAgent):
++    """Ablate the quality alternatives while keeping the reciprocal price policy."""
++
++    def sheets(self, case, sid, ours, std, supplier):
++        out = super().sheets(case, sid, ours, std, supplier)
++        return out[:1] if case.get('type') == 'quality' else out
+ 
+ 
+ class MertRfqLeadMenuAgent(MertRfqAnchorAgent):

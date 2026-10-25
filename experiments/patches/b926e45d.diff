@@ -1,0 +1,60 @@
+diff --git a/starter-kit/csee/agents/__init__.py b/starter-kit/csee/agents/__init__.py
+index 9a81711..50ef7d5 100644
+--- a/starter-kit/csee/agents/__init__.py
++++ b/starter-kit/csee/agents/__init__.py
+@@ -108,6 +108,7 @@ from .mert_dossier import (
+ from .router import RouterAgent, RouterClaimsAgent, RouterPlanAgent
+ from .mert_sunday import MertRfqLeadMenuAgent, MertRawLongAgent, MertRawCashFirstAgent, MertRfqCashFirstAgent, MertQualityReciprocalAgent, MertQualityReciprocalSingleAgent, MertSundayRouterAgent
+ from .mert_sunday import MertQualityMeasuredAgent, MertMeasuredRouterAgent, MertQualityRouterAgent
++from .mert_sunday import MertRawFrontloadAgent
+ from .unified import UnifiedAgent, UnifiedFastAgent, UnifiedReviewAgent, UnifiedSingleAgent
+ 
+ AGENTS = {
+@@ -143,6 +144,7 @@ AGENTS = {
+     "mert-quality-measured": MertQualityMeasuredAgent,
+     "mert-measured-router": MertMeasuredRouterAgent,
+     "mert-quality-router": MertQualityRouterAgent,
++    "mert-raw-frontload": MertRawFrontloadAgent,
+     "mert-clause": MertClauseAgent,
+     "mert-raw": MertRawAgent,
+     "mert-hedge": MertHedgeAgent,
+diff --git a/starter-kit/csee/agents/mert_sunday.py b/starter-kit/csee/agents/mert_sunday.py
+index ed62621..9dc9853 100644
+--- a/starter-kit/csee/agents/mert_sunday.py
++++ b/starter-kit/csee/agents/mert_sunday.py
+@@ -3,11 +3,36 @@ import math
+ 
+ from arena_kit.cost import complete_offer, must_haves_ok, total_cost
+ from csee import levers
++from csee.agent import CseeAgent
+ from .mert import MertRfqAnchorAgent, MertQualityMenuAgent
+ from .mert_dossier import PlanMesoRawDossierClaims
+ from .router import RouterAgent
+ 
+ 
++class MertRawFrontloadAgent(PlanMesoRawDossierClaims):
++    """Test two evidence arguments before early-final raw suppliers set a path.
++
++    Front-load existing index evidence, preserving its relative order and the
++    parent's deduplication, terms and closing. Opening increases to two claims.
++    """
++
++    def pick_claims(self, case, threads, sid):
++        first = not any(m.get('from') == 'buyer' for m in threads[sid])
++        if case.get('type') != 'raw_material' or not first:
++            return super().pick_claims(case, threads, sid)
++        with self.shared_lock:
++            keep = self.p.max_claims
++            st = self.threads[sid]
++            original = st.intel.claims
++            try:
++                self.p.max_claims = 1  # CseeAgent adds one on the opening message.
++                st.intel.claims = [c for c in original if c.kind == 'index'] + [c for c in original if c.kind != 'index']
++                return CseeAgent.pick_claims(self,case,threads,sid)
++            finally:
++                self.p.max_claims = keep
++                st.intel.claims = original
++
++
+ class MertSundayRouterAgent(RouterAgent):
+     """Reviewable combined candidate; inherits all other current router slots."""

@@ -1,0 +1,73 @@
+diff --git a/starter-kit/csee/agents/mert.py b/starter-kit/csee/agents/mert.py
+index aaa61a9..574783c 100644
+--- a/starter-kit/csee/agents/mert.py
++++ b/starter-kit/csee/agents/mert.py
+@@ -9,6 +9,7 @@ disabled final pushes. No claimed practice improvement until measured.
+ """
+ 
+ import math
++import json
+ import re
+ from datetime import date
+ from dataclasses import dataclass, replace
+@@ -20,7 +21,7 @@ from arena_kit.play import latest
+ from .. import intel, levers
+ from ..agent import CseeAgent
+ from ..agent import must_haves_ok as csee_must_haves_ok
+-from ..writer import SIGN
++from ..writer import SIGN, LLMWriter
+ from .emre import EmreAgent
+ 
+ CONTINUATION_REASON = "open supplier still conceding: hold last package"
+@@ -1364,6 +1365,29 @@ class PlannerRawAgent(PlanMixin, MertAgent):
+     """mert (raw material: clause/payment alternatives) + the planner."""
+ 
+ 
++class MertScopedWriter(LLMWriter):
++    """Candidate-only writer: do not promise concessions on immutable case terms."""
++
++    SYSTEM = LLMWriter.SYSTEM + (
++        '\nThe FIXED TERMS are binding facts, not options. State them accurately when relevant. '
++        'Never promise to change or separately negotiate them. Answer volume questions from '
++        'those facts; do not invent an internal review or extra commitments. '
++        'Only the NEGOTIABLE fields may change.'
++    )
++
++    def write(self, case, agent, sid, events, sheets, claims, ask_breakdown, focus=''):
++        scope = 'FIXED TERMS: ' + json.dumps(case.get('fixed_terms', {}), separators=(',', ':'))
++        scope += '; NEGOTIABLE: ' + ','.join(case['negotiable'])
++        return super().write(case, agent, sid, events, sheets, claims, ask_breakdown,
++                             focus=scope + ('; ' + focus if focus else ''))
++
++
++def scoped_writer(writer):
++    if type(writer) is LLMWriter:
++        return MertScopedWriter(writer.complete, writer.budget_s)
++    return writer
++
++
+ class MertQualityMenuAgent(CseeAgent):
+     """Isolated quality/price menu. Each relaxed commitment costs no more than main.
+ 
+@@ -1371,9 +1395,13 @@ class MertQualityMenuAgent(CseeAgent):
+     supplier-specific scores or prices, and no post-final negotiation override.
+     """
+ 
++    scope_writer = False  # separate ablation; leave the successful first live policy unchanged
++
+     def prepare(self, case, threads):
+         super().prepare(case, threads)
+         self.p = replace(self.p, final_push=0.0, push_after_final=0)
++        if self.scope_writer:
++            self.writer = scoped_writer(self.writer)
+ 
+     def sheets(self, case, sid, ours, std, supplier):
+         out = super().sheets(case, sid, ours, std, supplier)
+@@ -1421,6 +1449,7 @@ class MertFixedProbeAgent(MertLeverAgent):
+     def prepare(self, case, threads):
+         super().prepare(case, threads)
+         self.p = replace(self.p, final_push=0.0, push_after_final=0)
++        self.writer = scoped_writer(self.writer)
+ 
+     def fixed_probe(self, case, sid):
+         return (case.get('case_id') == 'case:P02'

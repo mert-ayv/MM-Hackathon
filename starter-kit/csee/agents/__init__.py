@@ -46,6 +46,7 @@ The runner's contract (`runner.play_case`), in call order:
 
 from ..agent import CseeAgent
 from .annika import AnnikaAgent
+from .annika_capacity import AnnikaCapacity9Agent, AnnikaCapacity9J2Agent, AnnikaCapacity9JAgent, AnnikaCapacityAgent
 from .ege import EgeAgent
 from .emre import EmreAgent
 from .mert import (
@@ -53,9 +54,15 @@ from .mert import (
     FinalCandidateAgent,
     GatedPushAgent,
     MertAgent,
+    MertQualityMenuAgent,
+    MertFixedProbeAgent,
+    MertFixedLadderAgent,
+    MertRawJointMenuAgent,
     MertAnchorAgent,
     MertClauseAgent,
     MertConsistentAgent,
+    MertRawFocusedAgent,
+    MertRfqAnchorAgent,
     MertDialogueAgent,
     MertHedgeAgent,
     MertHedgeLateAgent,
@@ -68,6 +75,8 @@ from .mert import (
     PlannerRawAgent,
 )
 from .records import (
+    PlanDb0Raw,
+    PlanMesoBase,
     MesoBase,
     MesoLever,
     MesoMert,
@@ -81,6 +90,10 @@ from .records import (
     PledgeBase,
 )
 from .mert_dossier import (
+    RfqAnchorDossierClaims,
+    PlannerTickClaims,
+    PlanMesoLeverTickClaims,
+    PlanMesoRawTickClaims,
     BaseDossier,
     PlanMesoLeverDossier,
     PlanMesoLeverDossierClaims,
@@ -92,18 +105,47 @@ from .mert_dossier import (
     PlanMesoRawSoftClaims,
     SkipHedgeDossier,
 )
+from .router import RouterAgent, RouterClaimsAgent, RouterPlanAgent
+from .mert_sunday import MertRfqLeadMenuAgent, MertRawLongAgent, MertRawCashFirstAgent, MertRfqCashFirstAgent, MertQualityReciprocalAgent, MertQualityReciprocalSingleAgent, MertSundayRouterAgent
+from .mert_sunday import MertQualityMeasuredAgent, MertMeasuredRouterAgent, MertQualityRouterAgent
+from .mert_sunday import MertRawFrontloadAgent
+from .unified import UnifiedAgent, UnifiedFastAgent, UnifiedReviewAgent, UnifiedSingleAgent
 from .emre_ehl import PlanMesoLeverDeepClaims, PlannerDeepClaims
-from .router import RouterAgent, RouterPlanAgent
 
 AGENTS = {
+    "unified": UnifiedAgent,
+    "unified-single": UnifiedSingleAgent,
+    "unified-fast": UnifiedFastAgent,
+    "unified-review": UnifiedReviewAgent,
     "base": CseeAgent,
     "annika": AnnikaAgent,
+    "annika-k": AnnikaCapacityAgent,  # capacity expert (P10/P09 evidence: docs/playbooks/capacity.md), H2 3.75 %
+    "annika-k9": AnnikaCapacity9Agent,  # the same with a 9 % anchor (practice #3 P10 0.679)
+    "annika-k9j": AnnikaCapacity9JAgent,  # k9 + appreciation/pay-on-terms in R1 + one R2 jump (P10 #5: 0.686)
+    "annika-k9j2": AnnikaCapacity9J2Agent,  # k9j with a 12 % anchor and the R2 jump to 31.34 (fit on #2/#3/#5)
     "ege": EgeAgent,
     "emre": EmreAgent,
     "mert": MertAgent,
+    "mert-quality-menu": MertQualityMenuAgent,
+    "mert-fixed-probe": MertFixedProbeAgent,
+    "mert-fixed-ladder": MertFixedLadderAgent,
+    "mert-raw-joint-menu": MertRawJointMenuAgent,
     "mert-dialogue": MertDialogueAgent,
     "mert-anchor": MertAnchorAgent,
     "mert-consistent": MertConsistentAgent,
+    "mert-raw-focused": MertRawFocusedAgent,
+    "mert-rfq-anchor": MertRfqAnchorAgent,
+    "mert-rfq-lead-menu": MertRfqLeadMenuAgent,
+    "mert-raw-long": MertRawLongAgent,
+    "mert-raw-cash-first": MertRawCashFirstAgent,
+    "mert-rfq-cash-first": MertRfqCashFirstAgent,
+    "mert-quality-reciprocal": MertQualityReciprocalAgent,
+    "mert-quality-reciprocal-single": MertQualityReciprocalSingleAgent,
+    "mert-sunday-router": MertSundayRouterAgent,
+    "mert-quality-measured": MertQualityMeasuredAgent,
+    "mert-measured-router": MertMeasuredRouterAgent,
+    "mert-quality-router": MertQualityRouterAgent,
+    "mert-raw-frontload": MertRawFrontloadAgent,
     "mert-clause": MertClauseAgent,
     "mert-raw": MertRawAgent,
     "mert-hedge": MertHedgeAgent,
@@ -127,6 +169,7 @@ AGENTS = {
     "mert-plan-raw-soft18": PlanMesoRawSoft18,  # 18 % raw anchor + tight gap budget
     "mert-plan-softrel": PlannerSoftRel,  # 4 % anchor for relationship goals (P10 capacity)
     "mert-plan-meso-lever-r": PlanMesoLeverReal,  # real-cost study: relationship sheets at should-cost x 0.965 (P02)
+    "mert-plan-db0-raw": PlanDb0Raw,  # P18 record route: 0 % deadband clause + 45 d on the main sheet
     "mert-pledge": PledgeBase,  # P11 record: on-time-payment commitment when payment is fixed and we paid late
     # dossier (csee/dossier): hedge-aware claims; "-d" planners also take the supplier's fitted persona priors
     "base-d": BaseDossier,
@@ -139,11 +182,17 @@ AGENTS = {
     "mert-plan-meso-raw-dc": PlanMesoRawDossierClaims,  # claims hook only
     "mert-plan-soft": PlannerSoftClaims,  # 6 % anchor (P10 challenger)
     "mert-plan-meso-raw-soft": PlanMesoRawSoftClaims,  # 12 % raw anchor (P18 challenger)
+    "mert-plan-tick": PlannerTickClaims,  # + tick rule
+    "mert-plan-meso-lever-tick": PlanMesoLeverTickClaims,  # + tick rule
+    "mert-plan-meso-raw-tick": PlanMesoRawTickClaims,  # + tick rule
+    "mert-plan-meso": PlanMesoBase,  # planner + payment MESO on base terms (renewal / capacity / bundling candidate)
+    "mert-rfq-anchor-d": RfqAnchorDossierClaims,  # final RFQ route: deeper opening + dossier claims
     "router": RouterAgent,
     # EHL-final challengers (emre_ehl.py): the router's planner routes with an 18 % first ask
     "emre-plan-deep": PlannerDeepClaims,  # vs mert-plan-dc (renewal, capacity)
     "emre-plan-meso-lever-deep": PlanMesoLeverDeepClaims,  # vs mert-plan-meso-lever-dc (price_increase)
     "router-plan": RouterPlanAgent,  # A/B candidate: the planner on every non-RFQ type
+    "router-c": RouterClaimsAgent,  # Sunday A/B candidate: ROUTES with every slot on its c-variant (claim_evidence)
 }
 
 

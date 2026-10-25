@@ -70,6 +70,28 @@ def agent_factory(use_llm=True, variant="base", agent="base"):
     return lambda: cls(package, writer, params)
 
 
+def stay_awake():
+    """macOS: keep the machine awake while this process lives. Sat night a laptop slept 51 min mid-run; the arena's
+    60 s clock ran on, the session timed out and a 0.794 final offer was lost (P11). `caffeinate -w` ends with us."""
+    import shutil
+    import subprocess
+    import sys
+
+    if sys.platform == "darwin" and shutil.which("caffeinate"):
+        try:
+            # no inherited pipes and its own session: holding our stdout would keep `| tee` open after a crash and
+            # stall the final's restart loop
+            subprocess.Popen(
+                ["caffeinate", "-dimsu", "-w", str(os.getpid())],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+        except OSError as e:
+            logging.getLogger("csee").warning("caffeinate failed: %s - keep the machine awake by hand", e)
+
+
 def main(argv=None):
     load_env()
     ap = argparse.ArgumentParser(prog="csee")
@@ -120,6 +142,8 @@ def main(argv=None):
         format="%(asctime)s %(threadName)s %(message)s",
     )
     runs = {}
+    if args.cmd in ("final", "run", "play"):
+        stay_awake()
     try:
         command(args, runs)
     finally:
@@ -179,7 +203,9 @@ def command(args, runs):
             log_row(args, cid, args.set, res)
             print(cid, json.dumps(summary(res)) if isinstance(res, dict) else f"ERROR {res}")
     elif args.cmd == "final":
-        client = ArenaClient()
+        # a venue Wi-Fi blip: 6 retries (~30 s of backoff) instead of 3 before a thread's worker dies; idempotent
+        # via the client's X-Move-Id, so a retried move is never played twice (pre-mortem Sat night, risk 7)
+        client = ArenaClient(retries=6)
         factory = agent_factory(not args.no_llm, args.variant, args.agent)
         out = play_waves(client, factory, args.waves, min(args.parallel, 10), run=new_run(args, runs, "final"))
         for cid, res in out.items():
@@ -192,7 +218,9 @@ def command(args, runs):
 
         if args.llm and args.no_llm:
             raise SystemExit("sim --llm conflicts with --no-llm")
-        logging.getLogger("csee").setLevel(logging.ERROR)
+        logging.getLogger("csee").setLevel(
+            logging.INFO if args.verbose else logging.WARNING if args.llm else logging.ERROR
+        )
         cases = [c for c in localsim.cases() if not args.cases or c["case_id"] in args.cases]
         rows = []
         for a in args.agents or [args.agent]:
@@ -200,18 +228,29 @@ def command(args, runs):
                 factory = agent_factory(args.llm, v, a)
                 llm = bool(getattr(agent_factory, "llm", False))
                 if args.llm and not llm:
-                    raise SystemExit("sim --llm requires a configured model and key; refusing a silent template comparison")
+                    raise SystemExit(
+                        "sim --llm requires a configured model and key; refusing a silent template comparison"
+                    )
                 if args.llm and a == "ege" and not factory().llm:
                     raise SystemExit("Ege's tool strategist requires LLM_PROVIDER=anthropic and ANTHROPIC_API_KEY")
                 run = new_run(args, runs, "sim", a, v)
                 for case in cases:
                     for seed in range(args.seeds):
+                        mode = (
+                            "local suppliers + model API; model decisions can take tens of seconds"
+                            if llm else "offline"
+                        )
+                        print(f"SIM {a}/{v} {case['case_id']} seed={seed}: started ({mode})", flush=True)
                         table = localsim.LocalTable(case, factory().pkg, seed)
                         try:
                             res = play_case(table, case["case_id"], factory(), run=run)
                         except Exception as e:
                             res = {"score": 0.0, "error": repr(e)}
-                            print(a, v, case["case_id"], seed, "ERROR", e)
+                            print(a, v, case["case_id"], seed, "ERROR", e, flush=True)
+                        print(
+                            f"SIM {a}/{v} {case['case_id']} seed={seed}: finished, score={res.get('score')}",
+                            flush=True,
+                        )
                         rows.append(
                             {
                                 "agent": a,

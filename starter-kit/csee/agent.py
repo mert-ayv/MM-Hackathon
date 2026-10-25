@@ -44,6 +44,30 @@ def must_haves_ok(case, terms, standard=None):
     return _kit_must_haves_ok({**case, "buyer": {**case["buyer"], "must_haves": visible}}, terms, standard)
 
 
+def cash_note(info, pkg, sid):
+    """A supplier whose own letters ask for faster payment (Sunday release: Vrbensky and Pfaffenreuth, "please pay
+    within 10 days") is cash-short: cash_short(), the payment trade sheets and the money-rate estimate see it."""
+    try:
+        from . import dossier
+
+        asks = (dossier.get(sid, pkg) or {}).get("cash_asks") or []
+        # only letters after the package froze (30 Sep): the release's fresh requests; older ones are already in the
+        # curated profiles, and the practice suppliers' behaviour stays as measured
+        asks = [a for a in asks if isinstance(a, str) and a[4:12].isdigit() and a[4:12] > "20260930"]
+    except Exception:  # the dossier is evidence, never a reason to fail a case
+        return
+    if not asks:
+        return
+    prof = info.profile
+    pressures = list(prof.get("pressures") or [])
+    if not any("cash" in (p.get("type") or "") for p in pressures if isinstance(p, dict)):
+        pressures.append({"type": "cash", "evidence": f"its letters ask for faster payment ({', '.join(asks[:2])})"})
+        prof["pressures"] = pressures
+    values = list(prof.get("what_it_values") or [])
+    if not any("cash" in v.lower() for v in values if isinstance(v, str)):
+        prof["what_it_values"] = values + ["cash flow: faster payment"]
+
+
 def live_threads(threads):
     """The kit's live_threads, safe for a thread without any supplier message yet (it would raise)."""
     return _kit_live_threads({s: ev for s, ev in threads.items() if any(m.get("from") != "buyer" for m in ev)})
@@ -93,6 +117,9 @@ class Params:
     trade_gain: float = 0.006  # a trade sheet must save us at least this share of C
     max_claims: int = 2  # data arguments per message (the arena checks at most 3)
     history_claims: bool = False  # also cite order history, quality notifications, earlier quarters, case refs
+    claim_evidence: bool = False  # order claims by measured effect (296 practice replies, Sat 24 Oct): drop order-history
+    #                               (0 of 26 moved a price) and earlier-quarter delivery (always "duplicate"); delivery record
+    #                               (14 of 37) ranks below index (41/44), forecast (23/26), should-cost (11/11), notice (6/6)
     cash_rate: float = 0.14  # a cash-short supplier's cost of money
     reserve_moves: int = 1  # keep this many messages in hand
     # v2 switches (off = the v1 baseline behaviour)
@@ -157,6 +184,23 @@ class ThreadState:
     why: str = ""  # which branch of next_terms decided the last move (for the run log only)
 
 
+EVIDENCE_FLOOR = {"index": 1.8, "forecast": 1.5}  # moved a price 41/44 and 23/26 times; QN complaints 1.4 (9/12) come next
+
+
+def evidence_order(claims):
+    """Claims ordered by their measured effect on the practice bots (296 replies, Sat 24 Oct, docs/notes): order
+    history never moved a price (0/26) and earlier-quarter delivery is always a "duplicate" - both dropped; the
+    delivery record (14/37) ranks below index, forecast, should-cost (11/11) and notice (6/6). Mixins that reorder
+    afterwards (dossier: hedged index series last) keep the last word."""
+    kept = [c for c in claims if not (c.tag == "po" or (c.tag == "otd" and c.source == "history"))]
+
+    def strength(c):
+        s = max(c.strength, EVIDENCE_FLOOR.get(c.kind, 0.0))
+        return s * (0.4 if c.tag == "otd" else 1.0)
+
+    return sorted(kept, key=lambda c: -strength(c))
+
+
 class CseeAgent:
     """The runner's contract (who calls what, which lock is held) is in `csee/agents/__init__.py`."""
 
@@ -184,6 +228,21 @@ class CseeAgent:
                 case, self.pkg, sid, opening.get("unit_price"), body, opening=first,
                 should_cost_margin=self.p.should_cost_margin,
             )
+            if self.p.claim_evidence:
+                info.claims = evidence_order(info.claims)
+            ask = opening.get("unit_price")
+            if (
+                info.full_cost
+                and ask
+                and "its own plant" not in (info.full_cost_source or "")
+                and info.full_cost >= 0.97 * ask
+            ):
+                # another plant's should-cost (DE base x country) at or above this supplier's own ask is not its cost
+                # (P05: DE-base 36.87 vs real floors 26.5-27.0). With a relationship goal it lifted our anchor to 0.5 %
+                # below the ask and the bot agreed at reply 1 (sweep: hidden-like RFQs, C above the opening -> 0).
+                info.full_cost_source = f"{info.full_cost_source} ignored: {info.full_cost:.2f} >= 97 % of its ask {ask}"
+                info.full_cost = None
+            cash_note(info, self.pkg, sid)
             st = self.threads[sid] = ThreadState(info, opening=opening)
             for m in threads.get(sid, []):  # a resumed case: continue from our earlier asks, never re-anchor
                 if m.get("from") == "buyer" and m.get("term_sheets"):
@@ -917,7 +976,7 @@ class CseeAgent:
         best = None
         for sid in live:
             std = standard_terms(threads[sid])
-            supplier = self.supplier_estimate(case, sid, std)
+            supplier = self.close_estimate(case, sid, std)
             if False:  # only the first sheet is standing: alternatives are won by proposing them back
                 offered = []
             else:
@@ -936,6 +995,24 @@ class CseeAgent:
         log.info("%s: accept %s %s at C=%.0f (alt %.0f)", case["case_id"], best[1], best[2], best[0], c_alt)
         self.close_reason = f"cheapest valid standing sheet C={best[0]:.0f} < C_alt {c_alt:.0f}"
         return {"supplier_id": best[1], "message": {"action": {"type": "accept", "term_sheet_id": best[2]}}}
+
+    def close_estimate(self, case, sid, std):
+        """The supplier estimate for the accept-or-walk decision. Relationship goals: its full cost at should-cost x
+        rel_full (0.98: the fitted real cost on P01/P02/P03), not x fullcost_discount (0.95) - the 0.95 estimate
+        understates the arena's relationship charge, so close() took sheets dearer than the alternative (sweep:
+        13 hidden-like relationship cases, e.g. a final offer at C +2.6 % over the alternative -> 0 instead of the
+        alternative's score). A breakdown the supplier sent stays as it is."""
+        est = self.supplier_estimate(case, sid, std)
+        st = self.threads.get(sid)
+        if (
+            est
+            and st
+            and not st.breakdown
+            and st.intel.full_cost
+            and case["buyer"].get("category_goal") in RELATIONSHIP_GOALS
+        ):
+            est = {**est, "full_cost": max(est["full_cost"], st.intel.full_cost * self.p.rel_full)}
+        return est
 
     # ---------- the kit's sequential interface (arena_kit.play.play) ----------
     def decide(self, case, threads):

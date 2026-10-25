@@ -1,0 +1,43 @@
+diff --git a/starter-kit/csee/agents/__init__.py b/starter-kit/csee/agents/__init__.py
+index 38d055c..d31c27a 100644
+--- a/starter-kit/csee/agents/__init__.py
++++ b/starter-kit/csee/agents/__init__.py
+@@ -61,6 +61,7 @@ from .mert import (
+     MertAnchorAgent,
+     MertClauseAgent,
+     MertConsistentAgent,
++    MertRawFocusedAgent,
+     MertDialogueAgent,
+     MertHedgeAgent,
+     MertHedgeLateAgent,
+@@ -126,6 +127,7 @@ AGENTS = {
+     "mert-dialogue": MertDialogueAgent,
+     "mert-anchor": MertAnchorAgent,
+     "mert-consistent": MertConsistentAgent,
++    "mert-raw-focused": MertRawFocusedAgent,
+     "mert-clause": MertClauseAgent,
+     "mert-raw": MertRawAgent,
+     "mert-hedge": MertHedgeAgent,
+diff --git a/starter-kit/csee/agents/mert.py b/starter-kit/csee/agents/mert.py
+index 6969418..b50bba9 100644
+--- a/starter-kit/csee/agents/mert.py
++++ b/starter-kit/csee/agents/mert.py
+@@ -1554,6 +1554,19 @@ class MertFixedLadderAgent(MertFixedProbeAgent):
+     fixed_prices = (364.0, 366.0, 368.0, 369.0)
+ 
+ 
++class MertRawFocusedAgent(MertConsistentAgent):
++    """Sunday raw-material ablation: send only the parent's main package.
++
++    Extra sheets can divert the supplier's concession to a more expensive payment
++    or index structure. Keep the existing price policy and clause-continuity guard;
++    still evaluate all of the supplier's replies and alternatives when closing.
++    """
++
++    def sheets(self, case, sid, ours, std, supplier):
++        out = super().sheets(case, sid, ours, std, supplier)
++        return out[:1] if case.get('type') == 'raw_material' else out
++
++
+ class MertRawJointMenuAgent(MertSkipHedgeAgent):
+     """Raw-material probe: intermediate payment and narrower deadband together.

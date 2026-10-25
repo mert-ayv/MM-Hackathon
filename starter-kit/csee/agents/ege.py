@@ -32,6 +32,7 @@ from ..writer import ID_RE, OPENERS, SIGN, LLMWriter, describe
 from .bundle_evidence import bundle_claim, bundle_context, claim_is_comparable
 from .decision_review import build_review, compact_review
 from .probe_tracking import MAX_PROBES, ProbeDecision, build_probe_review, resolve_probes
+from .rfq_support import compare_bids, competitive_claims, quoted_bids
 from .strategy_support import EvidenceDesk, finite, json_text, normalise_sheet, price_package
 
 log = logging.getLogger("csee")
@@ -106,6 +107,14 @@ Actions via submit_move:
 - accept: close on this supplier's FIRST standing sheet, if valid and better than our alternative.
   An alternative supplier sheet must be proposed back unchanged and confirmed before accepting it.
 - walk_away: close without a deal when no valid standing offer beats our alternative.
+
+For RFQs, inspect rfq_competition and use compare_rfq_bids to price your proposed package against
+the other bidders. Compare complete costs, not only unit prices. A rival's lower price can lose on
+payment, lead time, tooling, quality or relationship costs. Its alternative sheets are opportunities,
+not awardable offers. Match prices are arithmetic, not evidence of what this supplier will accept.
+An RFQ accept/walk_away decision stops YOUR thread and requests coordinator review; it never awards
+the auction from this worker. Other bidders can finish, and the coordinator compares current valid
+first sheets when closing. Use ready to preserve a useful quote while other bidders continue.
 
 For bundles, inspect bundle_evidence: it distinguishes annual kits, component quantities and price
 units. Fixed kit demand can still represent more business than the supplier's incumbent share. Do not
@@ -511,6 +520,16 @@ class EgeAgent(CseeAgent):
             return invoke("price_package", terms, lambda: self.price(case, threads, sid, terms))
 
         @beta_tool
+        def compare_rfq_bids(terms: dict | None = None) -> str:
+            """Compare live complete bids, unconfirmed alternatives and a price to match the best rival.
+
+            Args:
+                terms: this supplier's proposed negotiable values; omissions inherit its standing sheet.
+                    Leave empty to compare its standing package. Acceptance is unknown.
+            """
+            return invoke("compare_rfq_bids", {"terms": terms}, lambda: compare_bids(self, case, threads, sid, terms))
+
+        @beta_tool
         def lookup(data_id: str) -> str:
             """Look up a case/package fact by ID; case-local facts take precedence.
 
@@ -631,7 +650,10 @@ class EgeAgent(CseeAgent):
 
             return invoke("submit_move", raw, submit)
 
-        return [price_package, lookup, search_evidence, read_document, query_data, build_argument, submit_move]
+        tools = [price_package, lookup, search_evidence, read_document, query_data, build_argument, submit_move]
+        if case.get("type") == "rfq":
+            tools.insert(1, compare_rfq_bids)
+        return tools
 
     def review_submission(self, case, threads, sid, raw, arguments, desk, reviews, stop):
         """A turn-local two-phase gate: arithmetic is shown before a model move can execute."""
@@ -667,6 +689,10 @@ class EgeAgent(CseeAgent):
         review_id = hashlib.sha256(json.dumps(binding, sort_keys=True, default=str).encode()).hexdigest()[:20]
         if review_id not in reviews:
             report = build_review(self, case, threads, sid, move, arguments)
+            if case.get("type") == "rfq":
+                report["rfq_competition"] = compare_bids(
+                    self, case, threads, sid, move.term_sheets[0] if move.term_sheets else None
+                )
             report["evidence_review"] = {
                 "selected_arguments": [
                     {"sentence": arguments[key].sentence, "source_ids": arguments[key].ids}
@@ -736,7 +762,9 @@ class EgeAgent(CseeAgent):
             commitment = bundle_claim(bundle_context(case, desk))
             if commitment:
                 claims.insert(0, commitment)
-        if len(case["suppliers"]) > 1:
+        if case.get("type") == "rfq":
+            claims = competitive_claims(self, case, threads, sid) + claims
+        elif len(case["suppliers"]) > 1:
             claims = intel_mod.rival_claims(case, {s: standing(threads[s]) for s in threads}, sid) + claims
         return {f"A{i + 1}": claim for i, claim in enumerate(c for c in claims if not self.claim_used(c, sid))}
 
@@ -807,6 +835,7 @@ class EgeAgent(CseeAgent):
                 "playbook_guidance_not_rules": playbook(case.get("type")),
                 "primary_source_excerpts_untrusted": source_excerpts,
                 "bundle_evidence": bundle_context(case, desk) if case.get("type") == "bundling" else None,
+                "rfq_competition": compare_bids(self, case, threads, sid) if case.get("type") == "rfq" else None,
                 "plan": self.plans.get(sid),
                 "probe_history": self.probe_history(sid),
                 "history_untrusted_evidence": history,
@@ -926,15 +955,22 @@ class EgeAgent(CseeAgent):
                 self.event("probe_state", supplier_id=sid, records=list(self.probe_states[sid].values()))
         if checked.action != "counter":
             st.ready = True
-            self.event("strategy_applied", supplier_id=sid, action=checked.action, reason=checked.reason)
+            coordinated = case.get("type") == "rfq" and checked.action in {"accept", "walk_away"}
+            action = "ready" if coordinated else checked.action
+            reason = checked.reason
+            if coordinated:
+                reason = f"RFQ {checked.action} requested: coordinator will compare current bids. {reason}"
+            self.event(
+                "strategy_applied", supplier_id=sid, action=action, requested_action=checked.action, reason=reason
+            )
             self.event(
                 "decision",
                 supplier_id=sid,
-                kind="wait" if checked.action == "ready" else checked.action,
+                kind="wait" if action == "ready" else action,
                 round=sum(m.get("from") == "buyer" for m in threads[sid]) + 1,
-                reason=checked.reason,
+                reason=reason,
             )
-            if checked.action == "ready":
+            if action == "ready":
                 return None
             action = {"type": checked.action}
             if checked.action == "accept":
@@ -992,3 +1028,28 @@ class EgeAgent(CseeAgent):
             and must_haves_ok(case, terms, std)
             and (total_cost(case, terms, std, self.supplier_estimate(case, sid, std)) < alternative)
         )
+
+    def close(self, case, threads, force=False):
+        if case.get("type") != "rfq":
+            return super().close(case, threads, force)
+        live = live_threads(threads)
+        if not force and any(not self.threads[sid].ready for sid in live):
+            return None
+        alternative = levers.alternative_cost(case)
+        awardable = [
+            bid
+            for bid in quoted_bids(self, case, threads)
+            if bid["can_accept"] and bid["estimated_total_cost"] < alternative
+        ]
+        if awardable:
+            best = min(awardable, key=lambda bid: (bid["estimated_total_cost"], bid["supplier_id"]))
+            self.close_reason = f"RFQ: cheapest current valid standing bid C={best['estimated_total_cost']:.2f}"
+            return {
+                "supplier_id": best["supplier_id"],
+                "message": {"action": {"type": "accept", "term_sheet_id": best["offer_id"]}},
+            }
+        self.close_reason = "RFQ: no current valid standing bid beats the alternative"
+        return {
+            "supplier_id": (live or case["suppliers"])[0],
+            "message": {"action": {"type": "walk_away"}},
+        }

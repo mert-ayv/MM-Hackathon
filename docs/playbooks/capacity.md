@@ -228,3 +228,61 @@ call-offs (19,360 vs forecast 21,310). Its standard lead time is 54 d, against o
 at 16.02**. Asked for 10-day payment (`doc:20260511-70220-M1`). Its standard lead time is 35 d; we need 28
 (€1,800/day). Must-have ≤ 42. Best trade: payment 14-30 d for lead 28 at today's price, full 15,600 volume.
 Do not cite the Hrvelec quote: it is dearer, 56 d, and Hrvelec is also full.
+
+## 7. Update Sat evening: `annika-k` (evidence from 309 practice + sandbox sessions)
+
+Code: `starter-kit/csee/agents/annika_capacity.py` (`--agent annika-k`), bot: `experiments/capacity/p10_bot.py`,
+search: `experiments/capacity/p10_search.py`.
+
+- **P10's patience of 1 is its own, not caused by our anchor.** The patience cut follows the ask's depth
+  below the supplier's *floor* (D01 13.5 % → 6→3 replies, P07 10.8 % → 4→2, P11 16 % → 6→4-5, P18 10 % → 3→2),
+  not below its opening (D02-C1 asked 22 % below its opening but only 4.5 % below its floor: patience unchanged).
+  Our P10 ask (28.34 at 42 d) sat ~1 % *above* its floor (C_best = 28.09 at 42 d). So the first e-mail and the
+  closing choice are the whole game.
+- **Ask depth does not move a first counter** (D01: asks 43.38 / 46.55 / 47.50 → 52.2-52.4 every time).
+  **Arguments it takes into account do**: D01 52.3 → 50.7 with two, D02-C1 +2.8 % at reply 2, P01 +1.1 %,
+  P08 +0.5 %, P18 ≈ 0. Forecast growth was taken into account by every supplier that saw it (P01, P02, P03,
+  P07), but its measured price effect is small (≤ 0.4 %). Order history: verified everywhere, taken into
+  account only by D01.
+- The supplier **agrees to the sheet worth most to it** among ours; it re-prices our first sheet (sometimes
+  the second) and adds its own alternative when it rejects a term.
+- **Pushes ≤ 1 % after a final offer: 6 agreed, 12 held, 2 walked (P02, P18).** With no alternative a walk
+  costs the whole score: never push in a capacity case without an alternative.
+- The record (0.694) is exactly 31.40 at 54 d and the house agent (0.686) exactly 31.50 at 54 d: one or two
+  0.10 steps below our 31.70.
+- Note: base's `final_push` sheet goes through `complete_offer`, which snaps a supplier-standard value that is
+  not an option (P10's 54 d → 56 d): a push there would silently change the lead time. Harmless while no
+  routed variant pushes.
+- **Search on the replay bot** (741 prior-weighted worlds; the bot reproduces v1 0.5703 and v13 0.6709
+  exactly): v13/v14 0.671; **annika-k mean 0.681 (p10/50/90 0.671/0.679/0.702, P(>0.694) 0.11, never below
+  0.671)**; claims {should-cost, forecast} only 0.678; deep anchor 0.678; annika-k + a true 1 % push 0.485
+  (P(0) 0.30). The upside is real but small; the downside of the new first e-mail is ~0.
+
+### H2 after practice #2 (`223df3b28256069f`, annika-k@d720b8c, 0.671)
+- A 12 % value ask at its standard lead time drew an **open** reply at 31.70 (v13's 17 % ask: final at once).
+  Our R2 (v14 logic) retreated in value (42 d at 28.89 = 27.25 at 54 d) and cited on-time delivery:
+  "My call: hold" -> final 31.70. Forecast and order history were verified but "do not change our calculation".
+- annika-k now converges on its own terms in rounds 2+ (one sheet, coverage locked, small rising steps, never a
+  retreat, no delivery/quality arguments). The bot reproduces all three real games, incl. the R2 hold.
+- Bot search (371 worlds): H2 3.75 % anchor 0.680 (p90 0.686, P(>0.694) 0); 6 % 0.684 (0.11); **9 % 0.689
+  (p90 0.710, P(>0.694) 0.34)**; 2.5 % 0.675 (10 % of worlds below 0.671). No H2 setting falls below 0.671
+  except 2.5 %. In the bot the supplier mirrors our steps, so a deeper (not deep) start leaves more room.
+
+### k9j after practice #3 (annika-k9@ca23d19, 0.679, team best)
+- Patience is exactly 2 replies (12 % and 9 % anchors both). Its R2 mirrored our 0.48 step with 0.10 and landed
+  on the 2 % desk band (32.20 x 0.98 = 31.56 -> 31.60); the desk never asked the owner (our ask was far below).
+- `annika-k9j`: R1 as k9 + green-scorecard appreciation (sc only, never with qn) + "we pay on terms" (invoices
+  1.93 days late on average; only said when <= 2); R2 one jump to min(its price - 0.40, its price x 0.987) on its
+  price grid (P10: 31.30), "ready to sign today", when its profile/e-mails show a desk limit or capacity squeeze.
+- Bot (72 worlds, reproduces all four real games): k9 0.679; **k9j mean 0.686, outcomes 0.679 (owner not asked /
+  declines) / 0.694 (owner approves, its final rounds to 31.40) / 0.702 (its final meets our 31.30), P(>0.694)
+  0.20, worst 0.679**; smaller jump (-0.20/-0.6 %) 0.682, larger (-0.60/-2 %) 0.684.
+
+### k9j2 after practice #5 (annika-k9j@07356cd, 0.686 = house agent)
+- Its R2 move grows with our R2 step: backwards -> 0, +0.48 -> 0.10, +2.00 -> 0.20 (always final at reply 2).
+  `experiments/capacity/p10_r2fit.py` fits four rules on these points (move ∝ step; ∝ step/gap; half the
+  remaining gap capped; a floor in (31.30, 31.50]) and sweeps (R1, R2).
+- Best for P(final <= 31.30) with worst case >= 0.686: **R1 12 % (28.34, open in #2), R2 jump to 31.34**
+  (just above the grid point 4 steps down): mean 0.691, P(beat 0.694) 0.12, P(31.40 tie) 0.34, worst 31.50
+  (0.686). R2 31.00-31.10 has a higher mean (0.692, P(tie) 0.70) but cannot beat the record; any R1 29.30 pair
+  cannot either; R2 >= 31.40 risks 0.679.

@@ -157,6 +157,7 @@ import re as _re
 
 from csee import intel as _intel
 from csee.writer import SIGN as _SIGN
+from csee.writer import before_signature as _before_signature
 
 CASH_ASK = _re.compile(r"faster payment|pay(?:ing)? (?:us )?faster|paid faster|cash flow|cash is|Zahlungsziel", _re.I)
 
@@ -211,7 +212,7 @@ class PaymentPledgeMixin:
             return msg
 
         def add(body):
-            return body.replace(_SIGN, line + "\n\n" + _SIGN) if _SIGN in body else body.rstrip() + "\n\n" + line
+            return _before_signature(body, line)
 
         msg["body"] = add(msg["body"])
         w = msg.get("_write")
@@ -288,3 +289,43 @@ class PlanMesoLeverReal(PlanMesoLever):
     """mert-plan-meso-lever with the real full cost at should-cost x 0.965 (run with --variant v14r)."""
 
     REAL_FULL = 0.965
+
+
+class PinDb0Mixin:
+    """Raw-material record route (Hack It P18 0.688 = 5.00 with a 0 % deadband clause, 45 days, 24 months, rebuilt
+    from its published EUR saved): the main sheet carries the clause WITHOUT deadband (worth ~2 % of price to these
+    suppliers, which add it themselves) and a middle payment term (Werdenfels values cash at 10.5 %). Our agents
+    always chose the 5 % deadband at 30 days and stalled at 5.30. Put after PlanMixin, so the planner prices it."""
+
+    PIN_DAYS = 45
+
+    def next_terms(self, case, threads, sid, theirs, std, supplier, left):
+        ours = super().next_terms(case, threads, sid, theirs, std, supplier, left)
+        if not ours or case.get("type") != "raw_material":
+            return ours
+        opts = levers.options(case, "index_clause") or []
+        db0 = [c for c in opts if c and not c.get("deadband_pct")]
+        pin = {}
+        if "index_clause" in case["negotiable"] and db0:
+            pin["index_clause"] = db0[0]
+        if "payment_days" in case["negotiable"] and self.PIN_DAYS in (levers.options(case, "payment_days") or []):
+            pin["payment_days"] = self.PIN_DAYS
+        t = complete_offer(case, {**ours, **pin})
+        if not pin or not must_haves_ok(case, t, std):
+            return ours
+        self.threads[sid].why += f"; pinned {sorted(pin)} (record route)"
+        return {**ours, **pin}
+
+
+class PlanDb0Raw(PlanMixin, PinDb0Mixin, PayMesoMixin, MertSkipHedgeAgent):
+    pass
+
+
+# value menu for the remaining types (renewal, capacity, quality-free bases): the payment MESO that took P01 from
+# 0.926 to 0.988 - the shortest and longest payment term at equal C next to the main sheet; the supplier's pick
+# reveals its money rate and the main sheet adopts it
+from csee.agents.mert import PlannerAgent  # noqa: E402
+
+
+class PlanMesoBase(PlanMixin, PayMesoMixin, CseeAgent):
+    pass

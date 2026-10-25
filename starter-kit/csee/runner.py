@@ -31,6 +31,7 @@ from arena_kit.play import (
     closing_move,
     fetch_documents,
     quota_used_up,
+    standing,
 )
 
 from . import levers, runlog
@@ -46,12 +47,34 @@ def snapshot(threads):
     return {s: list(ev) for s, ev in threads.items()}
 
 
+def refreshed_thread(state, previous):
+    """Timeout offers can live outside message history. Keep their authoritative ID AND terms."""
+    events = list(state.get("messages", previous))
+    offer_id, status = state.get("offer_id"), state.get("status")
+    if state.get("closed"):
+        events.append({"from": "arena", "status": "walked_away", "term_sheets": [], "attachments": []})
+    elif offer_id and (not events or standing(events)[0] != offer_id):
+        timeout = next(
+            (item for item in reversed(state.get("timeouts") or []) if item.get("offer_id") == offer_id), None
+        )
+        # Never put a fresh ID on stale prices. An offer with unavailable terms is not awardable.
+        sheets = [{"term_sheet_id": offer_id, "terms": timeout["terms"]}] if timeout and timeout.get("terms") else []
+        events.append(
+            {"from": "arena", "status": status or "open", "term_sheets": sheets, "attachments": []}
+        )
+    return events
+
+
 def play_case(table, case_id, agent, deadline=None, run=None):
     """Play one case to its end. `deadline`: a Live Final wave's cap (time.time(), or a function returning
     it). `run`: a `runlog.Run` to log every event of this case to (None: no log)."""
     clog = run.case(case_id) if run else runlog.NULL
     try:
-        return _play_case(table, case_id, agent, deadline, clog)
+        result = _play_case(table, case_id, agent, deadline, clog)
+        reporter = getattr(agent, "report_run", None)
+        if callable(reporter):
+            _quiet(reporter)
+        return result
     except Exception as e:
         _quiet(clog.event, "error", supplier_id=None, status=getattr(e, "status", None), detail=repr(e))
         raise
@@ -66,7 +89,28 @@ def _quiet(fn, *args, **kwargs):
 
 
 def _play_case(table, case_id, agent, deadline, clog):
+    agent.log = clog
+    preflight = getattr(agent, "preflight", None)
+    if callable(preflight):
+        try:
+            case_file = getattr(table, "case", None)
+            set_name = "final" if deadline is not None else "sandbox" if case_id.startswith("case:D") else "practice"
+            if not case_file and getattr(table, "client", None) is not None:
+                case_file = next((c for c in table.client.cases(set_name) if c["case_id"] == case_id), None)
+            sessions = getattr(getattr(table, "client", None), "sessions", None)
+            running = callable(sessions) and any(
+                s.get("case_id") == case_id and s.get("status") == "open" for s in sessions(set_name)
+            )
+            cap = deadline() if callable(deadline) else deadline
+            preparation_margin = getattr(agent, "PREPARE_SECONDS", 15) + 5
+            if not running and case_file and (not cap or cap - time.time() > CLOSE_BEFORE_CAP_S + preparation_margin):
+                preflight(case_file)
+            elif running:
+                log.info("%s: active session; skipping preflight before resume", case_id)
+        except Exception:
+            log.exception("%s: preflight failed; deterministic preparation remains available", case_id)
     case, threads = table.open(case_id)
+    last_reply_at = {sid: time.monotonic() for sid in threads}
     clog.session_id = table.session_id
     if getattr(table, "done", None):  # resumed a case that had already ended
         if clog.enabled:
@@ -100,6 +144,44 @@ def _play_case(table, case_id, agent, deadline, clog):
     def stop():
         return ended.is_set() or closing.is_set() or near_cap()
 
+    def deliver(sid, msg, n_sent):
+        """(the supplier's reply, the message it answers), or (None, msg): the thread stops. Any failure but a 409
+        used to stop the thread for good, and a single-supplier case then accepted at once (P04 with a 2 s outage
+        after reply 1: 0.116 instead of 0.252). Now a dropped connection or a 5xx that outlasts the client's
+        retries is sent again until the safety close - after a re-read, since the message may have arrived - and a
+        422 (invalid: nothing happened, no round used) is sent once more as the plain e-mail, without sheets."""
+        plain = False
+        while True:
+            try:
+                return table.send(sid, msg), msg
+            except ArenaError as e:
+                _quiet(clog.event, "error", supplier_id=sid, status=e.status, detail=e.detail)
+                if e.status == 409:
+                    return table.missed(sid, e), msg
+                if e.status == 422 and not plain and msg.get("term_sheets"):
+                    log.error("%s %s: 422 %s - sending the e-mail without term sheets", case_id, sid, e.detail)
+                    msg, plain = {"body": msg.get("body", "")}, True
+                    continue
+                if e.status not in SEND_RETRY_STATUS:
+                    log.error("%s %s: %s %s", case_id, sid, e.status, e.detail)
+                    return None, msg
+                err = e
+            except Exception as e:  # transport error after the client's own retries
+                _quiet(clog.event, "error", supplier_id=sid, status=None, detail=repr(e))
+                err = e
+            log.warning("%s %s: send failed (%r) - retrying", case_id, sid, err)
+            time.sleep(SEND_RETRY_S)
+            if stop():
+                return None, msg
+            if hasattr(table, "client"):
+                try:  # did it arrive? Then the supplier's reply is already in the thread
+                    state = table.client.thread(table.session_id, sid)
+                    events = state.get("messages") or []
+                    if sum(m.get("from") == "buyer" for m in events) > n_sent:
+                        return refreshed_thread(state, events)[-1], msg
+                except Exception as e:
+                    log.warning("%s %s: re-reading the thread failed (%r)", case_id, sid, e)
+
     def worker(sid):
         while not ended.is_set():
             with lock:  # check and snapshot only
@@ -107,6 +189,9 @@ def _play_case(table, case_id, agent, deadline, clog):
                     return
                 view = snapshot(threads)
             t0 = time.monotonic()
+            turn_deadlines = getattr(agent, "turn_deadlines", None)
+            if turn_deadlines is not None:
+                turn_deadlines[sid] = last_reply_at[sid] + MOVE_LIMIT_S - 5
             msg = agent.thread_move(case, view, sid)  # slow (LLM): outside the lock
             took = time.monotonic() - t0
             if took > MOVE_LIMIT_S * 0.75:
@@ -124,23 +209,20 @@ def _play_case(table, case_id, agent, deadline, clog):
             if clog.enabled:
                 _quiet(log_sent, clog, case, view, agent, sid, msg, n_sent + 1)
             t_send = time.monotonic()
-            try:
-                reply = table.send(sid, msg)
-            except ArenaError as e:
-                _quiet(clog.event, "error", supplier_id=sid, status=e.status, detail=e.detail)
-                if e.status != 409:
-                    log.error("%s %s: %s %s", case_id, sid, e.status, e.detail)
-                    agent.threads[sid].ready = True
-                    return
-                reply = table.missed(sid, e)
+            reply, msg = deliver(sid, msg, n_sent)
+            if reply is None:
+                agent.threads[sid].ready = True
+                return
             latency = time.monotonic() - t_send
             if "result" in reply:
                 result.update(reply["result"])
                 ended.set()
                 return
+            reply_at = time.monotonic()
             fetch_documents(table, reply)
             with lock:
                 threads[sid] += [{**msg, "from": "buyer"}, reply]
+                last_reply_at[sid] = reply_at
                 took = time.monotonic() - t0  # our move + its reply
                 slowest[0] = max(slowest[0], took)
                 agent.threads[sid].round_s.append(took)
@@ -166,17 +248,14 @@ def _play_case(table, case_id, agent, deadline, clog):
     workers = {sid: threading.Thread(target=safe, args=(sid,), daemon=True) for sid in sids}
     for w in workers.values():
         w.start()
-    idle_since = {}  # thread -> when its worker stopped (its last supplier reply)
     while any(w.is_alive() for w in workers.values()) and not ended.is_set() and not near_cap():
         time.sleep(0.5)
         now = time.monotonic()
-        for sid, w in workers.items():
-            if not w.is_alive():
-                idle_since.setdefault(sid, now)
-        # A finished thread's 60 s clock keeps running while others negotiate: after IDLE_CLOSE_S the arena
-        # re-issues its offer (P05: a stale accept), three such timeouts end the thread. If the thread that
-        # waits holds our best deal, close now rather than risk it.
-        waiting = [sid for sid, t in idle_since.items() if now - t > IDLE_CLOSE_S]
+        # The 60 s clock started at the REPLY, before the worker spent time deciding to stop.
+        # Giving it another 40 s after a 23 s model decision already makes the accept late.
+        waiting = [
+            sid for sid, w in workers.items() if not w.is_alive() and now - last_reply_at[sid] > IDLE_CLOSE_S
+        ]
         if waiting:
             with lock:
                 try:
@@ -205,8 +284,12 @@ def _play_case(table, case_id, agent, deadline, clog):
             log.exception("%s: agent.close failed - kit closing move", case_id)
             _quiet(clog.event, "error", supplier_id=None, status=None, detail=f"agent.close failed: {e!r}")
             decision, reason = closing_move(case, threads), "kit closing_move (agent.close failed)"
-    out = None
-    for attempt in range(3):
+    def close_time_left():  # a dropped connection while closing: keep trying while the case can still be closed
+        cap = deadline() if callable(deadline) else deadline
+        return time.time() < cap - 5 if cap else time.monotonic() - t_close < CLOSE_NET_S
+
+    out, attempt = None, 0
+    while attempt < 3:  # refusals; a dropped connection retries until close_time_left() (a 25 s outage lost P04)
         sid, msg = decision["supplier_id"], decision["message"]
         log.info("%s: closing %s %s", case_id, sid, msg["action"])
         if clog.enabled:
@@ -216,7 +299,8 @@ def _play_case(table, case_id, agent, deadline, clog):
             break
         except ArenaError as e:
             # e.g. a stale sheet after a late supplier reply: re-read the threads, decide again
-            log.warning("%s: close failed (%s %s), attempt %d", case_id, e.status, e.detail, attempt + 1)
+            attempt += 1
+            log.warning("%s: close failed (%s %s), attempt %d", case_id, e.status, e.detail, attempt)
             _quiet(clog.event, "error", supplier_id=sid, status=e.status, detail=e.detail)
             if e.status not in (409, 422) or not hasattr(table, "client"):
                 break
@@ -225,12 +309,25 @@ def _play_case(table, case_id, agent, deadline, clog):
                 if state.get("status") == "ended":
                     break
                 for s in state.get("threads") or {}:
-                    threads[s] = table.client.thread(table.session_id, s).get("messages", threads[s])
+                    threads[s] = refreshed_thread(table.client.thread(table.session_id, s), threads[s])
                     for m in threads[s]:
                         fetch_documents(table, m)
+                prev = decision
                 decision = agent.close(case, threads, force=True)
                 reason = (getattr(agent, "close_reason", "") or "agent.close") + " (threads re-read)"
-                if attempt >= 1:  # still refused: the thread's own standing offer, nothing clever
+                if prev["message"]["action"]["type"] == "accept" and decision["message"]["action"]["type"] != "accept":
+                    # the re-read lost the terms of the offer we chose (a re-issued offer whose timeout entry carries
+                    # none): the agent sees nothing to accept and would walk - keep the accept on that thread's offer
+                    t = table.client.thread(table.session_id, prev["supplier_id"])
+                    if t.get("offer_id") and not t.get("closed") and t.get("status") not in ("walked_away", "no_bid"):
+                        decision = {
+                            "supplier_id": prev["supplier_id"],
+                            "message": {"action": {"type": "accept", "term_sheet_id": t["offer_id"]}},
+                        }
+                        reason += "; kept the accept on its re-issued standing offer"
+                # still refused: the thread's own standing offer, nothing clever (Sat 20:42, both A/B runs:
+                # P05 was refused twice as "not a standing offer" and closed only through this at retry 2)
+                if attempt >= 2:
                     t = table.client.thread(table.session_id, decision["supplier_id"])
                     if t.get("offer_id") and decision["message"]["action"]["type"] == "accept":
                         decision["message"]["action"]["term_sheet_id"] = t["offer_id"]
@@ -239,7 +336,9 @@ def _play_case(table, case_id, agent, deadline, clog):
                 log.exception("%s: re-reading the threads failed", case_id)
                 break
         except Exception as e:  # a dropped connection: the same decision again (the client reuses its move id)
-            log.warning("%s: close transport error %r, attempt %d", case_id, e, attempt + 1)
+            log.warning("%s: close transport error %r", case_id, e)
+            if not close_time_left():
+                break
             time.sleep(1.0)
     if out is None and hasattr(table, "client"):
         # still open after the retries (an open session scores like a walk-away at the wave cap): the kit's
@@ -260,7 +359,11 @@ def _play_case(table, case_id, agent, deadline, clog):
             out = table.result()
         except Exception:
             log.exception("%s: reading the result failed", case_id)
-            out = {"deal": False, "end_reason": "unknown"}
+            out = {"deal": False, "end_reason": "unknown", "status": "unknown"}
+        if hasattr(table, "client") and out.get("status") in ("open", "unknown"):
+            # still open, or not known to be closed: raise, so play_waves plays it again (the open answers 409 and the
+            # session resumes) - a "no deal" result here left it open until the cap, scored as a walk-away
+            raise ConnectionError(f"{case_id}: could not close the session, it may still be open")
     out = {**out, "session_id": table.session_id}
     if clog.enabled:
         _quiet(log_result, clog, table, case, threads, out, msg["action"], sid)
@@ -271,6 +374,9 @@ def _play_case(table, case_id, agent, deadline, clog):
 # 2 retries were ~6 s of polling - a 30 s network blip lost the case (an open session scores no deal at the cap)
 MAX_RETRIES = 40
 IDLE_CLOSE_S = 40  # a ready thread holding the best deal must not wait out its 60 s clock
+SEND_RETRY_STATUS = {500, 502, 503, 504}  # worth sending again (a 429 may be the quota: never retried here)
+SEND_RETRY_S = 2.0  # pause between those attempts, on top of the client's own backoff
+CLOSE_NET_S = 60  # without a wave cap (practice): how long a close keeps retrying a dropped connection
 WRITE_BUDGET_S = 15  # the model's share of our 60 s per message; the template is the fallback
 _writers = ThreadPoolExecutor(max_workers=16, thread_name_prefix="writer")
 

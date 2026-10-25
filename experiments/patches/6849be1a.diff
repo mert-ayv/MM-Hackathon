@@ -1,0 +1,132 @@
+diff --git a/starter-kit/csee/agents/__init__.py b/starter-kit/csee/agents/__init__.py
+index d31c27a..7e3662f 100644
+--- a/starter-kit/csee/agents/__init__.py
++++ b/starter-kit/csee/agents/__init__.py
+@@ -62,6 +62,7 @@ from .mert import (
+     MertClauseAgent,
+     MertConsistentAgent,
+     MertRawFocusedAgent,
++    MertRfqAnchorAgent,
+     MertDialogueAgent,
+     MertHedgeAgent,
+     MertHedgeLateAgent,
+@@ -104,6 +105,7 @@ from .mert_dossier import (
+     SkipHedgeDossier,
+ )
+ from .router import RouterAgent, RouterClaimsAgent, RouterPlanAgent
++from .mert_sunday import MertRfqLeadMenuAgent, MertRawLongAgent
+ from .unified import UnifiedAgent, UnifiedFastAgent, UnifiedReviewAgent, UnifiedSingleAgent
+ 
+ AGENTS = {
+@@ -128,6 +130,9 @@ AGENTS = {
+     "mert-anchor": MertAnchorAgent,
+     "mert-consistent": MertConsistentAgent,
+     "mert-raw-focused": MertRawFocusedAgent,
++    "mert-rfq-anchor": MertRfqAnchorAgent,
++    "mert-rfq-lead-menu": MertRfqLeadMenuAgent,
++    "mert-raw-long": MertRawLongAgent,
+     "mert-clause": MertClauseAgent,
+     "mert-raw": MertRawAgent,
+     "mert-hedge": MertHedgeAgent,
+diff --git a/starter-kit/csee/agents/mert.py b/starter-kit/csee/agents/mert.py
+index b50bba9..e6a8229 100644
+--- a/starter-kit/csee/agents/mert.py
++++ b/starter-kit/csee/agents/mert.py
+@@ -1554,6 +1554,21 @@ class MertFixedLadderAgent(MertFixedProbeAgent):
+     fixed_prices = (364.0, 366.0, 368.0, 369.0)
+ 
+ 
++class MertRfqAnchorAgent(CseeAgent):
++    """RFQ-only opening-price ablation; keep ordinary concessions and closing.
++
++    P05 suppliers accepted our own second-round prices at 28.13/28.80. Test a
++    lower opening before redesigning the policy. No supplier-specific price or
++    final-offer push; must-haves and fallback remain the base implementation's.
++    """
++
++    def prepare(self, case, threads):
++        super().prepare(case, threads)
++        if case.get('type') == 'rfq':
++            self.p = replace(self.p, anchor_leverage=.28, rfq_anchor_vs_leader=.15,
++                             final_push=0., push_after_final=0)
++
++
+ class MertRawFocusedAgent(MertConsistentAgent):
+     """Sunday raw-material ablation: send only the parent's main package.
+diff --git a/starter-kit/csee/agents/mert_sunday.py b/starter-kit/csee/agents/mert_sunday.py
+new file mode 100644
+index 0000000..710c638
+--- /dev/null
++++ b/starter-kit/csee/agents/mert_sunday.py
+@@ -0,0 +1,71 @@
++"""Isolated Sunday structure experiments. No final-router changes."""
++import math
++
++from arena_kit.cost import complete_offer, must_haves_ok, total_cost
++from csee import levers
++from .mert import MertRfqAnchorAgent
++from .mert_dossier import PlanMesoRawDossierClaims
++
++
++class MertRfqLeadMenuAgent(MertRfqAnchorAgent):
++    """Offer extra delivery time only in exchange for a lower total buyer cost.
++
++    Keep the first two established packages; add one feasible longer-lead cash
++    package. Price includes the case's explicit late-delivery penalty.
++    """
++
++    def sheets(self, case, sid, ours, std, supplier):
++        out = super().sheets(case, sid, ours, std, supplier)
++        if case.get('type') != 'rfq' or 'lead_time_days' not in case['negotiable'] or len(out) >= 3:
++            return out
++        source = out[-1]
++        candidates = []
++        for days in levers.options(case, 'lead_time_days'):
++            t = complete_offer(case, {**source, 'lead_time_days': days})
++            if days > source['lead_time_days'] and must_haves_ok(case, t, std):
++                candidates.append(t)
++        if not candidates:
++            return out
++        t = max(candidates, key=lambda t: t['lead_time_days'])
++        target = total_cost(case, source, std, supplier) * (1 - self.p.trade_gain)
++        price = levers.price_for(case, t, target, std, supplier)
++        if price is None or price <= 0:
++            return out
++        t['unit_price'] = math.floor(price * 100) / 100
++        if total_cost(case, t, std, supplier) > target + .01:
++            t['unit_price'] = round(t['unit_price'] - .01, 2)
++        if total_cost(case, t, std, supplier) <= target + .01:
++            out.append(t)
++        return out
++
++
++class MertRawLongAgent(PlanMesoRawDossierClaims):
++    """Put the longer commitment on the main clause sheet, not a fixed-price alt.
++
++    The routed policy's longer alternative removes the clause and suppliers
++    reject that structure. Keep its clause, payment choices and price planning.
++    Only extend when the buyer cost function charges no additional cost.
++    """
++
++    def next_terms(self, case, threads, sid, theirs, std, supplier, left):
++        ours = super().next_terms(case, threads, sid, theirs, std, supplier, left)
++        return self.longer(case, ours, std, supplier)
++
++    def sheets(self, case, sid, ours, std, supplier):
++        # The parent may add the required clause only while constructing sheets.
++        # Apply after that step too, so the intended package is actually sent.
++        out = super().sheets(case, sid, ours, std, supplier)
++        return [self.longer(case, t, std, supplier) for t in out]
++
++    @staticmethod
++    def longer(case, ours, std, supplier):
++        if not ours or case.get('type') != 'raw_material' or not ours.get('index_clause'):
++            return ours
++        if 'contract_months' not in case['negotiable']:
++            return ours
++        baseline = total_cost(case, ours, std, supplier)
++        for months in sorted(levers.options(case, 'contract_months'), reverse=True):
++            t = complete_offer(case, {**ours, 'contract_months': months})
++            if months > ours['contract_months'] and must_haves_ok(case, t, std) and total_cost(case, t, std, supplier) <= baseline + .01:
++                return t
++        return ours

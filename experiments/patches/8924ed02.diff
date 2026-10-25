@@ -1,0 +1,45 @@
+diff --git a/starter-kit/csee/agents/__init__.py b/starter-kit/csee/agents/__init__.py
+index d31c27a..5a4bfbb 100644
+--- a/starter-kit/csee/agents/__init__.py
++++ b/starter-kit/csee/agents/__init__.py
+@@ -62,6 +62,7 @@ from .mert import (
+     MertClauseAgent,
+     MertConsistentAgent,
+     MertRawFocusedAgent,
++    MertRfqAnchorAgent,
+     MertDialogueAgent,
+     MertHedgeAgent,
+     MertHedgeLateAgent,
+@@ -128,6 +129,7 @@ AGENTS = {
+     "mert-anchor": MertAnchorAgent,
+     "mert-consistent": MertConsistentAgent,
+     "mert-raw-focused": MertRawFocusedAgent,
++    "mert-rfq-anchor": MertRfqAnchorAgent,
+     "mert-clause": MertClauseAgent,
+     "mert-raw": MertRawAgent,
+     "mert-hedge": MertHedgeAgent,
+diff --git a/starter-kit/csee/agents/mert.py b/starter-kit/csee/agents/mert.py
+index b50bba9..e6a8229 100644
+--- a/starter-kit/csee/agents/mert.py
++++ b/starter-kit/csee/agents/mert.py
+@@ -1554,6 +1554,21 @@ class MertFixedLadderAgent(MertFixedProbeAgent):
+     fixed_prices = (364.0, 366.0, 368.0, 369.0)
+ 
+ 
++class MertRfqAnchorAgent(CseeAgent):
++    """RFQ-only opening-price ablation; keep ordinary concessions and closing.
++
++    P05 suppliers accepted our own second-round prices at 28.13/28.80. Test a
++    lower opening before redesigning the policy. No supplier-specific price or
++    final-offer push; must-haves and fallback remain the base implementation's.
++    """
++
++    def prepare(self, case, threads):
++        super().prepare(case, threads)
++        if case.get('type') == 'rfq':
++            self.p = replace(self.p, anchor_leverage=.28, rfq_anchor_vs_leader=.15,
++                             final_push=0., push_after_final=0)
++
++
+ class MertRawFocusedAgent(MertConsistentAgent):
+     """Sunday raw-material ablation: send only the parent's main package.

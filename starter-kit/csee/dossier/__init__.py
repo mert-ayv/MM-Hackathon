@@ -53,6 +53,7 @@ MONTHS = {m: i for i, m in enumerate(
     ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october",
      "november", "december"], 1)}
 HEDGE_WORDS = re.compile(r"covered at fixed prices|hedg|forward|fixed[- ]price (?:cover|contract|purchase)", re.I)
+YEAR_FOR = re.compile(r"\bfor\s+(?:the\s+(?:whole\s+|full\s+)?year\s+)?(20\d\d)\b", re.I)
 UNTIL = re.compile(r"until\s+(?:end of\s+|the end of\s+)?([A-Za-z]+)\s+(\d{4})", re.I)
 CASH_ASK = re.compile(r"faster payment|pay(?:ing)? (?:us |our invoices )?(?:faster|within \d+ days)|paid faster|cash flow|"
                       r"liquidity|cash discount|Zahlungsziel verk", re.I)
@@ -82,9 +83,15 @@ def hedges_from_text(text):
         if not HEDGE_WORDS.search(sent):
             continue
         m = UNTIL.search(sent)
-        if not m or m.group(1).lower() not in MONTHS:
-            continue
-        until = f"{int(m.group(2)):04d}-{MONTHS[m.group(1).lower()]:02d}"
+        if m and m.group(1).lower() in MONTHS:
+            until = f"{int(m.group(2)):04d}-{MONTHS[m.group(1).lower()]:02d}"
+        else:
+            # Sunday release, Steinfelder: "secured our steel ... for 2027, bought forward at fixed prices" (and
+            # "reaches our prices only from 2028"): a hedge for a whole year, end of that year
+            y = YEAR_FOR.search(sent)
+            if not y:
+                continue
+            until = f"{int(y.group(1)):04d}-12"
         low = sent.lower()
         mats = [k for k in MATERIALS if re.search(rf"\b{k}", low)]
         series = sorted({s for k in mats for s in MATERIALS[k]})

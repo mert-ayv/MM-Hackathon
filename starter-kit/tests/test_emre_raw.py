@@ -4,13 +4,12 @@ alternative; every other case type plays exactly like base. Free, no arena calls
 import json
 
 import pytest
+from test_csee_smoke import CASES, DATA, opening
 
 from arena_kit.cost import total_cost
 from arena_kit.data import DataPackage
 from csee.agent import CseeAgent
 from csee.agents.emre import EmreAgent
-
-from test_csee_smoke import CASES, DATA, opening
 
 pytestmark = pytest.mark.skipif(not CASES.exists() or not DATA.exists(), reason="no case files or data package")
 
@@ -59,7 +58,7 @@ def test_raw_spreads_arguments_and_pushes_after_a_final_offer(pkg, cases):
     sid = case["suppliers"][0]
     agent, threads = EmreAgent(pkg), {sid: [opening(case, sid)]}
     agent.prepare(case, threads)
-    assert agent.p.final_push > 0
+    assert agent.p.final_push > 0  # Team reverted Emre's no-push policy; Mert candidates disable it separately.
     per_round = []
     for _ in range(3):
         per_round.append(len(agent.pick_claims(case, threads, sid)))

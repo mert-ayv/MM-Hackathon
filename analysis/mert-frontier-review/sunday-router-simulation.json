@@ -1,0 +1,178 @@
+{
+  "paired_trials": 95,
+  "case_results": [
+    {
+      "case": "case:P01",
+      "n": 5,
+      "control": 0.5970004536417994,
+      "candidate": 0.5970004536417994,
+      "delta": 0.0,
+      "wins": 0,
+      "losses": 0
+    },
+    {
+      "case": "case:P02",
+      "n": 5,
+      "control": 0.20220935431425577,
+      "candidate": 0.20220935431425577,
+      "delta": 0.0,
+      "wins": 0,
+      "losses": 0
+    },
+    {
+      "case": "case:P03",
+      "n": 5,
+      "control": 0.3584681546914712,
+      "candidate": 0.3584681546914712,
+      "delta": 0.0,
+      "wins": 0,
+      "losses": 0
+    },
+    {
+      "case": "case:P04",
+      "n": 5,
+      "control": 0.27986797881062475,
+      "candidate": 0.27986797881062475,
+      "delta": 0.0,
+      "wins": 0,
+      "losses": 0
+    },
+    {
+      "case": "case:P05",
+      "n": 5,
+      "control": 0.2855803971787312,
+      "candidate": 0.27951765813226925,
+      "delta": -0.006062739046461929,
+      "wins": 2,
+      "losses": 2
+    },
+    {
+      "case": "case:P06",
+      "n": 5,
+      "control": 0.06782566534228636,
+      "candidate": 0.06782566534228636,
+      "delta": 0.0,
+      "wins": 0,
+      "losses": 0
+    },
+    {
+      "case": "case:P07",
+      "n": 5,
+      "control": 0.3850681717940552,
+      "candidate": 0.3850681717940552,
+      "delta": 0.0,
+      "wins": 0,
+      "losses": 0
+    },
+    {
+      "case": "case:P08",
+      "n": 5,
+      "control": 0.24992404816676933,
+      "candidate": 0.24992404816676933,
+      "delta": 0.0,
+      "wins": 0,
+      "losses": 0
+    },
+    {
+      "case": "case:P09",
+      "n": 5,
+      "control": 0.3986190591189587,
+      "candidate": 0.3986190591189587,
+      "delta": 0.0,
+      "wins": 0,
+      "losses": 0
+    },
+    {
+      "case": "case:P10",
+      "n": 5,
+      "control": 0.4115193597339079,
+      "candidate": 0.4115193597339079,
+      "delta": 0.0,
+      "wins": 0,
+      "losses": 0
+    },
+    {
+      "case": "case:P11",
+      "n": 5,
+      "control": 0.33940688683336223,
+      "candidate": 0.3010860487438674,
+      "delta": -0.038320838089494824,
+      "wins": 0,
+      "losses": 3
+    },
+    {
+      "case": "case:P12",
+      "n": 5,
+      "control": 0.25246962122933214,
+      "candidate": 0.2137986984890321,
+      "delta": -0.03867092274030004,
+      "wins": 0,
+      "losses": 2
+    },
+    {
+      "case": "case:P13",
+      "n": 5,
+      "control": 0.17901450344868078,
+      "candidate": 0.17901450344868078,
+      "delta": 0.0,
+      "wins": 0,
+      "losses": 0
+    },
+    {
+      "case": "case:P14",
+      "n": 5,
+      "control": 0.38677407837103767,
+      "candidate": 0.38677407837103767,
+      "delta": 0.0,
+      "wins": 0,
+      "losses": 0
+    },
+    {
+      "case": "case:P15",
+      "n": 5,
+      "control": 0.30866907731375726,
+      "candidate": 0.30866907731375726,
+      "delta": 0.0,
+      "wins": 0,
+      "losses": 0
+    },
+    {
+      "case": "case:P16",
+      "n": 5,
+      "control": 0.22308866912609407,
+      "candidate": 0.22308866912609407,
+      "delta": 0.0,
+      "wins": 0,
+      "losses": 0
+    },
+    {
+      "case": "case:P17",
+      "n": 5,
+      "control": 0.43365501159177916,
+      "candidate": 0.43365501159177916,
+      "delta": 0.0,
+      "wins": 0,
+      "losses": 0
+    },
+    {
+      "case": "case:P18",
+      "n": 5,
+      "control": 0.24788729887534233,
+      "candidate": 0.24788729887534233,
+      "delta": 0.0,
+      "wins": 0,
+      "losses": 0
+    },
+    {
+      "case": "case:P19",
+      "n": 5,
+      "control": 0.3465765841714794,
+      "candidate": 0.3465765841714794,
+      "delta": 0.0,
+      "wins": 0,
+      "losses": 0
+    }
+  ],
+  "control_mean": 0.31334865125019606,
+  "candidate_mean": 0.30897736178302465
+}

@@ -16,6 +16,15 @@ USAGE = {"calls": 0, "input": 0, "cache_read": 0, "cache_write": 0, "output": 0}
 _lock = threading.Lock()
 
 
+class CompletionText(str):
+    """String-compatible response with per-call metadata (safe for parallel callers)."""
+
+    def __new__(cls, text, *, stop_reason=None, output_tokens=None):
+        result = super().__new__(cls, text)
+        result.stop_reason, result.output_tokens = stop_reason, output_tokens
+        return result
+
+
 def _count(usage):
     with _lock:
         USAGE["calls"] += 1
@@ -40,16 +49,26 @@ def complete_from_env():
     client, model = anthropic.Anthropic(timeout=45.0), os.environ["LLM_MODEL"]
     extra = {"output_config": {"effort": e}} if (e := os.environ.get("LLM_EFFORT")) else {}
 
-    def complete(system, user):
+    def complete(system, user, *, max_tokens=16000, timeout=None):
         parts = user if isinstance(user, list) else [user]
         content = [{"type": "text", "text": p} for p in parts if p]
         if len(content) > 1:  # cache the stable prefix (system + all parts but the last)
             content[-2]["cache_control"] = {"type": "ephemeral"}
-        r = client.messages.create(
-            model=model, max_tokens=16000, system=system, messages=[{"role": "user", "content": content}], **extra
+        request_client = client.with_options(timeout=timeout, max_retries=0) if timeout is not None else client
+        r = request_client.messages.create(
+            model=model, max_tokens=max_tokens, system=system, messages=[{"role": "user", "content": content}], **extra
         )
         _count(r.usage)
-        return "".join(b.text for b in r.content if b.type == "text")
+        return CompletionText(
+            "".join(b.text for b in r.content if b.type == "text"),
+            stop_reason=getattr(r, "stop_reason", None),
+            output_tokens=getattr(r.usage, "output_tokens", None),
+        )
 
     complete.parts = True
+    # Grounded research includes excerpts and nested term requests. Leave output headroom;
+    # concise role prompts and the unchanged wall-clock deadline bound actual work.
+    complete.bounded = lambda system, user, budget: complete(
+        system, user, max_tokens=4096, timeout=max(0.1, budget - 0.25)
+    )
     return complete

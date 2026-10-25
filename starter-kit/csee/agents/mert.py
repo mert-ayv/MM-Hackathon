@@ -9,6 +9,7 @@ disabled final pushes. No claimed practice improvement until measured.
 """
 
 import math
+import json
 import re
 from datetime import date
 from dataclasses import dataclass, replace
@@ -20,7 +21,7 @@ from arena_kit.play import latest
 from .. import intel, levers
 from ..agent import CseeAgent
 from ..agent import must_haves_ok as csee_must_haves_ok
-from ..writer import SIGN
+from ..writer import SIGN, LLMWriter, before_signature
 from .emre import EmreAgent
 
 CONTINUATION_REASON = "open supplier still conceding: hold last package"
@@ -141,7 +142,7 @@ class MertAgent(EmreAgent):
             # Emre can replace the proposed main sheet with its clause sheet.
             # The next round must start at the price actually sent, not a draft.
             already_sent = sum(m.get("from") == "buyer" and bool(m.get("term_sheets")) for m in threads[sid])
-            price = msg["term_sheets"][0]["terms"]["unit_price"]
+            price = closing_terms(case, msg["term_sheets"][0]["terms"], standard_terms(threads[sid]))["unit_price"]
             if len(st.our_prices) <= already_sent:
                 st.our_prices.append(price)
             else:
@@ -228,9 +229,7 @@ class MertDialogueAgent(MertAgent):
         addition = "\n\n".join(notes)
 
         def explain(body):
-            if SIGN in body:
-                return body.replace(SIGN, addition + "\n\n" + SIGN)
-            return body.rstrip() + "\n\n" + addition
+            return before_signature(body, addition)
 
         msg["body"] = explain(msg["body"])
         write = msg.get("_write")
@@ -515,7 +514,7 @@ class MertRawAgent(MertConsistentAgent):
             return msg
 
         def add(body):
-            return body.replace(SIGN, line + "\n\n" + SIGN) if SIGN in body else body.rstrip() + "\n\n" + line
+            return before_signature(body, line)
 
         msg["body"] = add(msg["body"])
         write = msg.get("_write")
@@ -607,6 +606,7 @@ KAPPA_CLAUSE = 0.5  # share of the claimed index exposure a clause is worth to t
 CONTRACT_SECURITY = 0.005  # per extra year of contract, share of price (P07/P03/P04: welcomed, never priced alone)
 MARGIN = 0.05  # a lever sheet must beat the expected close by 5 % of the room (opening C - expected C)
 N_FINAL = 5  # bots go final around their 4th-5th reply (practice traces)
+LEVER_PRIOR_STEP = 0.01  # its expected step per remaining reply before it has made one (share of its price)
 MONTHS = {m: i for i, m in enumerate(
     "january february march april may june july august september october november december".split(), 1)}
 NUM = re.compile(r"(\d+(?:[.,]\d+)?)")
@@ -831,9 +831,19 @@ class LeverMixin:
             same = all(a.get(k) == b.get(k) for k in set(a) | set(b) if k != "unit_price")
             if same and a.get("unit_price") and b.get("unit_price"):
                 steps.append(max(a["unit_price"] - b["unit_price"], 0.0))
-        step = sum(steps[-2:]) / len(steps[-2:]) if steps else 0.002 * (theirs.get("unit_price") or 0)
         k = max(0, N_FINAL - len(firsts))
-        return total_cost(case, {**theirs, "unit_price": theirs["unit_price"] - step * k}, std, sup)
+        price = theirs.get("unit_price") or 0
+        if steps:
+            give = sum(steps[-2:]) / len(steps[-2:]) * k
+        else:
+            # no step of its own seen yet (our first message). The old 0.2 % a round let a lever sheet priced at its
+            # indifference to the OPENING ask pass, and the engine agrees to any sheet worth its ask: sweep 13 of 138
+            # hidden-like price-increase cases closed at reply 1 (~0.1 instead of ~0.6). Expect its own-plant
+            # should-cost room (floors track it: P01 0.99, P02 0.97, P03 1.06 x should-cost), else 1 % a round.
+            give = LEVER_PRIOR_STEP * price * k
+            if st.intel.full_cost and "its own plant" in (st.intel.full_cost_source or ""):
+                give = max(0.002 * price * k, min(give, price - st.intel.full_cost * self.REAL_FULL))
+        return total_cost(case, {**theirs, "unit_price": price - give}, std, sup)
 
     def price_lever(self, case, sid, std, sheet, theirs, main):
         """(price, note) for a lever sheet, or None. See the module docstring."""
@@ -985,9 +995,7 @@ class LeverMixin:
         addition = "\n".join(lines)
 
         def explain(body):
-            if SIGN in body:
-                return body.replace(SIGN, addition + "\n\n" + SIGN)
-            return body.rstrip() + "\n\n" + addition
+            return before_signature(body, addition)
 
         msg["body"] = explain(msg["body"])
         write = msg.get("_write")
@@ -1065,6 +1073,7 @@ class PlanParams:
     default_rate: float = 0.08  # its money rate until its own sheets reveal it
     smooth_ticks: bool = False  # coarse price ticks: average its last two capped steps
     rfq: bool = False  # plan RFQ threads too (default: parent's RFQ logic)
+    tick_rule: bool = False  # steps >= 1 tick and a gap that leaves room for tick steps until its final (P11 lesson)
 
 
 class PlanMixin:
@@ -1166,7 +1175,7 @@ class PlanMixin:
         terms; else our sheet worth most to it); A[j]: value of its reply j's first sheet (A[0] = opening);
         S[j-1] = A[j-1] - A[j] on the SAME terms (None when its terms changed: our value model is not exact
         across terms, P01 r2 looked like a rise)."""
-        B, A, S, theirs, prev, pending = [], [], [], [], None, None
+        B, A, S, theirs, prev, pending, v_prev = [], [], [], [], None, None, None
         for m in self.threads[sid].events:
             sh = [x.get("terms", x) for x in m.get("term_sheets") or []]
             sh = [t for t in sh if t.get("unit_price") is not None]
@@ -1186,7 +1195,7 @@ class PlanMixin:
                 if vals:
                     B.append(max(vals))
                 pending = None
-            if prev is not None:
+            if prev is not None and v_prev is not None:
                 S.append(v_prev - v if self.same_terms(prev, t) else None)
             A.append(v)
             theirs.append(t["unit_price"])
@@ -1252,11 +1261,17 @@ class PlanMixin:
         n_plan = min(n_plan, k + max(rl - self.p.reserve_moves, 1))
         n_rem = max(n_plan - (k + 1), 1)
         need = sum(c_hat * dec**i for i in range(1, n_rem + 1)) * (1 + 1 / P.m_lo) + P.safety * c_hat
+        if P.tick_rule:
+            # a coarse-tick supplier only drops a tick when our step is at least one (P11: +0.55 steps got 45.00,
+            # the planner's +0.02 last steps rounded to nothing): keep room for a tick step each side per reply
+            need = max(need, 2.1 * tickv * n_rem)
         gi = min(k, len(P.gmax) - 1)  # gmax[0] = after reply 1; the next reply is k + 1
         g_target = min(need, P.gmax[gi] * A_k)
         B_gap = (A_k - c_hat) - g_target
         B_ext = B_k + c_hat / P.m_lo
         B_new = max(B_gap, B_ext)
+        if P.tick_rule:
+            B_new = max(B_new, B_k + 1.05 * tickv)
         B_cross = A_k - max(tickv, min(P.cross_buf * c_hat, 0.5 * (A_k - B_k)))
         why = f"r{k + 1}: c^ {c_hat / V0:.2%} gap {((A_k - B_k) / A_k):.2%} -> target {g_target / A_k:.2%}"
         if B_new > B_cross:
@@ -1327,7 +1342,9 @@ class PlanMixin:
         # and measures our step on it); every other sheet is worth at most that much to it
         counter = self.last_counter(sid) if any(m.get("from") == "buyer" for m in st.events) else None
         bi = next((i for i, x in enumerate(out) if counter and self.same_terms(x, counter) and x not in levers_sent), 0)
-        if bi:
+        # Parent builders can reprice sheet zero. The raw challenger opts into restoring its plan;
+        # keep the independently validated team planners' existing sheet-zero behaviour.
+        if bi or getattr(self, "restore_main_plan", False):
             p = self.priced(case, sid, sup, out[bi], v_plan)
             if p is not None and csee_must_haves_ok(case, {**out[bi], "unit_price": p}, std):
                 out[bi] = {**out[bi], "unit_price": p}
@@ -1360,5 +1377,257 @@ class PlannerLeverAgent(PlanMixin, MertLeverAgent):
     """mert-lever (clause / named-lever sheets) + the planner (price_increase)."""
 
 
-class PlannerRawAgent(PlanMixin, MertAgent):
-    """mert (raw material: clause/payment alternatives) + the planner."""
+class PlannerRawAgent(PlanMixin, MertSkipHedgeAgent, MertConsistentAgent):
+    """Unrouted raw challenger: hedge-aware evidence, consistent clauses and planned concessions.
+
+    The two raw parents share MertAgent: keep the existing evidence ordering and the already-tested
+    clause-continuity rule without changing the selected raw-material champion.
+    """
+
+    restore_main_plan = True
+
+    def sheets(self, case, sid, ours, std, supplier):
+        out = super().sheets(case, sid, ours, std, supplier)
+        if not self.raw or not getattr(self, "planned", False) or not out or "unit_price" not in case["negotiable"]:
+            return out
+        # Two payment trades can have the same non-price terms. Keep the first (the revealed-rate
+        # trade precedes the generic one), leaving space for a different, useful package.
+        distinct = []
+        for sheet in out:
+            if not any(self.same_terms(sheet, previous) for previous in distinct):
+                distinct.append(sheet)
+        main = distinct[0]
+        if not main.get("index_clause") or "contract_months" not in case["negotiable"]:
+            return distinct
+        longer = [m for m in levers.options(case, "contract_months") if m > main["contract_months"]]
+        if not longer:
+            return distinct
+        # A longer INDEXED contract remains feasible after the supplier rejects long fixed prices.
+        # Price the commitment as a real trade, bounded by both buyer cost and the planned supplier value.
+        trade = {**main, "contract_months": max(longer)}
+        sup = self.sup_model(case, sid, std)
+        values = [self.sval(case, sup, sheet) for sheet in distinct]
+        if any(value is None or not math.isfinite(value) for value in values):
+            return distinct
+        ceiling = max(values)
+        target = total_cost(case, main, std, supplier) * (1 - self.p.trade_gain)
+        buyer_price = levers.price_for(case, trade, target, std, supplier)
+        supplier_price = self.price_at_value(case, sup, trade, ceiling)
+        if buyer_price is None or supplier_price is None:
+            return distinct
+        trade["unit_price"] = math.floor(min(buyer_price, supplier_price) * 100 + 1e-6) / 100
+        if total_cost(case, trade, std, supplier) > target:
+            trade["unit_price"] = round(trade["unit_price"] - .01, 2)
+        previous = [sheet["unit_price"] for sheet in self.last_sent(sid) if self.same_terms(sheet, trade)]
+        if (
+            trade["unit_price"] <= 0
+            or (previous and trade["unit_price"] <= max(previous))
+            or not csee_must_haves_ok(case, trade, std)
+            or total_cost(case, trade, std, supplier) > target
+            or self.sval(case, sup, trade) > ceiling + 1e-9
+        ):
+            return distinct
+        return [main, trade, *[sheet for sheet in distinct[1:] if not self.same_terms(sheet, trade)]][:3]
+
+
+class MertScopedWriter(LLMWriter):
+    """Candidate-only writer: do not promise concessions on immutable case terms."""
+
+    SYSTEM = LLMWriter.SYSTEM + (
+        '\nThe FIXED TERMS are binding facts, not options. State them accurately when relevant. '
+        'Never promise to change or separately negotiate them. Answer volume questions from '
+        'those facts; do not invent an internal review or extra commitments. '
+        'Only the NEGOTIABLE fields may change.'
+    )
+
+    def write(self, case, agent, sid, events, sheets, claims, ask_breakdown, focus=''):
+        scope = 'FIXED TERMS: ' + json.dumps(case.get('fixed_terms', {}), separators=(',', ':'))
+        scope += '; NEGOTIABLE: ' + ','.join(case['negotiable'])
+        return super().write(case, agent, sid, events, sheets, claims, ask_breakdown,
+                             focus=scope + ('; ' + focus if focus else ''))
+
+
+def scoped_writer(writer):
+    if type(writer) is LLMWriter:
+        return MertScopedWriter(writer.complete, writer.budget_s)
+    return writer
+
+
+class MertQualityMenuAgent(CseeAgent):
+    """Isolated quality/price menu. Each relaxed commitment costs no more than main.
+
+    Uses only allowed negotiable terms; fixed payment and volume stay fixed. No
+    supplier-specific scores or prices, and no post-final negotiation override.
+    """
+
+    scope_writer = False  # separate ablation; leave the successful first live policy unchanged
+
+    def prepare(self, case, threads):
+        super().prepare(case, threads)
+        self.p = replace(self.p, final_push=0.0, push_after_final=0)
+        if self.scope_writer:
+            self.writer = scoped_writer(self.writer)
+
+    def sheets(self, case, sid, ours, std, supplier):
+        out = super().sheets(case, sid, ours, std, supplier)
+        if (case.get('type') != 'quality' or not out
+                or not {'unit_price', 'ppm_commitment'} <= set(case['negotiable'])):
+            return out
+        main = out[0]
+        target = total_cost(case, main, std, supplier)
+        menu = [main]
+        for ppm in sorted(levers.options(case, 'ppm_commitment')):
+            if ppm <= main.get('ppm_commitment', 0):
+                continue
+            t = complete_offer(case, {**main, 'ppm_commitment': ppm})
+            if not must_haves_ok(case, t, std):
+                continue
+            price = levers.price_for(case, t, target, std, supplier)
+            if price is None or price <= 0:
+                continue
+            t['unit_price'] = price
+            # price_for rounds to nearest cent; round toward the buyer if necessary.
+            if total_cost(case, t, std, supplier) > target + 1e-7:
+                t['unit_price'] = round(price - .01, 2)
+            # Never retract an actual earlier offer for this same structure.
+            prior = [x.get('terms', {}) for m in self.threads[sid].events
+                     if m.get('from') == 'buyer' for x in m.get('term_sheets') or []]
+            prices = [p['unit_price'] for p in prior if p.get('unit_price') is not None
+                      and all(p.get(k) == t.get(k) for k in case['negotiable'] if k != 'unit_price')]
+            if prices:
+                t['unit_price'] = max(t['unit_price'], max(prices))
+            if (t['unit_price'] > 0 and must_haves_ok(case, t, std)
+                    and total_cost(case, t, std, supplier) <= target + 1e-7):
+                menu.append(t)
+            if len(menu) == 3:
+                break
+        return menu
+
+
+class MertFixedProbeAgent(MertLeverAgent):
+    """P02-only research probe: one fixed 368/90 offer before normal lever fallback.
+
+    Practice-specific candidate, deliberately NOT a final route. The price is an
+    offline-scored hypothesis, not evidence of acceptance. Other cases unchanged.
+    """
+
+    fixed_prices = (368.0,)
+
+    def prepare(self, case, threads):
+        super().prepare(case, threads)
+        self.p = replace(self.p, final_push=0.0, push_after_final=0)
+        self.writer = scoped_writer(self.writer)
+        for sid, events in threads.items():
+            self.threads[sid].events = list(events)
+
+    def fixed_probe(self, case, sid):
+        return (case.get('case_id') == 'case:P02'
+                and sum(m.get('from') == 'buyer' for m in self.threads[sid].events) < len(self.fixed_prices)
+                and {'unit_price', 'payment_days', 'index_clause'} <= set(case['negotiable'])
+                and 90 in levers.options(case, 'payment_days')
+                and None in levers.options(case, 'index_clause'))
+
+    def next_terms(self, case, threads, sid, theirs, std, supplier, left):
+        if self.fixed_probe(case, sid):
+            n = sum(m.get('from') == 'buyer' for m in self.threads[sid].events)
+            t = complete_offer(case, {**theirs, 'unit_price': self.fixed_prices[n],
+                                      'payment_days': 90, 'index_clause': None})
+            if must_haves_ok(case, t, std):
+                self.threads[sid].why = f'isolated P02 fixed-price probe {n + 1}/{len(self.fixed_prices)}; bounded clause fallback'
+                return t
+        return super().next_terms(case, threads, sid, theirs, std, supplier, left)
+
+    def sheets(self, case, sid, ours, std, supplier):
+        if self.fixed_probe(case, sid):
+            return [complete_offer(case, ours)]
+        return super().sheets(case, sid, ours, std, supplier)
+
+
+class MertFixedLadderAgent(MertFixedProbeAgent):
+    """P02-only bounded fixed-price negotiation before opening the clause fallback.
+
+    Tests whether the first probe ended too early by offering an immediately
+    acceptable clause. All four fixed targets score above the clause ceiling if
+    accepted under the calibrated practice economics. Does not override closing.
+    """
+
+    fixed_prices = (364.0, 366.0, 368.0, 369.0)
+
+
+class MertRfqAnchorAgent(CseeAgent):
+    """RFQ-only opening-price ablation; keep ordinary concessions and closing.
+
+    P05 suppliers accepted our own second-round prices at 28.13/28.80. Test a
+    lower opening before redesigning the policy. No supplier-specific price or
+    final-offer push; must-haves and fallback remain the base implementation's.
+    """
+
+    def prepare(self, case, threads):
+        super().prepare(case, threads)
+        if case.get('type') == 'rfq':
+            self.p = replace(self.p, anchor_leverage=.28, rfq_anchor_vs_leader=.15,
+                             final_push=0., push_after_final=0)
+
+
+class MertRawFocusedAgent(MertConsistentAgent):
+    """Sunday raw-material ablation: send only the parent's main package.
+
+    Extra sheets can divert the supplier's concession to a more expensive payment
+    or index structure. Keep the existing price policy and clause-continuity guard;
+    still evaluate all of the supplier's replies and alternatives when closing.
+    """
+
+    def sheets(self, case, sid, ours, std, supplier):
+        out = super().sheets(case, sid, ours, std, supplier)
+        return out[:1] if case.get('type') == 'raw_material' else out
+
+
+class MertRawJointMenuAgent(MertSkipHedgeAgent):
+    """Raw-material probe: intermediate payment and narrower deadband together.
+
+    Keep the parent main offer. Price two alternative structures at equal buyer
+    cost; this measures whether extra index security unlocks a better counter.
+    Never change coverage or promise a lower price on a previously sent structure.
+    """
+
+    def sheets(self, case, sid, ours, std, supplier):
+        out = super().sheets(case, sid, ours, std, supplier)
+        if (case.get('type') != 'raw_material' or not out
+                or not {'unit_price', 'payment_days', 'index_clause'} <= set(case['negotiable'])):
+            return out
+        main = out[0]
+        clause = main.get('index_clause')
+        if not clause:
+            return out
+        days = sorted(levers.options(case, 'payment_days'))
+        inner = days[1:-1]
+        clauses = sorted([c for c in levers.options(case, 'index_clause')
+                          if c and c['series'] == clause['series']
+                          and c['deadband_pct'] < clause['deadband_pct']],
+                         key=lambda c: c['deadband_pct'], reverse=True)
+        if not inner or not clauses:
+            return out
+        # Prefer the middle payment options, not the already-tested endpoints.
+        chosen_days = sorted(inner, key=lambda d: abs(d-days[len(days)//2]))
+        target = total_cost(case, main, std, supplier)
+        menu = [main]
+        for d, index in zip(chosen_days, clauses):
+            t = complete_offer(case, {**main, 'payment_days': d, 'index_clause': index})
+            price = levers.price_for(case, t, target, std, supplier)
+            if price is None or price <= 0:
+                continue
+            t['unit_price'] = price
+            if total_cost(case, t, std, supplier) > target + 1e-7:
+                t['unit_price'] = round(price - .01, 2)
+            prior = [x.get('terms', {}) for m in self.threads[sid].events
+                     if m.get('from') == 'buyer' for x in m.get('term_sheets') or []]
+            prices = [p['unit_price'] for p in prior if p.get('unit_price') is not None
+                      and all(p.get(k) == t.get(k) for k in case['negotiable'] if k != 'unit_price')]
+            if prices:
+                t['unit_price'] = max(t['unit_price'], max(prices))
+            if (t['unit_price'] > 0 and must_haves_ok(case, t, std)
+                    and total_cost(case, t, std, supplier) <= target + 1e-7):
+                menu.append(t)
+            if len(menu) == 3:
+                break
+        return menu

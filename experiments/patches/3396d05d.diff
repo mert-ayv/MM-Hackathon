@@ -1,0 +1,89 @@
+diff --git a/starter-kit/csee/agents/mert.py b/starter-kit/csee/agents/mert.py
+index 110f56f..6969418 100644
+--- a/starter-kit/csee/agents/mert.py
++++ b/starter-kit/csee/agents/mert.py
+@@ -21,7 +21,7 @@ from arena_kit.play import latest
+ from .. import intel, levers
+ from ..agent import CseeAgent
+ from ..agent import must_haves_ok as csee_must_haves_ok
+-from ..writer import SIGN, LLMWriter
++from ..writer import SIGN, LLMWriter, before_signature
+ from .emre import EmreAgent
+ 
+ CONTINUATION_REASON = "open supplier still conceding: hold last package"
+@@ -229,9 +229,7 @@ class MertDialogueAgent(MertAgent):
+         addition = "\n\n".join(notes)
+ 
+         def explain(body):
+-            if SIGN in body:
+-                return body.replace(SIGN, addition + "\n\n" + SIGN)
+-            return body.rstrip() + "\n\n" + addition
++            return before_signature(body, addition)
+ 
+         msg["body"] = explain(msg["body"])
+         write = msg.get("_write")
+@@ -516,7 +514,7 @@ class MertRawAgent(MertConsistentAgent):
+             return msg
+ 
+         def add(body):
+-            return body.replace(SIGN, line + "\n\n" + SIGN) if SIGN in body else body.rstrip() + "\n\n" + line
++            return before_signature(body, line)
+ 
+         msg["body"] = add(msg["body"])
+         write = msg.get("_write")
+@@ -997,9 +995,7 @@ class LeverMixin:
+         addition = "\n".join(lines)
+ 
+         def explain(body):
+-            if SIGN in body:
+-                return body.replace(SIGN, addition + "\n\n" + SIGN)
+-            return body.rstrip() + "\n\n" + addition
++            return before_signature(body, addition)
+ 
+         msg["body"] = explain(msg["body"])
+         write = msg.get("_write")
+diff --git a/starter-kit/csee/agents/records.py b/starter-kit/csee/agents/records.py
+index 1f5c205..d04e663 100644
+--- a/starter-kit/csee/agents/records.py
++++ b/starter-kit/csee/agents/records.py
+@@ -157,6 +157,7 @@ import re as _re
+ 
+ from csee import intel as _intel
+ from csee.writer import SIGN as _SIGN
++from csee.writer import before_signature as _before_signature
+ 
+ CASH_ASK = _re.compile(r"faster payment|pay(?:ing)? (?:us )?faster|paid faster|cash flow|cash is|Zahlungsziel", _re.I)
+ 
+@@ -211,7 +212,7 @@ class PaymentPledgeMixin:
+             return msg
+ 
+         def add(body):
+-            return body.replace(_SIGN, line + "\n\n" + _SIGN) if _SIGN in body else body.rstrip() + "\n\n" + line
++            return _before_signature(body, line)
+ 
+         msg["body"] = add(msg["body"])
+         w = msg.get("_write")
+diff --git a/starter-kit/csee/writer.py b/starter-kit/csee/writer.py
+index a4c2771..c43ff41 100644
+--- a/starter-kit/csee/writer.py
++++ b/starter-kit/csee/writer.py
+@@ -14,6 +14,19 @@ from arena_kit.play import latest
+ 
+ log = logging.getLogger("csee")
+ SIGN = "Best regards\nHollerau Pumpenwerke GmbH, Purchasing"
++GREETING_RE = re.compile(r"^(best|kind|warm|with best|many thanks|thanks|yours|sincerely|regards|mit freundlichen)", re.I)
++
++
++def before_signature(body, text):
++    """Insert `text` before the closing greeting, whatever greeting the model chose ("Kind regards" ...). Lever and
++    pledge lines used to land after an AI-written signature (7 logged e-mails; the jury reads every replay)."""
++    lines = body.rstrip().split("\n")
++    sign = max((i for i, ln in enumerate(lines) if "Hollerau Pumpenwerke" in ln), default=None)
++    if sign is None:
++        return body.rstrip() + "\n\n" + text
++    at = sign - 1 if sign > 0 and GREETING_RE.match(lines[sign - 1].strip()) else sign
++    head = "\n".join(lines[:at]).rstrip()
++    return head + "\n\n" + text + "\n\n" + "\n".join(lines[at:])
+ OPENERS = {
+     "price_increase": "Thank you for your letter. We cannot accept an increase of this size.",
+     "raw_material": "Thank you for your offer. We have reviewed the base price and the surcharge carefully.",

@@ -9,9 +9,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from arena_kit.play import CLOSE_BEFORE_CAP_S
+from arena_kit.client import ArenaError
+from arena_kit.play import CLOSE_BEFORE_CAP_S, standing
 from csee import agents, runlog
-from csee.runner import play_case
+from csee.runner import play_case, refreshed_thread
 
 SUPPLIERS = ["sup:1", "sup:2", "sup:3"]
 CASES = Path(__file__).parents[1] / "csee" / "cases" / "practice.json"
@@ -144,3 +145,263 @@ def test_router_passes_log_and_cap_to_the_routed_agent():
     router.prepare(case, {s: [] for s in case["suppliers"]})
     router.cap_at = lambda: 123.0  # the runner: after prepare
     assert router.inner.log is clog and router.inner.cap_at() == 123.0
+
+
+def test_idle_close_counts_model_decision_time_in_the_reply_deadline(monkeypatch):
+    from csee import runner
+
+    monkeypatch.setattr(runner, "IDLE_CLOSE_S", 1)
+    released = threading.Event()
+
+    class WaitingAgent(SlowAgent):
+        def thread_move(self, case, threads, sid):
+            if sid == SUPPLIERS[0]:
+                time.sleep(1.2)  # Most of the reply deadline was spent deciding to stop.
+            else:
+                released.wait(4)
+            self.threads[sid].ready = True
+            return None
+
+    class WaitingTable(FakeTable):
+        def close(self, sid, msg):
+            out = super().close(sid, msg)
+            released.set()
+            return out
+
+    table = WaitingTable()
+    try:
+        assert play_case(table, "case:T", WaitingAgent())["deal"]
+        assert table.closed[2] < 2.2  # Old code added another idle interval: >= 2.5 s.
+    finally:
+        released.set()
+
+
+@pytest.mark.parametrize("status", [409, 422])
+def test_close_retry_uses_timeout_offer_terms_even_when_message_history_is_old(status):
+    class ReadyAgent(SlowAgent):
+        def thread_move(self, case, threads, sid):
+            self.threads[sid].ready = True
+            return None
+
+        def close(self, case, threads, force=False):
+            sid = SUPPLIERS[0]
+            offer_id, terms = standing(threads[sid])
+            if offer_id == "offer:new-timeout":
+                assert terms["unit_price"] == 11  # A timeout can change the actual package too.
+            return {"supplier_id": sid, "message": {"action": {"type": "accept", "term_sheet_id": offer_id}}}
+
+    class RetryingTable(FakeTable):
+        def __init__(self):
+            super().__init__()
+            self.client, self.attempts = self, []
+
+        def close(self, sid, msg):
+            self.attempts.append(msg["action"]["term_sheet_id"])
+            if len(self.attempts) == 1:
+                raise ArenaError(status, "offer expired")
+            assert self.attempts[-1] == "offer:new-timeout"
+            return {"deal": True}
+
+        def session(self, session_id):
+            return {"status": "open", "threads": {s: {} for s in SUPPLIERS}}
+
+        def thread(self, session_id, sid):
+            old = quote(sid)
+            current = "offer:new-timeout" if sid == SUPPLIERS[0] else old["term_sheets"][0]["term_sheet_id"]
+            return {
+                "messages": [old],
+                "offer_id": current,
+                "status": "open",
+                "timeouts": [{"offer_id": current, "terms": {"unit_price": 11}}],
+            }
+
+    table = RetryingTable()
+    assert play_case(table, "case:T", ReadyAgent())["deal"]
+    assert len(table.attempts) == 2
+
+
+def test_close_falls_back_to_the_threads_own_offer_after_two_refusals():
+    """P05, Sat 20:42 (both A/B runs): refused twice as "not a standing offer", closed at retry 2 on the
+    thread's own offer_id. The re-read alone cannot surface it when no timeout entry carries its terms."""
+
+    class ReadyAgent(SlowAgent):
+        def thread_move(self, case, threads, sid):
+            self.threads[sid].ready = True
+            return None
+
+        def close(self, case, threads, force=False):
+            sid = SUPPLIERS[0]
+            return {"supplier_id": sid, "message": {"action": {"type": "accept", "term_sheet_id": f"offer:{sid}"}}}
+
+    class StaleTable(FakeTable):
+        def __init__(self):
+            super().__init__()
+            self.client, self.attempts = self, []
+
+        def close(self, sid, msg):
+            self.attempts.append(msg["action"]["term_sheet_id"])
+            if self.attempts[-1] != "offer:current":
+                raise ArenaError(409, "not a standing offer in this session")
+            return {"deal": True}
+
+        def session(self, session_id):
+            return {"status": "open", "threads": {s: {} for s in SUPPLIERS}}
+
+        def thread(self, session_id, sid):
+            return {"messages": [quote(sid)], "offer_id": "offer:current", "status": "open"}
+
+    table = StaleTable()
+    assert play_case(table, "case:T", ReadyAgent())["deal"]
+    assert table.attempts == ["offer:sup:1", "offer:sup:1", "offer:current"]
+
+
+def test_refresh_never_attaches_a_new_offer_id_to_unconfirmed_old_terms():
+    old = quote(SUPPLIERS[0])
+    events = refreshed_thread({"offer_id": "offer:new-without-terms", "status": "open"}, [old])
+    assert standing(events) == (None, {})
+
+
+def test_close_keeps_the_accept_when_the_re_read_loses_the_offers_terms():
+    """A re-issued offer whose timeout entry has no terms: refreshed_thread() leaves the thread without a standing
+    sheet, a real agent then sees nothing to accept and walks. The runner keeps the accept on that offer."""
+
+    class RealisticAgent(SlowAgent):
+        def thread_move(self, case, threads, sid):
+            self.threads[sid].ready = True
+            return None
+
+        def close(self, case, threads, force=False):
+            sid = SUPPLIERS[0]
+            offer_id, terms = standing(threads[sid])
+            if offer_id:
+                return {"supplier_id": sid, "message": {"action": {"type": "accept", "term_sheet_id": offer_id}}}
+            return {"supplier_id": sid, "message": {"action": {"type": "walk_away"}}}
+
+    class ReissuedTable(FakeTable):
+        def __init__(self):
+            super().__init__()
+            self.client, self.actions = self, []
+
+        def close(self, sid, msg):
+            a = msg["action"]
+            self.actions.append(a.get("term_sheet_id") or a["type"])
+            if a["type"] == "accept" and a["term_sheet_id"] == "offer:reissued":
+                return {"deal": True}
+            if a["type"] == "walk_away":
+                return {"deal": False}
+            raise ArenaError(422, "not a standing offer in this session")
+
+        def session(self, session_id):
+            return {"status": "open", "threads": {s: {} for s in SUPPLIERS}}
+
+        def thread(self, session_id, sid):
+            return {"messages": [quote(sid)], "offer_id": "offer:reissued", "status": "open", "timeouts": []}
+
+    table = ReissuedTable()
+    assert play_case(table, "case:T", RealisticAgent())["deal"]
+    assert "walk_away" not in table.actions
+
+
+class FlakyTable(FakeTable):
+    """`fail` holds the errors its sends raise, one per call, before it answers normally."""
+
+    def __init__(self, fail):
+        super().__init__()
+        self.fail, self.bodies = list(fail), []
+
+    def send(self, sid, msg):
+        self.bodies.append(msg)
+        if self.fail:
+            raise self.fail.pop(0)
+        return super().send(sid, msg)
+
+
+@pytest.mark.parametrize("error", [ConnectionError("network down"), ArenaError(503, "unavailable")])
+def test_a_failed_send_is_retried_not_the_thread_stopped(monkeypatch, error):
+    from csee import runner
+
+    monkeypatch.setattr(runner, "SEND_RETRY_S", 0.01)
+    table = FlakyTable([error])
+    out = play_case(table, "case:T", SlowAgent(0.0))
+    assert out["deal"]
+    assert sorted(s for s, _ in table.sent) == SUPPLIERS  # every thread got its message through
+
+
+def test_a_422_is_sent_again_as_the_plain_email():
+    table = FlakyTable([ArenaError(422, "term sheet without every negotiable field")])
+    play_case(table, "case:T", SlowAgent(0.0))
+    plain = [m for m in table.bodies if "term_sheets" not in m]
+    assert len(plain) == 1 and plain[0]["body"] == "Our offer."
+    assert len(table.sent) == 3
+
+
+class NoCloseTable(FakeTable):
+    """The network is down while closing: every close and every read fails."""
+
+    client = object()  # a remote table
+
+    def close(self, sid, msg):
+        raise ConnectionError("network down")
+
+    def result(self):
+        raise ConnectionError("network down")
+
+
+def test_an_unconfirmed_close_raises_so_the_wave_loop_resumes_the_case(monkeypatch):
+    from csee import runner
+
+    monkeypatch.setattr(runner, "CLOSE_NET_S", 0.5)
+    with pytest.raises(ConnectionError):
+        play_case(NoCloseTable(), "case:T", SlowAgent(0.0))
+
+
+class FlakyTable(FakeTable):
+    """Its sends raise the errors in `fail`, one per call, before it answers normally."""
+
+    def __init__(self, fail):
+        super().__init__()
+        self.fail, self.bodies = list(fail), []
+
+    def send(self, sid, msg):
+        self.bodies.append(msg)
+        if self.fail:
+            raise self.fail.pop(0)
+        return super().send(sid, msg)
+
+
+@pytest.mark.parametrize("error", [ConnectionError("network down"), ArenaError(503, "unavailable")])
+def test_a_failed_send_is_retried_not_the_thread_stopped(monkeypatch, error):
+    from csee import runner
+
+    monkeypatch.setattr(runner, "SEND_RETRY_S", 0.01)
+    table = FlakyTable([error])
+    assert play_case(table, "case:T", SlowAgent(0.0))["deal"]
+    assert sorted(s for s, _ in table.sent) == SUPPLIERS  # every thread got its message through
+
+
+def test_a_422_is_sent_again_as_the_plain_email():
+    table = FlakyTable([ArenaError(422, "term sheet without every negotiable field")])
+    play_case(table, "case:T", SlowAgent(0.0))
+    plain = [m for m in table.bodies if "term_sheets" not in m]
+    assert len(plain) == 1 and plain[0]["body"] == "Our offer."
+    assert len(table.sent) == 3
+
+
+class NoCloseTable(FakeTable):
+    """A remote table whose network is down while closing: every close and every read fails."""
+
+    client = object()
+
+    def close(self, sid, msg):
+        raise ConnectionError("network down")
+
+    def result(self):
+        raise ConnectionError("network down")
+
+
+def test_an_unconfirmed_close_raises_so_the_wave_loop_resumes_the_case(monkeypatch):
+    from csee import runner
+
+    monkeypatch.setattr(runner, "CLOSE_NET_S", 0.5)
+    with pytest.raises(ConnectionError):
+        play_case(NoCloseTable(), "case:T", SlowAgent(0.0))

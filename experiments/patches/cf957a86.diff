@@ -1,0 +1,79 @@
+diff --git a/starter-kit/csee/agents/__init__.py b/starter-kit/csee/agents/__init__.py
+index f75f5b9..46d3efa 100644
+--- a/starter-kit/csee/agents/__init__.py
++++ b/starter-kit/csee/agents/__init__.py
+@@ -56,6 +56,7 @@ from .mert import (
+     MertAgent,
+     MertQualityMenuAgent,
+     MertFixedProbeAgent,
++    MertRawJointMenuAgent,
+     MertAnchorAgent,
+     MertClauseAgent,
+     MertConsistentAgent,
+@@ -109,6 +110,7 @@ AGENTS = {
+     "mert": MertAgent,
+     "mert-quality-menu": MertQualityMenuAgent,
+     "mert-fixed-probe": MertFixedProbeAgent,
++    "mert-raw-joint-menu": MertRawJointMenuAgent,
+     "mert-dialogue": MertDialogueAgent,
+     "mert-anchor": MertAnchorAgent,
+     "mert-consistent": MertConsistentAgent,
+diff --git a/starter-kit/csee/agents/mert.py b/starter-kit/csee/agents/mert.py
+index ddf8e2f..aaa61a9 100644
+--- a/starter-kit/csee/agents/mert.py
++++ b/starter-kit/csee/agents/mert.py
+@@ -1442,3 +1442,54 @@ class MertFixedProbeAgent(MertLeverAgent):
+         if self.fixed_probe(case, sid):
+             return [complete_offer(case, ours)]
+         return super().sheets(case, sid, ours, std, supplier)
++
++
++class MertRawJointMenuAgent(MertSkipHedgeAgent):
++    """Raw-material probe: intermediate payment and narrower deadband together.
++
++    Keep the parent main offer. Price two alternative structures at equal buyer
++    cost; this measures whether extra index security unlocks a better counter.
++    Never change coverage or promise a lower price on a previously sent structure.
++    """
++
++    def sheets(self, case, sid, ours, std, supplier):
++        out = super().sheets(case, sid, ours, std, supplier)
++        if (case.get('type') != 'raw_material' or not out
++                or not {'unit_price', 'payment_days', 'index_clause'} <= set(case['negotiable'])):
++            return out
++        main = out[0]
++        clause = main.get('index_clause')
++        if not clause:
++            return out
++        days = sorted(levers.options(case, 'payment_days'))
++        inner = days[1:-1]
++        clauses = sorted([c for c in levers.options(case, 'index_clause')
++                          if c and c['series'] == clause['series']
++                          and c['deadband_pct'] < clause['deadband_pct']],
++                         key=lambda c: c['deadband_pct'], reverse=True)
++        if not inner or not clauses:
++            return out
++        # Prefer the middle payment options, not the already-tested endpoints.
++        chosen_days = sorted(inner, key=lambda d: abs(d-days[len(days)//2]))
++        target = total_cost(case, main, std, supplier)
++        menu = [main]
++        for d, index in zip(chosen_days, clauses):
++            t = complete_offer(case, {**main, 'payment_days': d, 'index_clause': index})
++            price = levers.price_for(case, t, target, std, supplier)
++            if price is None or price <= 0:
++                continue
++            t['unit_price'] = price
++            if total_cost(case, t, std, supplier) > target + 1e-7:
++                t['unit_price'] = round(price - .01, 2)
++            prior = [x.get('terms', {}) for m in self.threads[sid].events
++                     if m.get('from') == 'buyer' for x in m.get('term_sheets') or []]
++            prices = [p['unit_price'] for p in prior if p.get('unit_price') is not None
++                      and all(p.get(k) == t.get(k) for k in case['negotiable'] if k != 'unit_price')]
++            if prices:
++                t['unit_price'] = max(t['unit_price'], max(prices))
++            if (t['unit_price'] > 0 and must_haves_ok(case, t, std)
++                    and total_cost(case, t, std, supplier) <= target + 1e-7):
++                menu.append(t)
++            if len(menu) == 3:
++                break
++        return menu

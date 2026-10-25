@@ -232,3 +232,99 @@ necessary to establish performance; existing runs predate this implementation.
   - base/v14a for quality;
   - base/basea for bundling;
   - base/v7a for RFQ.
+
+**Sat 22:50, P11 (quality) mechanism:**
+- **Results:** the quality menu (Astra session) scored 0.794 / 0.71; the planner scored 0.71 / 0.672; base-d scored 0.71 every time (about 8 runs).
+- **Why:** the supplier prices in 0.50 ticks, rounded up, and mirrors our step. It only drops a tick when our step is at least one tick.
+  - The menu kept +0.55 steps to the end and got 45.00 in its final.
+  - The planner closed the gap fast and its last steps (+0.16, +0.02) round to nothing.
+  - Base drew the final at reply 4.
+- **Lesson:** against coarse-tick suppliers, keep each step at least one tick and leave enough gap to keep stepping until the final.
+- **Router:** quality -> mert-quality-menu/v14a.
+- **Also rejected:** P02 fixed-price ladder (0.499: the bot stalls at 372 without the clause) and P18 joint payment/deadband menu (0.542).
+
+**Sat 23:10, planner tick rule:** P11 scored 0.71 in both runs; not routed.
+- **What the logs show:** the planner closes the gap to one tick by reply 5 (its no-cross cap), so its last step is +0.01 again.
+- **What worked instead:** the menu agent kept a wide gap (41.99 vs 45.50) and +0.55 steps, and got 45.00 in the supplier's final.
+- **Why this is not a planner fix:** the planner keeps the gap small on purpose (P02/P18 go final or walk on a 2.5-4 % gap). P11 tolerates 8-15 %. Gap tolerance is per supplier, and only the quality route (menu agent) uses wide-gap pacing.
+
+**Sat 23:30, robustness sweep of the final router.** Setup: 966 hidden-like cases (7 types x all 46 dossier suppliers x 3, with random must-haves, alternatives, relationship goals, round limits and RFQs) plus a 322-case run on the Live-Final clock.
+
+**What it did not find:** no crashes, must-have breaks, late replies, wave-cap losses, or walk-aways while a better deal stood.
+
+**Three loss mechanisms, now fixed** (untimed 0.596 -> 0.606, 27 cases better, 0 worse; timed 0.620 -> 0.635; engine practice table unchanged at 0.765):
+1. **Lever sheets agreed at reply 1.** Before the supplier stepped, lever sheets were priced at the opening ask (an assumed 0.2 %/round give). They now expect 1 %/round, capped by its own-plant should-cost; P02 keeps its reply-1 clause deal. Price increase +0.026.
+2. **Another plant's should-cost taken as this supplier's cost.** It is now ignored when it is >= 97 % of the supplier's own ask (P05: DE base 36.87 vs real floors 26.5-27). RFQ +0.026; dearer bidder taken 8 -> 2.
+3. **close() understated the relationship charge.** For relationship goals it now judges with should-cost x 0.98 (`close_estimate`). Deals dearer than the alternative: 13 -> 10.
+
+**Not fixed:**
+- Supplier walk-aways on wide gaps in the rfq/quality/bundling routes (engine assumption; practice only ever saw walks after a push).
+- RFQ scores in the engine are low for every policy: it has no rival-quote model.
+
+**Sat 23:50, payment MESO on renewal (P03, P04; mert-plan-meso): no effect** (0.923 / 0.86 = before).
+- **Why:** both holders froze at their reply-1 price and ignored the 14/30-day sheets. These suppliers value cash below our 8 % (P03 4.1 %), so a sheet at equal cost to us is worth less to them. The MESO only pays with cash-hungry suppliers (P01 9.5 %, on the price-increase route).
+- **Next lead:** with holders, our first message decides everything (P03 freezes after reply 1). Check whether round-1 arguments lower the first counter.
+
+**Sat 23:55, experiment "LLM with our functions as tools" (router-tools; code kept in the session scratchpad, not shipped).**
+- **Design:** per move the router computes the default. Claude Opus 5.5 sees the supplier's e-mail and our functions (`price_package` = exact cost; `submit_move`) and may change the packages. Code checks every move: must-haves, cheaper than the alternative, not dearer than the supplier's offer, at most 3 % deeper than the default. Timeout or error falls back to the default; accept and walk stay deterministic.
+- **Results:**
+
+| Case | Tool agent | Router (same evening) |
+|---|---|---|
+| sandbox D01 / D02 | 0.92 / 0.67 | 0.89 / 0.72 |
+| P01 | 0.973 | 0.975 / 0.988 |
+| P07 | 0.728 (LLM added 60-day options twice) | 0.747 / 0.766 |
+| P10 | 0.679 (LLM added a 42-day option) | 0.679 |
+| P11 | 0.71 | 0.71 |
+
+- **Verdict:** where the LLM changed the move it never helped (D02, P07 worse; P10 equal). Its reasoning was sound ("it names the payment lever, offer it"), but these suppliers price numbers by rules. It also cost 10-20 s per move. Not routed.
+
+**Sandbox regression explained:** router 0.852 -> 0.800 on sandbox D01 since c595836 (price increase -> planner + payment MESO). Bisected with worktrees: the sweep fixes (a208143) are neutral. D01 is a Tacto demo bot outside the 46 final suppliers; on the real P01/P02 the planner route is neutral to +0.05. Kept, but the planner can under-anchor big-step suppliers.
+
+**Sat 00:20, lessons from reading the tool-agent P07 transcript:**
+- **Extra sheets redirect the concession.** The bot mirrors on the sheet worth most to it. The LLM's 60-day sheet drew the supplier's steps onto the 60-day track (5.55 -> 5.43) while the 90-day price we wanted fell more slowly (5.53 -> 5.44).
+- **Answering its questions pays.** "Which volume can you commit to?" answered with the fixed 30,000 kits: "with this binding commitment, we are pleased to reduce".
+- **Writer fix:** an ID the model added and we dropped left "the washer award ()." (3 of 337 e-mails, all P07). Empty brackets are now stripped, because the jury reads replays.
+
+**Sun 01:30, single-shot router run (10 practice cases, AI writer):** P01 0.973, P02 0.733, P03 0.923, P04 0.86, P05 0.81, P07 0.715, P08 0.711, P10 0.679, P18 0.552, P11 **0**.
+- **What happened on P11:** our third offer left at 103 s; the supplier's final offer (45.00, worth 0.794) arrived at 3162 s, because the MacBook slept 51 minutes in the middle of the run. The agent decided to accept, but the arena had already ended the session on timeout.
+- **Fix:** `csee final/run/play` keep macOS awake themselves (`caffeinate -dimsu -w <pid>`). It has no inherited pipes and runs in its own session, so it cannot hold `| tee` open and stall the final's restart loop.
+- **The other 9 cases:** in line with earlier single-shot runs (P07 0.715 is at the low end of its 0.715-0.766 spread).
+
+**Sun 07:40, quality route promoted:** `mert-quality-measured/v14a`, built in the Astra session. It is the quality menu plus bigger reciprocal steps that switch on only after the supplier makes two similar positive steps.
+- **Live:** P11 0.877 twice (EUR 44.50 / 300 ppm).
+- **Robustness sweep (138 quality cases x 46 suppliers):** 2 better, 0 worse, same zeros and walks.
+
+**RFQ deeper anchor (mert-rfq-anchor/v7a, 28 % / 15 % instead of 22 % / 8 %): held back.**
+- **Live:** P05 0.831 (repeat possibly cached); sandbox D02 0.786 vs 0.736.
+- **Sweep, 138 RFQ cases:** 13 better, 3 worse, mean -0.003; supplier walks 39 -> 45, zeros 5 -> 6.
+- **Next:** a fresh live recheck.
+
+**Sun 07:50, RFQ route promoted:** `mert-rfq-anchor-d/v7a` = the deeper RFQ opening (Astra session) plus the dossier claims hook.
+- **Fresh live recheck:** P05 **0.854** (new team best, no walk-away); sandbox D02 0.77 twice. Together with the earlier runs: P05 0.831 / 0.831 / 0.854 and D02 0.786 / 0.77 / 0.77, against 0.810 and 0.736 for the old route.
+- **Risk accepted:** the sweep's extra simulated walks rest on the engine's walk assumption. Practice has shown no walks without a push.
+
+**Sun 07:55, raw front-load (`mert-raw-frontload`, Astra's idea): rejected.**
+- **Test:** both index arguments in message 1 (instead of one per e-mail), with price, package and closing unchanged.
+- **Results:** P18 0.530 (best 0.618), P08 0.711 (best 0.754). Both arguments were verified, but P18's first counter was still 5.60.
+- **Reading:** the bots take one argument per round. One argument per e-mail stays.
+
+**Sun 08:10, Sunday release loaded** (+10 facts, +6 news, +4 docs: 3 supplier letters + a purchasing memo; index series unchanged). Three gaps fixed:
+1. **Steinfelder (70340) steel hedge.** Its letter says "secured ... for 2027, bought forward ... reaches our prices only from 2028". The dossier read only "until <month> <year>"; it now also reads "for <year>" (until December). Steel index arguments go last for this supplier.
+2. **`customer_loss` news** (Pfaffenreuth lost its heating customer) now counts as an argument for us (the supplier needs volume).
+3. **Cash requests in the release** (Vrbensky, Pfaffenreuth: "please pay within 10 days") mark the supplier cash-short in every agent: payment trade sheets and the money-rate estimate. Only letters after the package froze count, so practice suppliers keep their measured behaviour. Newly flagged: 70190.
+
+**Sun 08:25, release check: exact final router single-shot on the 10 practice cases** (release loaded, AI writer). All deals, no errors, **mean 0.773**.
+
+| Case | Score | Note |
+|---|---|---|
+| P01 | 0.971 | |
+| P02 | 0.733 | |
+| P03 | 0.923 | |
+| P04 | 0.86 | |
+| P05 | 0.831 | new rfq route |
+| P07 | 0.747 | |
+| P08 | 0.581 | inside its router spread 0.58-0.73 over 5 single-shots: one working index argument, then order history it ignores |
+| P10 | 0.656 | |
+| P11 | 0.877 | new quality route |
+| P18 | 0.552 | |

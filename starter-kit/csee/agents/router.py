@@ -24,10 +24,12 @@ ROUTES = {
     # practice evidence, Sat 24 Oct (experiments/ ledger); v15's push after a final offer made P02 walk (0.48 -> 0)
     "price_increase": "mert-plan-meso-lever-dc/v14a",  # P01 0.975 (planner + 14-day MESO; engine 0.962), P02 engine = mert-lever 0.733 (copper clause kept). NEVER mert-lever* on raw material
     "renewal": "mert-plan-dc/v14a",  # A/B Sat 20:43: P03 0.923 / P04 0.86 in both routers; planner far fewer walk-aways on perturbed suppliers
-    "rfq": "base-d/v7a",  # P05 v7 0.81 vs base 0.35, ege/v9 0.52
+    "rfq": "mert-rfq-anchor-d/v7a",  # Sun 07:50: opening 28 % below own / 15 % below rivals (was 22 / 8): P05 0.831/0.831/0.854, D02 0.786/0.77/0.77 vs 0.736, 0 walks in 6 live runs (sweep +6 sim walks: model assumption)
     "raw_material": "mert-plan-meso-raw-dc/v16a",  # A/B: P08 0.744 vs skip-hedge 0.711 (its runs avg 0.72, best 0.754); P18 0.552 both; engine >=
-    "capacity": "mert-plan-dc/v14a",  # A/B: P10 0.671 (planner) vs 0.57 (base/v14a)
-    "quality": "base-d/v14a",  # A/B: P11 0.71 vs planner 0.626 (planner accepted a hold at 46.00; rule since disabled, untested)
+    "capacity": "base-d/v14s",  # soft-anchor study Sat 21:30: Ravensteiner (desk authority 2 %) answers a 4 % anchor "open" (12 %: final at
+    # reply 1); it charges ~2.00/unit for 42 vs 56 days lead, 14 late days cost us 0.71. base/v14s switched to 56 d itself -> 31.50 = 0.679;
+    # the planner kept 42 d and took a final 33.20 = 0.601 (4 % and 6 %), 0.671 only when the bot volunteered its 54-d alternative
+    "quality": "mert-quality-measured/v14a",  # Sun 07:40: menu + bigger reciprocal steps only after two similar supplier steps (P11 0.877 twice; sweep 138 quality cases: 2 better, 0 worse, same zeros/walks)
     "bundling": "base-d/basea",  # A/B: P07 0.766 (best) vs planner 0.734
 }
 FALLBACK = "base-d/v14a"  # a type the final brings that ROUTES does not list
@@ -116,3 +118,20 @@ class RouterPlanAgent(RouterAgent):
     @staticmethod
     def fallback():
         return PLAN_FALLBACK
+
+
+# Sunday-morning A/B candidate: the confirmed router with every slot on its "c" variant (claim_evidence: evidence-ordered
+# claims, no order-history / earlier-quarter delivery citations; docs/notes/soft-anchor-study.md). Same agents as ROUTES.
+C_VARIANT = {"v14a": "v14c", "v16a": "v16c", "v7a": "v7c", "basea": "basec", "v14s": "v14sc"}
+C_ROUTES = {t: f"{a.partition('/')[0]}/{C_VARIANT.get(a.partition('/')[2], a.partition('/')[2])}" for t, a in ROUTES.items()}
+C_FALLBACK = f"{FALLBACK.partition('/')[0]}/{C_VARIANT.get(FALLBACK.partition('/')[2], FALLBACK.partition('/')[2])}"
+
+
+class RouterClaimsAgent(RouterAgent):
+    @staticmethod
+    def routes():
+        return C_ROUTES
+
+    @staticmethod
+    def fallback():
+        return C_FALLBACK
