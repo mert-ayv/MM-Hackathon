@@ -44,6 +44,30 @@ def must_haves_ok(case, terms, standard=None):
     return _kit_must_haves_ok({**case, "buyer": {**case["buyer"], "must_haves": visible}}, terms, standard)
 
 
+def cash_note(info, pkg, sid):
+    """A supplier whose own letters ask for faster payment (Sunday release: Vrbensky and Pfaffenreuth, "please pay
+    within 10 days") is cash-short: cash_short(), the payment trade sheets and the money-rate estimate see it."""
+    try:
+        from . import dossier
+
+        asks = (dossier.get(sid, pkg) or {}).get("cash_asks") or []
+        # only letters after the package froze (30 Sep): the release's fresh requests; older ones are already in the
+        # curated profiles, and the practice suppliers' behaviour stays as measured
+        asks = [a for a in asks if isinstance(a, str) and a[4:12].isdigit() and a[4:12] > "20260930"]
+    except Exception:  # the dossier is evidence, never a reason to fail a case
+        return
+    if not asks:
+        return
+    prof = info.profile
+    pressures = list(prof.get("pressures") or [])
+    if not any("cash" in (p.get("type") or "") for p in pressures if isinstance(p, dict)):
+        pressures.append({"type": "cash", "evidence": f"its letters ask for faster payment ({', '.join(asks[:2])})"})
+        prof["pressures"] = pressures
+    values = list(prof.get("what_it_values") or [])
+    if not any("cash" in v.lower() for v in values if isinstance(v, str)):
+        prof["what_it_values"] = values + ["cash flow: faster payment"]
+
+
 def live_threads(threads):
     """The kit's live_threads, safe for a thread without any supplier message yet (it would raise)."""
     return _kit_live_threads({s: ev for s, ev in threads.items() if any(m.get("from") != "buyer" for m in ev)})
@@ -218,6 +242,7 @@ class CseeAgent:
                 # below the ask and the bot agreed at reply 1 (sweep: hidden-like RFQs, C above the opening -> 0).
                 info.full_cost_source = f"{info.full_cost_source} ignored: {info.full_cost:.2f} >= 97 % of its ask {ask}"
                 info.full_cost = None
+            cash_note(info, self.pkg, sid)
             st = self.threads[sid] = ThreadState(info, opening=opening)
             for m in threads.get(sid, []):  # a resumed case: continue from our earlier asks, never re-anchor
                 if m.get("from") == "buyer" and m.get("term_sheets"):

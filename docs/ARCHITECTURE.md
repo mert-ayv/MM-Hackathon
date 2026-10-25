@@ -308,3 +308,8 @@ necessary to establish performance; existing runs predate this implementation.
 - **Test:** both index arguments in message 1 (instead of one per e-mail), with price, package and closing unchanged.
 - **Results:** P18 0.530 (best 0.618), P08 0.711 (best 0.754). Both arguments were verified, but P18's first counter was still 5.60.
 - **Reading:** the bots take one argument per round. One argument per e-mail stays.
+
+**Sun 08:10, Sunday release loaded** (+10 facts, +6 news, +4 docs: 3 supplier letters + a purchasing memo; index series unchanged). Three gaps fixed:
+1. **Steinfelder (70340) steel hedge.** Its letter says "secured ... for 2027, bought forward ... reaches our prices only from 2028". The dossier read only "until <month> <year>"; it now also reads "for <year>" (until December). Steel index arguments go last for this supplier.
+2. **`customer_loss` news** (Pfaffenreuth lost its heating customer) now counts as an argument for us (the supplier needs volume).
+3. **Cash requests in the release** (Vrbensky, Pfaffenreuth: "please pay within 10 days") mark the supplier cash-short in every agent: payment trade sheets and the money-rate estimate. Only letters after the package froze count, so practice suppliers keep their measured behaviour. Newly flagged: 70190.

@@ -149,7 +149,7 @@ def build(case, pkg, supplier_id, opening_price=None, opening_text="", opening=N
     return intel
 
 
-NEWS_HELPS_US = {"free_capacity", "short_time_work", "new_plant", "looking_for_customers", "short_time"}
+NEWS_HELPS_US = {"free_capacity", "short_time_work", "new_plant", "looking_for_customers", "short_time", "customer_loss"}
 NEWS_HELPS_THEM = {"full_order_book", "big_order", "allocation", "chip_shortage", "noise", "renamed"}
 DRIVER_RE = re.compile(r"([A-Z][A-Z0-9-]{2,}) rose [\d.]+ ?% in twelve months")
 
