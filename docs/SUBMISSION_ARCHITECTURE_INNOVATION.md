@@ -1,0 +1,3 @@
+**Architecture:** csee-base combines a Python case router, deterministic total-cost engine and source-verified evidence with an LLM email writer. Code sets prices, validates contracts and decides when to accept or walk away. Supplier threads run in parallel, with deadline-aware closing, resumable sessions and template fallback.
+
+**Innovation:** We negotiate complete packages across payment, delivery, volume, quality and index clauses, rather than price alone. Alternative packages expose trade-offs; live RFQ bids provide verified competitive leverage. Every experiment links scores to code and replays. The final release passed 2,987 tests; its live practice rehearsal closed 10/10 deals.
