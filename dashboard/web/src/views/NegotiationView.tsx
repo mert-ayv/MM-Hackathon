@@ -2,11 +2,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useCase } from "../lib/api";
 import { buildModel } from "../lib/model";
 import type { CaseModel } from "../lib/model";
-import { copilotSummary, keyMoves, leftOnTable, roundStories, threadLabels, verdict } from "../lib/story";
+import { copilotSummary, keyMoves, leftOnTable, outcome, reviewReasons, roundStories, threadLabels, verdict } from "../lib/story";
 import type { RoundStory } from "../lib/story";
 import { eur, eur2, eurShort, termLabel, termValue } from "../lib/format";
 import { Card, cx, Empty, Label, Pill, StatusBadge } from "../components/ui";
-import { CaptureBar, IconChip, ScoreRing } from "../components/story/visuals";
+import { CostScale, IconChip, ScoreRing } from "../components/story/visuals";
 import { Convergence } from "../components/story/Convergence";
 import { DecisionCard } from "../components/story/DecisionCard";
 
@@ -29,6 +29,24 @@ function Story({ model, runId, caseId, round }: { model: CaseModel; runId: strin
   const v = useMemo(() => verdict(model), [model]);
   const moves = useMemo(() => keyMoves(model, stories), [model, stories]);
   const left = useMemo(() => leftOnTable(model), [model]);
+  const o = useMemo(() => outcome(model), [model]);
+  const review = useMemo(() => reviewReasons(model, stories), [model, stories]);
+  const mailKey = `mail:${runId}/${caseId}`;
+  const [mail, setMailState] = useState(() => {
+    try {
+      return sessionStorage.getItem(mailKey) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const setMail = (on: boolean) => {
+    setMailState(on);
+    try {
+      sessionStorage.setItem(mailKey, on ? "1" : "0");
+    } catch {
+      /* private mode */
+    }
+  };
 
   const [sid, setSid] = useState(() => model.current.sid ?? moves[0]?.sid ?? model.threads[0]?.sid);
   const focus = model.threads.find((t) => t.sid === sid) ?? model.threads[0];
@@ -89,8 +107,12 @@ function Story({ model, runId, caseId, round }: { model: CaseModel; runId: strin
 
       {/* verdict */}
       <Card className="animate-rise overflow-hidden motion-reduce:animate-none">
-        <div className="grid items-center gap-8 p-7 lg:grid-cols-[auto_1fr_380px]">
-          <ScoreRing score={v.score} size={148} />
+        <div className="grid items-center gap-8 p-7 lg:grid-cols-[auto_1fr_400px]">
+          {isNum(o.increaseAvertedPct) ? (
+            <ScoreRing score={o.increaseAvertedPct} size={148} label="increase averted" fmt={(x) => `${Math.round(x * 100)}%`} />
+          ) : (
+            <ScoreRing score={o.savedPct} size={148} label="below their quote" fmt={(x) => `${(x * 100).toFixed(1)}%`} />
+          )}
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               {model.type && <Pill className="capitalize">{model.type.replace(/_/g, " ")}</Pill>}
@@ -98,11 +120,14 @@ function Story({ model, runId, caseId, round }: { model: CaseModel; runId: strin
               <span className="text-[0.75rem] text-ink-3">
                 {v.rounds} rounds · {model.threads.length} supplier{model.threads.length > 1 ? "s" : ""}
               </span>
+              {review.map((r) => (
+                <IconChip key={r.label} icon={r.icon} label={r.label} tone="accent" />
+              ))}
             </div>
             <h1 className="mt-2 truncate text-[1.6rem] font-semibold tracking-tight text-ink">{model.title}</h1>
-            {v.deal && isNum(v.saved) ? (
+            {v.deal && isNum(o.saved) ? (
               <div className="mt-3 flex flex-wrap items-baseline gap-x-4 gap-y-1">
-                <span className="text-[2.2rem] font-semibold tracking-tight text-accent">{eur(v.saved)}</span>
+                <span className="text-[2.2rem] font-semibold tracking-tight text-accent">{eur(o.saved)}</span>
                 <span className="text-[1rem] text-ink-2">saved vs {dealThread?.short ?? "their"} opening offer</span>
               </div>
             ) : (
@@ -131,8 +156,25 @@ function Story({ model, runId, caseId, round }: { model: CaseModel; runId: strin
             )}
           </div>
           <div>
-            <Label className="mb-3">Captured of what was reachable</Label>
-            <CaptureBar cOpen={model.cOpen} cDeal={v.deal ? model.current.c : null} cBest={model.cBest} cAlt={model.cAlt} big />
+            <Label className="mb-2">Where the deal landed</Label>
+            <CostScale cOpen={o.cOpen} cDeal={o.cDeal} cAlt={o.cAlt} />
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {isNum(o.saved) && o.deal && <IconChip icon="↓" label={`${eurShort(o.saved)} below their opening`} tone="accent" />}
+              {isNum(o.vsAlternative) && o.deal && (
+                <IconChip
+                  icon={o.vsAlternative >= 0 ? "✓" : "!"}
+                  label={o.vsAlternative >= 0 ? `${eurShort(o.vsAlternative)} better than walking away` : `${eurShort(-o.vsAlternative)} worse than walking away`}
+                  tone={o.vsAlternative >= 0 ? "ink" : "bad"}
+                />
+              )}
+              {isNum(o.vsFloorEstimate) && (
+                <IconChip
+                  icon="▲"
+                  label={`${eur2(Math.abs(o.vsFloorEstimate))}/unit ${o.vsFloorEstimate >= 0 ? "above" : "below"} their est. cost floor`}
+                  title={o.floorSource ? `Floor estimate: ${eur2(o.floor)} (${o.floorSource})` : undefined}
+                />
+              )}
+            </div>
           </div>
         </div>
       </Card>
@@ -201,21 +243,15 @@ function Story({ model, runId, caseId, round }: { model: CaseModel; runId: strin
 
       {/* the selected round */}
       <div ref={cardRef} className="scroll-mt-24">
-        {story && focus ? <DecisionCard key={`${focus.sid}-${story.round}`} story={story} thread={focus} flash={flash} /> : <Empty>No rounds logged for this supplier.</Empty>}
+        {story && focus ? <DecisionCard key={`${focus.sid}-${story.round}`} story={story} thread={focus} flash={flash} mail={mail} onMail={setMail} /> : <Empty>No rounds logged for this supplier.</Empty>}
       </div>
 
-      {(left.length > 0 || (isNum(v.gapToBest) && v.gapToBest > 1)) && (
+      {left.length > 0 && (
         <Card className="p-6">
           <div className="flex flex-wrap items-start justify-between gap-6">
             <div>
               <h3 className="text-[0.95rem] font-semibold tracking-tight">Where we left money</h3>
-              <div className="mt-1 text-[0.8rem] text-ink-3">
-                {isNum(v.gapToBest) && (
-                  <>
-                    <span className="font-mono text-ink">{eur(v.gapToBest)}</span> between our deal and the best possible deal.
-                  </>
-                )}
-              </div>
+              <div className="mt-1 text-[0.8rem] text-ink-3">Offers the suppliers put on the table that were cheaper than the one we signed.</div>
             </div>
             {left.length > 0 && (
               <div className="flex flex-wrap gap-3">

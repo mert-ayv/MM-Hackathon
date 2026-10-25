@@ -15,6 +15,13 @@ export interface Param {
   step?: number;
   options?: string[];
 }
+export interface SubRule {
+  id: string;
+  when: string;
+  then: string;
+  enabled: boolean;
+  from?: "manual" | "suggestion";
+}
 export type NodeKind = "trigger" | "router" | "intel" | "engine" | "check" | "llm" | "guard" | "rule" | "outcome";
 export interface StudioNode {
   id: string;
@@ -23,7 +30,8 @@ export interface StudioNode {
   subtitle: string;
   params: Param[];
   custom?: boolean;
-  after?: string; // for rules: id of the node it hooks after
+  after?: string; // for standalone rule steps: id of the node it hooks after
+  rules?: SubRule[]; // sub-rules that refine this step
 }
 export interface Suggestion {
   id: string;
@@ -34,6 +42,9 @@ export interface Suggestion {
   before: string;
   after: string;
   evidence?: { runId: string; caseId: string; round?: number; quote?: string };
+  // what the evidence rests on: this one negotiation, or comparable deals (same category / argument)
+  evidenceKind?: "this_negotiation" | "comparable_deals";
+  evidenceCount?: number;
   source: "voice" | "analysis";
   status: "pending" | "accepted" | "rejected";
   reason?: string;
@@ -47,7 +58,7 @@ export interface StudioState {
   changedNode?: string;
 }
 
-const KEY = "studio.v2";
+const KEY = "studio.v4";
 const listeners = new Set<() => void>();
 
 function initial(): StudioState {
@@ -121,6 +132,25 @@ function withRule(s: StudioState, r: { title: string; when: string; then: string
   return [{ ...s, nodes: [...s.nodes, node], changedAt: new Date().toISOString(), changedNode: id }, id];
 }
 
+function withSubRule(s: StudioState, nodeId: string, r: { when: string; then: string }, from: SubRule["from"]): StudioState {
+  const rule: SubRule = { id: uid("sr"), when: r.when, then: r.then, enabled: true, from };
+  return {
+    ...s,
+    nodes: s.nodes.map((n) => (n.id === nodeId ? { ...n, rules: [...(n.rules ?? []), rule] } : n)),
+    changedAt: new Date().toISOString(),
+    changedNode: nodeId,
+  };
+}
+
+function mapRules(nodeId: string, fn: (rules: SubRule[]) => SubRule[]) {
+  set({
+    ...state,
+    nodes: state.nodes.map((n) => (n.id === nodeId ? { ...n, rules: fn(n.rules ?? []) } : n)),
+    changedAt: new Date().toISOString(),
+    changedNode: nodeId,
+  });
+}
+
 export const studio = {
   get: () => state,
   subscribe(fn: () => void) {
@@ -143,6 +173,15 @@ export const studio = {
     const [next, id] = withRule(state, r);
     set(next);
     return id;
+  },
+  addSubRule(nodeId: string, r: { when: string; then: string }) {
+    set(withSubRule(state, nodeId, r, "manual"));
+  },
+  updateSubRule(nodeId: string, id: string, patch: Partial<Omit<SubRule, "id">>) {
+    mapRules(nodeId, (rules) => rules.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+  },
+  removeSubRule(nodeId: string, id: string) {
+    mapRules(nodeId, (rules) => rules.filter((r) => r.id !== id));
   },
   removeNode(id: string) {
     // only custom rules can go; the pipeline's stages stay
@@ -170,7 +209,8 @@ export const studio = {
         changedNode: node.id,
       };
     } else {
-      [next] = withRule(next, { title: sug.title, when: sug.before || "—", then: sug.after, after: node ? sug.nodeId : "planner" });
+      // no matching setting: the change becomes a rule on the step it targets
+      next = withSubRule(next, node ? sug.nodeId : "planner", { when: sug.before || "Always", then: sug.after }, "suggestion");
     }
     set(next);
   },

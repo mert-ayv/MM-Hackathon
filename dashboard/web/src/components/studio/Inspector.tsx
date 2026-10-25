@@ -1,5 +1,6 @@
 import { INITIAL_NODES } from "../../lib/agentSpec";
-import { formatValue, studio, type Param, type StudioNode } from "../../lib/studio";
+import { useState } from "react";
+import { formatValue, studio, type Param, type StudioNode, type SubRule } from "../../lib/studio";
 import { cx } from "../ui";
 import { KIND, KindIcon } from "./kinds";
 
@@ -112,6 +113,90 @@ function Control({ node, p }: { node: StudioNode; p: Param }) {
   );
 }
 
+function RuleRow({ nodeId, r }: { nodeId: string; r: SubRule }) {
+  return (
+    <div className={cx("rounded-lg border border-accent/30 bg-accent-soft/40 px-2.5 py-2", !r.enabled && "opacity-50")}>
+      <div className="flex items-start gap-2">
+        <div className="min-w-0 flex-1 space-y-1 text-[0.78rem] leading-snug">
+          <div className="flex gap-1.5">
+            <span className="mt-px shrink-0 rounded bg-white px-1 font-mono text-[0.62rem] font-semibold text-accent-deep">WHEN</span>
+            <textarea
+              rows={2}
+              value={r.when}
+              onChange={(e) => studio.updateSubRule(nodeId, r.id, { when: e.target.value })}
+              className="w-full resize-none bg-transparent text-ink-2 outline-none focus:text-ink"
+            />
+          </div>
+          <div className="flex gap-1.5">
+            <span className="mt-px shrink-0 rounded bg-white px-1 font-mono text-[0.62rem] font-semibold text-accent-deep">THEN</span>
+            <textarea
+              rows={2}
+              value={r.then}
+              onChange={(e) => studio.updateSubRule(nodeId, r.id, { then: e.target.value })}
+              className="w-full resize-none bg-transparent font-medium text-ink outline-none"
+            />
+          </div>
+          {r.from === "suggestion" && <div className="text-[0.66rem] text-ink-3">from an accepted suggestion</div>}
+        </div>
+        <Toggle on={r.enabled} onChange={(v) => studio.updateSubRule(nodeId, r.id, { enabled: v })} />
+      </div>
+      <button onClick={() => studio.removeSubRule(nodeId, r.id)} className="mt-1 text-[0.68rem] text-ink-3 hover:text-accent-deep">
+        Remove
+      </button>
+    </div>
+  );
+}
+
+function AddSubRule({ nodeId }: { nodeId: string }) {
+  const [open, setOpen] = useState(false);
+  const [when, setWhen] = useState("");
+  const [then, setThen] = useState("");
+  if (!open)
+    return (
+      <button
+        onClick={() => setOpen(true)}
+        className="w-full rounded-lg border border-dashed border-accent/50 px-3 py-2 text-[0.78rem] font-medium text-accent-deep hover:bg-accent-soft/50"
+      >
+        + Add rule to this step
+      </button>
+    );
+  const ok = when.trim() && then.trim();
+  return (
+    <div className="space-y-1.5 rounded-lg border border-line bg-paper-2 p-2.5">
+      <input
+        autoFocus
+        value={when}
+        onChange={(e) => setWhen(e.target.value)}
+        placeholder="WHEN  e.g. supplier signals cash pressure"
+        className="w-full rounded-md border border-line bg-white px-2 py-1.5 text-[0.78rem] outline-none focus:border-ink"
+      />
+      <input
+        value={then}
+        onChange={(e) => setThen(e.target.value)}
+        placeholder="THEN  e.g. offer 14-day payment before conceding on price"
+        className="w-full rounded-md border border-line bg-white px-2 py-1.5 text-[0.78rem] outline-none focus:border-ink"
+      />
+      <div className="flex gap-2">
+        <button
+          disabled={!ok}
+          onClick={() => {
+            studio.addSubRule(nodeId, { when: when.trim(), then: then.trim() });
+            setWhen("");
+            setThen("");
+            setOpen(false);
+          }}
+          className={cx("flex-1 rounded-full px-3 py-1.5 text-[0.78rem] font-semibold", ok ? "bg-accent text-white hover:bg-accent-deep" : "bg-paper-3 text-ink-4")}
+        >
+          Add rule
+        </button>
+        <button onClick={() => setOpen(false)} className="rounded-full border border-line px-3 py-1.5 text-[0.78rem] text-ink-2">
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function Inspector({ node, onClose }: { node: StudioNode; onClose: () => void }) {
   const k = KIND[node.kind];
   return (
@@ -139,6 +224,20 @@ export function Inspector({ node, onClose }: { node: StudioNode; onClose: () => 
           <Control key={p.key} node={node} p={p} />
         ))}
       </div>
+      {!node.custom && (
+        <div className="mt-4 border-t border-line pt-4">
+          <div className="mb-2 flex items-baseline justify-between">
+            <span className="text-[0.66rem] font-medium uppercase tracking-[0.12em] text-ink-3">Rules for this step</span>
+            <span className="text-[0.7rem] text-ink-4">{node.rules?.length ?? 0}</span>
+          </div>
+          <div className="space-y-2">
+            {(node.rules ?? []).map((r) => (
+              <RuleRow key={r.id} nodeId={node.id} r={r} />
+            ))}
+            <AddSubRule nodeId={node.id} />
+          </div>
+        </div>
+      )}
       {node.custom && (
         <button
           onClick={() => {

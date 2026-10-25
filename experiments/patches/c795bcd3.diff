@@ -1,0 +1,81 @@
+diff --git a/starter-kit/csee/agents/__init__.py b/starter-kit/csee/agents/__init__.py
+index d63e0c8..2db9dee 100644
+--- a/starter-kit/csee/agents/__init__.py
++++ b/starter-kit/csee/agents/__init__.py
+@@ -110,7 +110,7 @@ from .mert_sunday import MertRfqLeadMenuAgent, MertRawLongAgent, MertRawCashFirs
+ from .mert_sunday import MertQualityMeasuredAgent, MertMeasuredRouterAgent, MertQualityRouterAgent
+ from .mert_sunday import MertRawFrontloadAgent
+ from .unified import UnifiedAgent, UnifiedFastAgent, UnifiedReviewAgent, UnifiedSingleAgent
+-from .emre_ehl import PlanMesoLeverDeepClaims, PlannerDeepClaims, AuthorityRouterAgent, OwnerRouterAgent, SlowRouterAgent, TypedRouterAgent
++from .emre_ehl import PlanMesoLeverDeepClaims, PlannerDeepClaims, AuthorityRouterAgent, LeverPriceRouterAgent, OwnerRouterAgent, SlowRouterAgent, TypedRouterAgent
+ 
+ AGENTS = {
+     "unified": UnifiedAgent,
+@@ -196,6 +196,7 @@ AGENTS = {
+     "emre-router-owner": OwnerRouterAgent,  # owner side only, capacity as routed
+     "emre-router-a1": AuthorityRouterAgent,  # owner deep 22 %, corporate first ask capped at 12 %
+     "emre-router-a2": SlowRouterAgent,  # owner 22 %/16 % rel, smaller steps for owner + corporate
++    "emre-router-a3": LeverPriceRouterAgent,  # owner 22 % non-rel; corporate alt sheets 1.5 % cheaper
+     "router-c": RouterClaimsAgent,  # Sunday A/B candidate: ROUTES with every slot on its c-variant (claim_evidence)
+ }
+ 
+diff --git a/starter-kit/csee/agents/emre_ehl.py b/starter-kit/csee/agents/emre_ehl.py
+index d62c816..306eb35 100644
+--- a/starter-kit/csee/agents/emre_ehl.py
++++ b/starter-kit/csee/agents/emre_ehl.py
+@@ -89,6 +89,8 @@ class SupplierTypeMixin:
+     corporate = True  # corporate: trade sheets + faster-payment sheet (practice P11: 0.710 vs 0.877 with it on)
+     corporate_anchor_cap = None  # corporate: first ask at most this far below its opening (desk authority is small)
+     corporate_step = 1.0  # corporate: our steps x this
++    corporate_alt_discount = 0.0  # corporate: our alternative sheets this much cheaper (P02: a KAM agreed to one at r1)
++    corporate_skip_types = frozenset()  # case types where corporate suppliers stay as routed
+     skip_types = frozenset()  # case types left exactly as routed, every supplier type
+ 
+     def prepare(self, case, threads):
+@@ -102,6 +104,8 @@ class SupplierTypeMixin:
+             kind = supplier_kind(profile, first_body(threads.get(sid)))
+             if kind == "owner" and case.get("type") in self.owner_skip_types:
+                 kind = None
++            if kind == "corporate" and case.get("type") in self.corporate_skip_types:
++                kind = None
+             self.kinds[sid] = kind
+         kinds = set(self.kinds.values())
+         p = self.p
+@@ -126,6 +130,17 @@ class SupplierTypeMixin:
+         self.p = p
+         log.info("%s supplier types: %s", case["case_id"], self.kinds)
+ 
++    def sheets(self, case, sid, ours, std, supplier):
++        out = super().sheets(case, sid, ours, std, supplier)
++        if self.corporate_alt_discount and self.kinds.get(sid) == "corporate" and len(out) > 1:
++            out = [out[0]] + [
++                {**s, "unit_price": round(s["unit_price"] * (1 - self.corporate_alt_discount), 2)}
++                if s.get("unit_price") is not None
++                else s
++                for s in out[1:]
++            ]
++        return out
++
+     def plan_for(self, sid):  # the planner's per-supplier parameters (PlanMixin); unused by other agents
+         P = super().plan_for(sid)
+         kind = self.kinds.get(sid)
+@@ -205,3 +220,19 @@ class SlowRouterAgent(TypedRouterAgent):
+         ("corporate_step", 0.67),
+         ("skip_types", frozenset({"capacity"})),
+     )
++
++
++class LeverPriceRouterAgent(TypedRouterAgent):
++    """A3: owners 22 % outside relationship goals (A2: 16 % with one cost P01 0.08), normal steps; corporate openings and
++    steps as routed (A1/A2: every change there knocked P11 off its 0.877 path) but alternative sheets 1.5 % cheaper - a
++    KAM accepts a lever sheet readily (P02 agreed to our clause sheet at reply 1 in every run). Quality and capacity as
++    routed for corporate; capacity as routed for owners."""
++
++    settings = (
++        ("owner_anchor", 0.22),
++        ("owner_step", 1.0),
++        ("owner_skip_types", frozenset({"capacity"})),
++        ("corporate", False),
++        ("corporate_alt_discount", 0.015),
++        ("corporate_skip_types", frozenset({"quality", "capacity"})),
++    )

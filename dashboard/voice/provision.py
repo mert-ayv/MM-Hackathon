@@ -8,9 +8,11 @@ Needs ELEVENLABS_API_KEY in the environment or starter-kit/.env. Writes the agen
 dashboard/voice/.agent_id (git-ignored), which the dashboard server reads. Standard library only.
 """
 
+import http.client
 import json
 import os
 import sys
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -40,11 +42,17 @@ def call(method: str, path: str, body=None, raw=False):
     req = urllib.request.Request(API + path, method=method,
                                  headers={"xi-api-key": key(), "Content-Type": "application/json"},
                                  data=json.dumps(body).encode() if body is not None else None)
-    try:
-        with urllib.request.urlopen(req, timeout=60) as r:
-            data = r.read()
-    except urllib.error.HTTPError as e:
-        raise RuntimeError(f"{method} {path} -> {e.code}: {e.read()[:800].decode(errors='replace')}") from None
+    for attempt in range(3):  # ElevenLabs sometimes drops the connection; retry those, not HTTP errors
+        try:
+            with urllib.request.urlopen(req, timeout=90) as r:
+                data = r.read()
+            break
+        except urllib.error.HTTPError as e:
+            raise RuntimeError(f"{method} {path} -> {e.code}: {e.read()[:800].decode(errors='replace')}") from None
+        except (OSError, http.client.HTTPException):
+            if attempt == 2:
+                raise
+            time.sleep(2)
     return data if raw else json.loads(data or b"{}")
 
 
@@ -107,7 +115,10 @@ def agent_body(s: dict, voice_id: str, tool_ids: list[str] | None, model_id: str
         prompt["tools"] = [tool_config(t) for t in s["tools"]]
     else:
         prompt["tool_ids"] = tool_ids
-    tts = {"voice_id": voice_id, "stability": s["voice"]["stability"], "speed": s["voice"]["speed"]}
+    v = s["voice"]
+    tts = {"voice_id": voice_id, "stability": v["stability"], "speed": v["speed"], "similarity_boost": v.get("similarity_boost", 0.8)}
+    if v.get("expressive_mode") and model_id == "eleven_v3_conversational":
+        tts["expressive_mode"] = True
     if model_id:
         tts["model_id"] = model_id
     return {
@@ -160,9 +171,18 @@ def tts():
         if line["role"] != "agent" or not line.get("audio"):
             continue
         out = DEMO.parent / Path(line["audio"]).name
-        audio = call("POST", f"/v1/text-to-speech/{voice_id}?output_format=mp3_44100_128",
-                     {"text": line["text"], "model_id": "eleven_multilingual_v2",
-                      "voice_settings": {"stability": s["voice"]["stability"], "similarity_boost": 0.8}}, raw=True)
+        v = s["voice"]
+        body = {"text": line["text"], "model_id": v.get("demo_model_id", "eleven_multilingual_v2"),
+                "voice_settings": {"stability": max(0.5, v["stability"]), "similarity_boost": v.get("similarity_boost", 0.8),
+                                   "style": v.get("style", 0)}}
+        for attempt in range(3):  # the TTS endpoint sometimes drops long v3 requests
+            try:
+                audio = call("POST", f"/v1/text-to-speech/{voice_id}?output_format=mp3_44100_128", body, raw=True)
+                break
+            except (RuntimeError, OSError) as e:
+                if attempt == 2:
+                    raise
+                print(f"  retry {out.name}: {str(e)[:120]}")
         out.write_bytes(audio)
         chars += len(line["text"])
         print(f"  {out.name}: {len(audio) // 1024} KB")

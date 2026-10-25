@@ -1,9 +1,10 @@
-// "Ask the negotiator": the ElevenLabs voice copilot, docked bottom-right on every view.
+// "Ask Tactopus": the ElevenLabs voice copilot, docked bottom-right on every view.
 // Live mode talks to the ElevenLabs agent (signed URL from our server, client tools in lib/voice);
 // demo mode plays a scripted conversation over the showcase with pre-generated audio, offline.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ConversationProvider, useConversation } from "@elevenlabs/react";
 import { cx } from "../ui";
+import { CopilotCard } from "./Cards";
 import {
   buildContext,
   buildDebrief,
@@ -13,16 +14,15 @@ import {
   makeClientTools,
   mode as viewMode,
   onActivity,
+  onShow,
   SHOWCASE,
+  verdictCard,
   type Activity,
+  type Card,
 } from "../../lib/voice";
 
 type Phase = "idle" | "connecting" | "live" | "demo";
-interface Bubble {
-  id: number;
-  role: "user" | "agent";
-  text: string;
-}
+type Bubble = { id: number; role: "user" | "agent"; text: string } | { id: number; role: "card"; card: Card };
 
 export function VoiceDock() {
   return (
@@ -43,7 +43,7 @@ function useHash() {
 }
 
 let bubbleSeq = 0;
-const STUDIO_PANEL = 400; // width of Agent Studio's right-hand panel
+const STUDIO_PANEL = 376; // width of Agent Studio's right-hand panel
 
 const CASE_PROMPTS = ["Why did we accept in the end?", "Where did we leave money on the table?", "What would you change in the playbook?"];
 const PLAYBOOK_PROMPTS = ["Which case type loses us the most?", "Which step should I tune first?", "Propose one change for raw-material cases"];
@@ -51,21 +51,26 @@ const PLAYBOOK_PROMPTS = ["Which case type loses us the most?", "Which step shou
 function Dock() {
   const hash = useHash();
   // `?voice=1` in the hash opens the dock on load (handy for recordings)
-  const [open, setOpen] = useState(() => /[?&]voice=1/.test(window.location.hash));
+  // `?voice=1` opens the dock on load; `?voice=demo` also plays the offline demo (recordings)
+  const [open, setOpen] = useState(() => /[?&]voice=(1|demo)/.test(window.location.hash));
   const [phase, setPhase] = useState<Phase>("idle");
   const [muted, setMuted] = useState(false);
   const [bubbles, setBubbles] = useState<Bubble[]>([]);
-  const [chips, setChips] = useState<Activity[]>([]);
+  const [chips, setChips] = useState<Extract<Activity, { kind: "tool" | "toast" }>[]>([]);
   const [toast, setToast] = useState<Activity | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [configured, setConfigured] = useState<boolean | null>(null);
   const [caseLabel, setCaseLabel] = useState<string>("");
   const demoStop = useRef<(() => void) | null>(null);
+  const scroller = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    scroller.current?.scrollTo({ top: scroller.current.scrollHeight, behavior: "smooth" });
+  }, [bubbles]);
   const demoLevel = useRef<() => number>(() => 0);
   const tools = useMemo(() => makeClientTools(), []);
 
-  const say = useCallback((role: Bubble["role"], text: string) => {
-    setBubbles((b) => [...b.slice(-5), { id: ++bubbleSeq, role, text }]);
+  const say = useCallback((role: "user" | "agent", text: string) => {
+    setBubbles((b) => [...b.slice(-9), { id: ++bubbleSeq, role, text }]);
   }, []);
 
   const convo = useConversation({
@@ -90,7 +95,13 @@ function Dock() {
   useEffect(
     () =>
       onActivity((a) => {
-        if (a.kind === "toast") {
+        if (a.kind === "card") {
+          const c = a.card;
+          setBubbles((b) =>
+            // the outcome card is shown at session start; the agent's own get_case_summary must not repeat it
+            c.kind === "verdict" && b.some((x) => x.role === "card" && x.card.kind === "verdict") ? b : [...b.slice(-9), { id: ++bubbleSeq, role: "card", card: c }],
+          );
+        } else if (a.kind === "toast") {
           setToast(a);
           window.setTimeout(() => setToast((t) => (t?.id === a.id ? null : t)), 6000);
         } else setChips((c) => [...c.slice(-2), a]);
@@ -129,6 +140,7 @@ function Dock() {
       const ref = currentCase() ?? SHOWCASE;
       const m = await loadCase(ref);
       const pb = viewMode() === "playbook";
+      if (!pb) setBubbles([{ id: ++bubbleSeq, role: "card", card: verdictCard(m) }]);
       const debrief = pb
         ? "I'm looking at the playbook. Ask me where the agent loses money across negotiations, or what I'd change in a step."
         : buildDebrief(m);
@@ -138,7 +150,7 @@ function Dock() {
       convo.startSession({
         signedUrl: signed_url,
         clientTools: tools,
-        dynamicVariables: { debrief, case_context: buildContext(m), mode: pb ? "playbook" : "negotiation" },
+        dynamicVariables: { debrief, case_context: await buildContext(m), mode: pb ? "playbook" : "negotiation" },
       });
     } catch (e) {
       setNote(`Live voice unavailable (${e instanceof Error ? e.message : String(e)}). Playing the demo instead.`);
@@ -170,6 +182,10 @@ function Dock() {
     if (!onShowcase && !window.location.hash.startsWith("#/studio"))
       window.location.hash = `#/n/${encodeURIComponent(demo.case.runId)}/${encodeURIComponent(demo.case.caseId)}`;
     const wait = (ms: number) => new Promise((res) => window.setTimeout(res, ms));
+    if (!window.location.hash.startsWith("#/studio"))
+      void loadCase(demo.case)
+        .then((m) => setBubbles((b) => (b.some((x) => x.role === "card") ? b : [{ id: ++bubbleSeq, role: "card", card: verdictCard(m) }, ...b])))
+        .catch(() => undefined);
     for (const line of demo.lines) {
       if (stopped) return;
       if (line.role === "user") {
@@ -188,6 +204,17 @@ function Dock() {
     if (!stopped) setPhase("idle");
   };
 
+  const autoDemo = useRef(/[?&]voice=demo/.test(window.location.hash));
+  useEffect(() => {
+    if (!autoDemo.current) return;
+    const t = window.setTimeout(() => {
+      autoDemo.current = false;
+      void startDemo();
+    }, 1200);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const stop = () => {
     if (phase === "demo") demoStop.current?.();
     else void convo.endSession();
@@ -195,6 +222,7 @@ function Dock() {
   };
 
   const active = phase !== "idle";
+  const hasCards = bubbles.some((b) => b.role === "card");
   const level = useCallback(() => {
     if (phase === "live") return Math.max(convo.getOutputVolume?.() ?? 0, (convo.getInputVolume?.() ?? 0) * 0.6);
     if (phase === "demo") return demoLevel.current();
@@ -220,10 +248,10 @@ function Dock() {
       )}
 
       {open ? (
-        <div className="pointer-events-auto w-[380px] overflow-hidden rounded-2xl border border-line bg-white shadow-[0_24px_60px_-20px_rgba(11,11,12,0.35)]">
+        <div className={cx("pointer-events-auto flex max-h-[calc(100vh-96px)] flex-col overflow-hidden transition-[width] duration-300", hasCards ? "w-[440px]" : "w-[380px]", " rounded-2xl border border-line bg-white shadow-[0_24px_60px_-20px_rgba(11,11,12,0.35)]")}>
           <div className="flex items-start justify-between gap-3 px-5 pt-5">
             <div>
-              <div className="text-[0.68rem] font-medium uppercase tracking-[0.12em] text-ink-3">Negotiation copilot</div>
+              <div className="text-[0.68rem] font-medium uppercase tracking-[0.12em] text-ink-3">Tactopus · copilot</div>
               <div className="mt-0.5 text-[0.95rem] font-semibold tracking-tight">{caseLabel}</div>
             </div>
             <button onClick={() => setOpen(false)} className="rounded-full px-2 text-ink-3 hover:text-ink" title="Close (V)">
@@ -231,9 +259,9 @@ function Dock() {
             </button>
           </div>
 
-          <div className="flex flex-col items-center px-5 pb-2 pt-4">
-            <Orb level={level} active={active} speaking={speaking} size={112} />
-            <div className="mt-3 h-5 text-[0.8rem] text-ink-3">
+          <div className={cx("flex items-center px-5 pb-2", hasCards ? "gap-3 pt-3" : "flex-col pt-4")}>
+            <Orb level={level} active={active} speaking={speaking} size={hasCards ? 48 : 112} />
+            <div className={cx("h-5 text-[0.8rem] text-ink-3", !hasCards && "mt-3")}>
               {phase === "idle" && (configured === false ? "Voice offline · demo available" : "Ask why, or what to change")}
               {phase === "connecting" && "Connecting…"}
               {phase === "live" && (convo.isSpeaking ? "Speaking" : muted ? "Mic muted" : "Listening…")}
@@ -241,7 +269,7 @@ function Dock() {
             </div>
           </div>
 
-          <div className={cx("flex flex-wrap justify-center gap-1.5 px-5", active && "min-h-[3.5rem]")}>
+          <div className={cx("flex flex-wrap gap-1.5 px-5", hasCards ? "justify-start" : "justify-center", active && !hasCards && "min-h-[3.5rem]")}>
             {chips.map((c) => (
               <span key={c.id} className="inline-flex animate-rise items-center gap-1.5 rounded-full border border-line bg-paper-2 px-2.5 py-1 text-[0.7rem] text-ink-2">
                 <span className={cx("h-1.5 w-1.5 rounded-full", c.text.startsWith("Proposed") ? "bg-accent" : "bg-ink")} />
@@ -265,19 +293,14 @@ function Dock() {
             </div>
           )}
 
-          <div className="max-h-[260px] space-y-2 overflow-y-auto px-5 pb-4 pt-2">
-            {bubbles.map((b) => (
-              <div key={b.id} className={cx("flex animate-rise", b.role === "user" ? "justify-end" : "justify-start")}>
-                <div
-                  className={cx(
-                    "max-w-[85%] rounded-2xl px-3.5 py-2 text-[0.82rem] leading-snug",
-                    b.role === "user" ? "rounded-br-sm bg-ink text-white" : "rounded-bl-sm bg-paper-3 text-ink",
-                  )}
-                >
-                  {b.text}
-                </div>
-              </div>
-            ))}
+          <div ref={scroller} className={cx("min-h-0 space-y-2 overflow-y-auto px-5 pb-4 pt-2", hasCards ? "flex-1" : "max-h-[260px]")}>
+            {bubbles.map((b) =>
+              b.role === "card" ? (
+                <CopilotCard key={b.id} card={b.card} />
+              ) : (
+              <TextBubble key={b.id} role={b.role} text={b.text} lines={bubbles.findIndex((x) => x.role === "agent") === bubbles.indexOf(b) ? 2 : 3} />
+              ),
+            )}
             {note && <div className="text-center text-[0.72rem] text-ink-3">{note}</div>}
           </div>
 
@@ -314,14 +337,60 @@ function Dock() {
         <button
           onClick={() => setOpen(true)}
           className="pointer-events-auto flex items-center gap-3 rounded-full border border-line bg-white py-2 pl-2 pr-5 shadow-[0_12px_32px_-12px_rgba(11,11,12,0.35)] transition-transform hover:-translate-y-0.5"
-          title="Ask the negotiator (V)"
+          title="Ask Tactopus (V)"
         >
           <Orb level={level} active={active} speaking={speaking} size={36} />
           <span className="text-left">
-            <span className="block text-[0.82rem] font-semibold leading-tight">Ask the negotiator</span>
+            <span className="block text-[0.82rem] font-semibold leading-tight">Ask Tactopus</span>
             <span className="block text-[0.68rem] leading-tight text-ink-3">{active ? "In conversation" : playbook ? "Voice · playbook" : "Voice debrief"}</span>
           </span>
         </button>
+      )}
+    </div>
+  );
+}
+
+const ROUND_WORDS: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 };
+
+/** Rounds the agent mentions ("round 3", "round three"), so the bubble can offer to show them. */
+function mentionedRounds(text: string): number[] {
+  const out = new Set<number>();
+  for (const m of text.matchAll(/\bround\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\b/gi)) {
+    const n = /\d/.test(m[1]) ? Number(m[1]) : ROUND_WORDS[m[1].toLowerCase()];
+    if (n) out.add(n);
+  }
+  return [...out].slice(0, 3);
+}
+
+/** A short caption, not a text wall: clamped (click to expand), with "Round N" chips that move the screen. */
+function TextBubble({ role, text, lines }: { role: "user" | "agent"; text: string; lines: 2 | 3 }) {
+  const [full, setFull] = useState(false);
+  const rounds = role === "agent" ? mentionedRounds(text) : [];
+  return (
+    <div className={cx("flex animate-rise flex-col gap-1", role === "user" ? "items-end" : "items-start")}>
+      <button
+        onClick={() => setFull(!full)}
+        title={full ? "Collapse" : "Show all"}
+        className={cx(
+          "max-w-[85%] rounded-2xl px-3.5 py-2 text-left text-[0.8rem] leading-snug",
+          role === "user" ? "rounded-br-sm bg-ink text-white" : "rounded-bl-sm bg-paper-3 text-ink-2",
+          !full && (lines === 2 ? "line-clamp-2" : "line-clamp-3"),
+        )}
+      >
+        {text}
+      </button>
+      {rounds.length > 0 && (
+        <div className="flex gap-1">
+          {rounds.map((r) => (
+            <button
+              key={r}
+              onClick={() => onShow(r)}
+              className="rounded-full border border-accent/40 bg-accent-soft px-2 py-0.5 text-[0.66rem] font-medium text-accent-deep hover:border-accent"
+            >
+              Round {r} → show
+            </button>
+          ))}
+        </div>
       )}
     </div>
   );

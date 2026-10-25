@@ -127,7 +127,8 @@ export function useTween(target: number | null, ms = 700): number | null {
     const t0 = performance.now();
     cancelAnimationFrame(raf.current);
     const step = (now: number) => {
-      const k = Math.min(1, (now - t0) / ms);
+      // rAF timestamps can predate t0 (frame start), so clamp at 0 too
+      const k = Math.min(1, Math.max(0, (now - t0) / ms));
       const e = 1 - Math.pow(1 - k, 3);
       const x = start + (target - start) * e;
       setV(x);

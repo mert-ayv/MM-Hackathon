@@ -1,4 +1,3 @@
-import { useState } from "react";
 import type { Thread } from "../../lib/model";
 import type { RoundStory } from "../../lib/story";
 import { MOVE_ICON, reasonParts, sheetChips, whyLine } from "../../lib/story";
@@ -6,6 +5,8 @@ import type { Specialists } from "../../lib/types";
 import { eur, eur2, eurDelta, humanize } from "../../lib/format";
 import { cx, Label, StatusBadge } from "../ui";
 import { IconChip } from "./visuals";
+import { MailText } from "./MailText";
+import type { Terms } from "../../lib/types";
 
 const isNum = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n);
 
@@ -27,11 +28,26 @@ const CLAIM_TONE: Record<string, { tone: string; icon: string }> = {
 };
 
 /** One round as a visual decision: our move, our arguments, their reaction. */
-export function DecisionCard({ story, thread, flash }: { story: RoundStory; thread: Thread; flash?: boolean }) {
-  const [mail, setMail] = useState(false);
+export function DecisionCard({
+  story,
+  thread,
+  flash,
+  mail,
+  onMail,
+}: {
+  story: RoundStory;
+  thread: Thread;
+  flash?: boolean;
+  mail: boolean;
+  onMail: (on: boolean) => void;
+}) {
   const mood = MOOD[story.mood];
   const ref = thread.standing.filter((s) => s.round < story.round).pop()?.priced?.terms ?? thread.opening?.standard_terms;
   const specialists = thread.rounds.find((r) => r.round === story.round)?.specialists;
+  const ourTerms = story.sheets.map((p) => p.terms ?? {});
+  const prevTheirs: Terms[] = ref ? [ref] : [];
+  const nowTheirs = thread.standing.find((s) => s.round === story.round)?.priced?.terms;
+  const theirTerms: Terms[] = [...(nowTheirs ? [nowTheirs] : []), ...story.alternatives.map((a) => a.terms ?? {})];
 
   return (
     <div className={cx("rounded-2xl border bg-white shadow-card transition-shadow", flash ? "border-accent ring-4 ring-accent/25" : "border-line")}>
@@ -48,7 +64,7 @@ export function DecisionCard({ story, thread, flash }: { story: RoundStory; thre
             </div>
           </div>
         </div>
-        <button onClick={() => setMail(!mail)} className="rounded-full border border-line px-3 py-1 text-[0.75rem] font-medium text-ink-2 hover:border-ink">
+        <button onClick={() => onMail(!mail)} className="rounded-full border border-line px-3 py-1 text-[0.75rem] font-medium text-ink-2 hover:border-ink">
           {mail ? "Hide e-mails" : "Read e-mails"}
         </button>
       </div>
@@ -174,19 +190,38 @@ export function DecisionCard({ story, thread, flash }: { story: RoundStory; thre
 
       {mail && (
         <div className="grid gap-4 border-t border-line bg-paper-2 p-5 md:grid-cols-2">
-          <Mail who="Our e-mail" body={story.emailOut} />
-          <Mail who={thread.short} body={story.emailIn} />
+          <Mail who="Our e-mail" ours body={story.emailOut} sheets={ourTerms} compare={prevTheirs} compareLabel="their offer before" />
+          <Mail who={thread.short} ours={false} body={story.emailIn} sheets={theirTerms} compare={ourTerms} compareLabel="our ask this round" />
         </div>
       )}
     </div>
   );
 }
 
-function Mail({ who, body }: { who: string; body?: string }) {
+function Mail({
+  who,
+  body,
+  ours,
+  sheets,
+  compare,
+  compareLabel,
+}: {
+  who: string;
+  body?: string;
+  ours: boolean;
+  sheets: Terms[];
+  compare: Terms[];
+  compareLabel: string;
+}) {
   return (
     <div className="rounded-xl border border-line bg-white p-4">
-      <Label className="mb-2">{who}</Label>
-      <pre className="max-h-72 overflow-auto whitespace-pre-wrap font-sans text-[0.8rem] leading-relaxed text-ink-2">{body ?? "–"}</pre>
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <Label>{who}</Label>
+        <span className="text-[0.62rem] text-ink-4">hover a highlighted term to compare</span>
+      </div>
+      <div className="whitespace-pre-wrap font-sans text-[0.8rem] leading-relaxed text-ink-2">
+        <MailText body={body} sheets={sheets} compare={compare} compareLabel={compareLabel} ours={ours} />
+      </div>
     </div>
   );
 }

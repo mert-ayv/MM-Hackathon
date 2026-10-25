@@ -1,0 +1,24 @@
+diff --git a/starter-kit/csee/agents/emre_ehl.py b/starter-kit/csee/agents/emre_ehl.py
+index 306eb35..4db29ca 100644
+--- a/starter-kit/csee/agents/emre_ehl.py
++++ b/starter-kit/csee/agents/emre_ehl.py
+@@ -14,6 +14,8 @@ import logging
+ import re
+ from dataclasses import replace
+ 
++from arena_kit.cost import RELATIONSHIP_GOALS
++
+ from .mert import PlanParams
+ from .mert_dossier import PlanMesoLeverDossierClaims, PlannerDossierClaims
+ from .router import RouterAgent
+@@ -132,7 +134,9 @@ class SupplierTypeMixin:
+ 
+     def sheets(self, case, sid, ours, std, supplier):
+         out = super().sheets(case, sid, ours, std, supplier)
+-        if self.corporate_alt_discount and self.kinds.get(sid) == "corporate" and len(out) > 1:
++        rel = case["buyer"].get("category_goal") in RELATIONSHIP_GOALS  # A3 P02: a KAM agreed to the cheaper clause
++        # sheet (356.57 vs 362.00) and C went UP - below the relationship-optimal price the relationship term costs more
++        if self.corporate_alt_discount and not rel and self.kinds.get(sid) == "corporate" and len(out) > 1:
+             out = [out[0]] + [
+                 {**s, "unit_price": round(s["unit_price"] * (1 - self.corporate_alt_discount), 2)}
+                 if s.get("unit_price") is not None
