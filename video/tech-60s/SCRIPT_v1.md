@@ -35,8 +35,8 @@ Narration: 158 words, 2.6 words per second: brisk but fine for a presenter. Cut 
 | 27.0–33.0 | **T6 Box 4.** Box *Writer (Claude)*; a real e-mail paragraph, the claim sentence underlined in ochre, a stamp **VERIFIED** lands on it; one invented ID is struck through in red | "**verbatim**: numbers and claim sentences" · "invented IDs deleted · template if slow" · Menlo `writer.py` | "Claude words the reply in the supplier's register. Numbers and claim sentences stay verbatim." |
 | 33.0–36.0 | **T7 Band.** A guardrails band draws under the four boxes | "only the supplier's standing sheet · never above our alternative · never after a final offer · close before the cap" | (no speech, 3 s) |
 | 36.0–47.0 | **T8 Finding.** The schematic fades; a chart on paper: P01's supplier asks as six shrinking steps, 138.55 → 135.50 → 133.80 → 132.80 → 132.30 → 132.10 "final" | "**260** of our own sessions" · "tit-for-tat · shrinking cap · fixed patience" · Menlo `back office: "My call: counter"` · small: Faratin, Sierra & Jennings 1998 | "From two hundred sixty of our own sessions we fitted the bots: tit-for-tat, a shrinking cap, fixed patience. So we concede exactly what they will mirror, and never push after a final offer." |
-| 47.0–56.0 | **T9 Method.** Three rungs on paper: *simulator → sandbox → one logged practice run*; then the ledger as a tally roll, rows ticking up to 489; a small router box fans out to four case types | "**489** ledger rows · who, agent, commit, score" · "router: the measured winner per case type" · struck through in red: "LLM picks the moves" · Menlo `P07 0.728 vs 0.766` | "Every change climbed one ladder: simulator, sandbox, one logged practice run. The ledger has four hundred eighty-nine rows, and a router sends each case type to its measured winner. An LLM choosing the moves scored worse, so it doesn't." |
-| 56.0–60.0 | **T10 End.** Envelope turns over, presenter in the window | Helvetica **csee-base** · Didot italic *code checks every euro.* · Menlo footer `practice mean 0.78 vs house agent 0.697 · docs/ARCHITECTURE.md` | "csee-base. Code checks every euro." |
+| 47.0–56.0 | **T9 Method.** Three rungs on paper: *simulator → sandbox → one logged practice run*; then the ledger as a tally roll, rows ticking up to 489; a small router box fans out to four case types | "**489** ledger rows · who, agent, commit, score" · "router: the measured winner per case type" · struck through in red: "LLM picks the moves" · Menlo `P07 0.728 vs 0.766` | "Every change climbed one ladder: simulator, sandbox, one logged practice run. The ledger holds hundreds of logged runs, and a router sends each case type to its measured winner. An LLM choosing the moves scored worse, so it doesn't." |
+| 56.0–60.0 | **T10 End.** Envelope turns over, presenter in the window | Helvetica **csee-base** · Didot italic *code checks every euro.* · Menlo footer `practice mean 0.81 vs house agent 0.70 · docs/ARCHITECTURE.md` | "csee-base. Code checks every euro." |
 
 ## Fact check (every spoken or typed number, with its source)
 
@@ -51,13 +51,17 @@ Narration: 158 words, 2.6 words per second: brisk but fine for a presenter. Cut 
 - P01 shrinking steps 138.55 → 135.50 → 133.80 → 132.80 → 132.30 → 132.10 final: `docs/pitch/pitch-outline.md` slide 4. Re-check against the session before rendering.
 - "Never push after a final offer": v15's push on P02 made the supplier walk, 0.48 → 0 (`starter-kit/csee/agents/router.py` comment; pitch-outline slide 7).
 - Ladder simulator → sandbox → practice: `STRATEGY.md`, `docs/ARCHITECTURE.md` experiment log.
-- 489 ledger rows: `cat experiments/*.jsonl | wc -l` at 10:25 Sunday. It grows with every practice run; re-count right before rendering and update T9.
+- 489 ledger rows: `cat experiments/*.jsonl | wc -l` at 10:25 Sunday. Spoken as "hundreds of logged runs" so the voice track does not date; the exact count is type only. Re-count right before rendering and update T9.
 - Router = measured winner per case type: `starter-kit/csee/agents/router.py` ROUTES and its comments.
 - "An LLM choosing the moves scored worse": P07 0.728 vs 0.766, sandbox D02 0.67 vs 0.72, LLM strategist P05 0.52 / 0.72 vs 0.81 for the rule policy: `docs/pitch/pitch-outline.md` slide 7.
-- End card 0.78 vs 0.697: `README.md:238` (mean 0.778). Do not claim "8 of 10" anywhere in the video; the pitch outline explains why.
+- End card **0.81 vs 0.70**: our practice board, best score per case, `uv run python -m csee board` and `arena.tacto.ai/v1/live` (`best_mean` 0.806, checked 10:30 Sunday). House agent: the arena's per-case `house` values average 0.6966 over the same 10 cases (checked 10:30 Sunday via the leaderboard skill), so 0.70 at two decimals, 0.697 at three. Same number as the demo outro (81 %). Stricter alternative, not used on the card: 0.77 in one full run of the final router (08:10 CET Sunday, commit `09c8e5c`, 10 of 10 cases closed, mean 0.773, `experiments/2026-10-25-go49mor.jsonl`); have it ready for Q&A. The old README line "0.78" is outdated. Do not claim "8 of 10" anywhere in the video; the pitch outline explains why.
 
-## Things to decide before recording
+## Decisions (strategy session, Sun 10:30)
 
-1. **Spoken count or typed count for 489?** Spoken numbers date the video within hours. Option: say "hundreds of logged runs" and keep the exact count only as type, updated at render time.
-2. **Keep or cut T7 (guardrails, 3 s silent)?** It buys breathing room after four dense boxes. If the narration runs long, this is the first cut; the band can stay as a static layer under T8.
-3. **T8 chart source:** take the six asks from the P01 session used in the pitch (replays.md #1) so the pitch and the video show the same numbers.
+1. **Ledger count:** spoken as "hundreds of logged runs"; 489 stays as type, re-counted at render time.
+2. **T7 (guardrails, 3 s silent):** kept only if the read-through fits 60 s. If it runs long, cut T7 first; the band stays as a static layer under T8.
+3. **End card:** 0.81 vs 0.70, the same figure as the demo outro. Verified above.
+
+## Still open
+
+- **T8 chart source:** take the six asks from the P01 session used in the pitch (replays.md #1) so the pitch and the video show the same numbers.

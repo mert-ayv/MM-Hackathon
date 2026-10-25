@@ -21,6 +21,8 @@ with sync_playwright() as p:
     page = ctx.new_page()
     page.goto(url)
     page.wait_for_timeout(2500)
+    page.evaluate("document.documentElement.style.zoom = '1.25'")  # readable text in the video
+    page.wait_for_timeout(500)
     page.keyboard.press("Home")
     page.keyboard.press("4")  # Demo speed
     page.wait_for_timeout(1500)
