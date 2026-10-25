@@ -69,6 +69,18 @@ export function Convergence({
     { c: model.cAlt, label: "Walk-away alt.", cls: "#A1A1A6", dash: "2 4" },
     { c: model.cBest, label: "Best possible", cls: "#0B0B0C", dash: "6 3" },
   ];
+  // label rows on the right edge, pushed apart so close lines (deal next to best possible) never overlap
+  const refLabelY = new Map<string, number>();
+  let lastY = -Infinity;
+  refs
+    .filter((r) => isNum(r.c) && r.c >= lo && r.c <= hi)
+    .map((r) => ({ label: r.label, y: y(r.c!) + 4 }))
+    .sort((a, b) => a.y - b.y)
+    .forEach((r) => {
+      const yy = Math.max(r.y, lastY + 14);
+      refLabelY.set(r.label, yy);
+      lastY = yy;
+    });
   // the deal as priced on the supplier's sheet, so it sits on that supplier's line
   const dealSid = model.current.sid;
   const dealC = model.result?.deal ? (model.threads.find((t) => t.sid === dealSid)?.current?.c ?? model.current.c) : null;
@@ -95,7 +107,7 @@ export function Convergence({
             r.c <= hi && (
               <g key={r.label}>
                 <line x1={m.l} x2={m.l + iw} y1={y(r.c)} y2={y(r.c)} stroke={r.cls} strokeDasharray={r.dash} strokeWidth={1.2} />
-                <text x={m.l + iw + 8} y={y(r.c) + 4} style={{ fill: r.cls }} className="text-[11px] font-medium">
+                <text x={m.l + iw + 18} y={refLabelY.get(r.label) ?? y(r.c) + 4} style={{ fill: r.cls }} className="text-[11px] font-medium">
                   {r.label}
                 </text>
               </g>

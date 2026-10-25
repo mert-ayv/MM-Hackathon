@@ -47,7 +47,7 @@ export interface StudioState {
   changedNode?: string;
 }
 
-const KEY = "studio.v1";
+const KEY = "studio.v2";
 const listeners = new Set<() => void>();
 
 function initial(): StudioState {

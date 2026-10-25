@@ -47,8 +47,8 @@ const FLOW: [string, string, string | undefined, string, string][] = [
 const nodeTypes = { studio: FlowNode, lane: LaneNode };
 const edgeTypes = { pill: PillEdge };
 const LANES: LaneNodeType[] = [
-  { id: "lane-prep", type: "lane", position: { x: -30, y: -100 }, data: { label: "Before the first e-mail", hint: "once per case", w: 590, h: 560 } },
-  { id: "lane-round", type: "lane", position: { x: 590, y: -100 }, data: { label: "Every round", hint: "per supplier, all threads in parallel", w: 920, h: 560 } },
+  { id: "lane-prep", type: "lane", position: { x: -30, y: -100 }, data: { label: "Before the first e-mail", hint: "once per case", w: 620, h: 610 } },
+  { id: "lane-round", type: "lane", position: { x: 600, y: -100 }, data: { label: "Every round", hint: "per supplier, all threads in parallel", w: 935, h: 610 } },
 ].map((n) => ({ ...n, type: "lane" as const, selectable: false, draggable: false, focusable: false }));
 const edgeStyle = { stroke: "#A1A1A6", strokeWidth: 1.5 };
 const arrow = { type: MarkerType.ArrowClosed, color: "#A1A1A6", width: 16, height: 16 };
@@ -58,7 +58,7 @@ function rulePosition(rule: StudioNode, rules: StudioNode[]) {
   const base = LAYOUT[rule.after ?? "planner"] ?? LAYOUT.planner;
   const siblings = rules.filter((r) => (r.after ?? "planner") === (rule.after ?? "planner"));
   const i = siblings.indexOf(rule);
-  return { x: base.x + i * 24, y: 510 + i * 170 };
+  return { x: base.x + i * 24, y: 560 + i * 190 };
 }
 
 function ago(iso?: string) {
@@ -188,7 +188,7 @@ export function StudioView({ nodeId }: { nodeId?: string }) {
           onNodeClick={(_, n) => n.type === "studio" && go({ name: "studio", nodeId: n.id })}
           onPaneClick={() => nodeId && go({ name: "studio" })}
           fitView
-          fitViewOptions={{ padding: { top: 0.28, left: 0.06, right: 0.06, bottom: 0.12 } }}
+          fitViewOptions={{ padding: { top: 0.2, left: 0.03, right: 0.03, bottom: 0.06 } }}
           minZoom={0.3}
           maxZoom={1.6}
           proOptions={{ hideAttribution: true }}

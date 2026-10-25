@@ -154,11 +154,11 @@ export function DecisionCard({ story, thread, flash }: { story: RoundStory; thre
               </div>
             </div>
           )}
-          {story.reasons.length > 0 && (
+          {cleanQuotes(story.reasons).length > 0 && (
             <div className="mt-4 flex flex-col gap-1.5">
               <div className="text-[0.66rem] uppercase tracking-[0.12em] text-ink-4">What they said</div>
-              {story.reasons.slice(0, 3).map((r, i) => (
-                <div key={i} title={r} className="truncate rounded-lg bg-paper-2 px-2.5 py-1.5 text-[0.75rem] text-ink-2">
+              {cleanQuotes(story.reasons).map((r, i) => (
+                <div key={i} title={r} className="line-clamp-2 rounded-lg bg-paper-2 px-2.5 py-1.5 text-[0.75rem] text-ink-2">
                   “{r}”
                 </div>
               ))}
@@ -215,4 +215,12 @@ function LeverBars({ s }: { s: Specialists }) {
       ))}
     </div>
   );
+}
+
+/** Whole first sentences only; drops template text with gaps ("€... per unit"). */
+function cleanQuotes(reasons: string[]): string[] {
+  return reasons
+    .filter((r) => !/(\.\.\.|…)/.test(r))
+    .map((r) => r.match(/^.*?[.!?](?=\s|$)/)?.[0] ?? r)
+    .slice(0, 3);
 }
