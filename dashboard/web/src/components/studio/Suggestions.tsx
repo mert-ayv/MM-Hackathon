@@ -23,29 +23,62 @@ function Source({ s }: { s: Suggestion }) {
   );
 }
 
+function Basis({ s }: { s: Suggestion }) {
+  if (!s.evidenceKind) return null;
+  const comparable = s.evidenceKind === "comparable_deals";
+  return (
+    <span
+      className={cx(
+        "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[0.64rem] font-semibold",
+        comparable ? "border-[#2F5FD0]/25 bg-[#EEF3FF] text-[#2F5FD0]" : "border-line bg-white text-ink-2",
+      )}
+      title={comparable ? "The same pattern across comparable negotiations" : "Found in this one negotiation's own e-mails and offers"}
+    >
+      {comparable ? `▦ ${s.evidenceCount ?? "Several"} comparable deals` : "◉ This negotiation"}
+    </span>
+  );
+}
+
 function Diff({ s, node }: { s: Suggestion; node?: StudioNode }) {
   const param = s.paramKey ? node?.params.find((p) => p.key === s.paramKey) : undefined;
-  const label = param?.label ?? (node ? "New rule" : s.paramKey ?? "Rule");
   return (
     <div className="overflow-hidden rounded-lg border border-line font-mono text-[0.72rem] leading-relaxed">
       <div className="border-b border-line bg-paper-2 px-2.5 py-1 text-[0.64rem] text-ink-3">
         {node?.title ?? s.nodeId}
-        {s.paramKey ? ` › ${s.paramKey}` : " › + rule"}
+        {param ? ` › ${param.label}` : " › + rule"}
       </div>
-      {s.before && (
-        <div className="flex gap-2 bg-[#FDECEC] px-2.5 py-1 text-[#9F1D1D]">
-          <span className="select-none">−</span>
-          <span>
-            {label}: {s.before}
-          </span>
-        </div>
+      {param ? (
+        <>
+          <div className="flex gap-2 bg-[#FDECEC] px-2.5 py-1 text-[#9F1D1D]">
+            <span className="select-none">−</span>
+            <span>
+              {param.label}: {s.before}
+            </span>
+          </div>
+          <div className="flex gap-2 bg-[#E8F6EE] px-2.5 py-1 text-[#17663F]">
+            <span className="select-none">+</span>
+            <span>
+              {param.label}: {s.after}
+            </span>
+          </div>
+        </>
+      ) : (
+        // a new rule on the step: nothing is removed, WHEN / THEN are added
+        <>
+          <div className="flex gap-2 bg-[#E8F6EE] px-2.5 py-1 text-[#17663F]">
+            <span className="select-none">+</span>
+            <span>
+              <b>WHEN</b> {s.before || "always"}
+            </span>
+          </div>
+          <div className="flex gap-2 bg-[#E8F6EE] px-2.5 py-1 text-[#17663F]">
+            <span className="select-none">+</span>
+            <span>
+              <b>THEN</b> {s.after}
+            </span>
+          </div>
+        </>
       )}
-      <div className="flex gap-2 bg-[#E8F6EE] px-2.5 py-1 text-[#17663F]">
-        <span className="select-none">+</span>
-        <span>
-          {label}: {s.after}
-        </span>
-      </div>
     </div>
   );
 }
@@ -61,7 +94,10 @@ function Card({ s, node, onHover }: { s: Suggestion; node?: StudioNode; onHover:
       className="animate-rise rounded-xl border border-line bg-white p-3.5 shadow-card"
     >
       <div className="flex items-center justify-between gap-2">
-        <Source s={s} />
+        <span className="flex flex-wrap items-center gap-1">
+          <Source s={s} />
+          <Basis s={s} />
+        </span>
         <span className="text-[0.66rem] text-ink-4">{ago(s.createdAt)}</span>
       </div>
       <div className="mt-2 text-[0.9rem] font-semibold leading-snug tracking-tight">{s.title}</div>
@@ -76,7 +112,7 @@ function Card({ s, node, onHover }: { s: Suggestion; node?: StudioNode; onHover:
         >
           {ev.quote && <span className="italic">“{ev.quote}”</span>}
           <span className="mt-0.5 block font-medium text-accent-deep">
-            Evidence: {ev.caseId}
+            Evidence: {ev.caseId.replace(/^case:/, "")}
             {ev.round ? ` · round ${ev.round}` : ""} →
           </span>
         </a>

@@ -47,24 +47,43 @@ export function RuleBuilder({ nodes }: { nodes: StudioNode[] }) {
   const [when, setWhen] = useState("");
   const [then, setThen] = useState("");
   const [after, setAfter] = useState("planner");
+  const [mode, setMode] = useState<"step" | "standalone">("step");
   const ok = when.trim() && then.trim();
   const stages = nodes.filter((n) => !n.custom && n.kind !== "outcome");
 
   return (
     <div className="space-y-3">
       <p className="text-[0.78rem] leading-snug text-ink-3">
-        Teach the agent a house rule. It runs as its own step on every negotiation, and the guardrails still check every number.
+        Teach the agent a house rule. The guardrails still check every number it produces.
       </p>
-      <input
-        value={title}
-        onChange={(e) => setTitle(e.target.value)}
-        placeholder="Rule name, e.g. Energy-cost pushback"
-        className="w-full rounded-lg border border-line bg-white px-2.5 py-1.5 text-[0.85rem] font-medium outline-none focus:border-ink"
-      />
+      <div className="flex gap-1 rounded-full bg-paper-3 p-1 text-[0.74rem] font-medium">
+        {(
+          [
+            ["step", "Refine a step"],
+            ["standalone", "New standalone step"],
+          ] as const
+        ).map(([m, label]) => (
+          <button
+            key={m}
+            onClick={() => setMode(m)}
+            className={cx("flex-1 rounded-full px-2 py-1 transition-colors", mode === m ? "bg-white text-ink shadow-card" : "text-ink-3 hover:text-ink")}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {mode === "standalone" && (
+        <input
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          placeholder="Step name, e.g. Energy-cost pushback"
+          className="w-full rounded-lg border border-line bg-white px-2.5 py-1.5 text-[0.85rem] font-medium outline-none focus:border-ink"
+        />
+      )}
       <Field label="WHEN" value={when} onChange={setWhen} examples={WHEN} />
       <Field label="THEN" value={then} onChange={setThen} examples={THEN} />
       <div>
-        <div className="mb-1 text-[0.7rem] font-medium text-ink-3">Runs after</div>
+        <div className="mb-1 text-[0.7rem] font-medium text-ink-3">{mode === "step" ? "Applies to step" : "Runs after"}</div>
         <select
           value={after}
           onChange={(e) => setAfter(e.target.value)}
@@ -80,6 +99,13 @@ export function RuleBuilder({ nodes }: { nodes: StudioNode[] }) {
       <button
         disabled={!ok}
         onClick={() => {
+          if (mode === "step") {
+            studio.addSubRule(after, { when: when.trim(), then: then.trim() });
+            setWhen("");
+            setThen("");
+            go({ name: "studio", nodeId: after });
+            return;
+          }
           const id = studio.addRule({ title: title.trim() || when.trim().slice(0, 40), when: when.trim(), then: then.trim(), after });
           setTitle("");
           setWhen("");
@@ -91,7 +117,7 @@ export function RuleBuilder({ nodes }: { nodes: StudioNode[] }) {
           ok ? "bg-accent text-white hover:bg-accent-deep" : "bg-paper-3 text-ink-4",
         )}
       >
-        + Add rule to the agent
+        {mode === "step" ? "+ Add rule to this step" : "+ Add step to the agent"}
       </button>
     </div>
   );

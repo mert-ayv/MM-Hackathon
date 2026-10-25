@@ -2,17 +2,18 @@
 // with defaults from csee Params / variants v14 and the final router (starter-kit/csee/agents/router.py).
 import type { StudioNode, Suggestion } from "./studio";
 
-export const AGENT_VERSION = "router · v14a";
+export const AGENT_VERSION = "Playbook v14";
 
-// case type -> strategy, from ROUTES on main (Sun 25 Oct)
-export const ROUTES: { type: string; label: string; strategy: string; evidence: string }[] = [
-  { type: "price_increase", label: "Price increase", strategy: "Planner + 14-day cash trade", evidence: "P01 0.975" },
-  { type: "renewal", label: "Renewal", strategy: "Planner + dossier", evidence: "P03 0.923 · P04 0.86" },
-  { type: "rfq", label: "RFQ", strategy: "Deep anchor, rivals cited", evidence: "P05 0.854 · D02 0.77" },
-  { type: "raw_material", label: "Raw material", strategy: "Index clause, hedge-aware", evidence: "P08 0.744" },
-  { type: "capacity", label: "Capacity", strategy: "Soft anchor, lead-time trade", evidence: "P10 0.686" },
-  { type: "quality", label: "Quality", strategy: "Measured menu, reciprocal steps", evidence: "P11 0.877" },
-  { type: "bundling", label: "Bundling", strategy: "Base, every lever", evidence: "P07 0.766" },
+// case type -> approach + main lever, from ROUTES on main (Sun 25 Oct), in plain words from a fixed vocabulary
+export const APPROACHES = ["Planner", "Deep anchor", "Soft anchor", "Small steps", "Lever sweep"] as const;
+export const ROUTES: { type: string; label: string; approach: (typeof APPROACHES)[number]; lever: string }[] = [
+  { type: "price_increase", label: "Price increase", approach: "Planner", lever: "Payment terms" },
+  { type: "renewal", label: "Renewal", approach: "Planner", lever: "Supplier facts" },
+  { type: "rfq", label: "RFQ", approach: "Deep anchor", lever: "Rival quotes" },
+  { type: "raw_material", label: "Raw material", approach: "Planner", lever: "Index clause" },
+  { type: "capacity", label: "Capacity", approach: "Soft anchor", lever: "Lead time" },
+  { type: "quality", label: "Quality", approach: "Small steps", lever: "Quality terms" },
+  { type: "bundling", label: "Bundling", approach: "Lever sweep", lever: "All terms" },
 ];
 
 export const INITIAL_NODES: StudioNode[] = [
@@ -33,7 +34,7 @@ export const INITIAL_NODES: StudioNode[] = [
     title: "Case router",
     subtitle: "7 case types → best strategy",
     params: [
-      { key: "fallback", label: "Unknown type", value: "base-d/v14a", options: ["base-d/v14a", "mert-plan-dc/v14a", "walk away"] },
+      { key: "fallback", label: "Unknown case type", value: "Concession planner", options: ["Concession planner", "Lever sweep", "Ask a buyer"] },
       { key: "auto_promote", label: "Promote winners from the ledger", value: false, hint: "Board winner per type → route" },
     ],
   },
@@ -44,7 +45,7 @@ export const INITIAL_NODES: StudioNode[] = [
     subtitle: "46 profiles · persona, pressures, floor",
     params: [
       { key: "fullcost_discount", label: "Should-cost scaling", value: 0.95, min: 0.85, max: 1.05, step: 0.01, hint: "Should-cost runs ~5 % high" },
-      { key: "cash_rate", label: "Cash-short supplier's cost of money", value: 0.14, unit: "%", min: 0.05, max: 0.25, step: 0.01 },
+      { key: "cash_rate", label: "Cash-short supplier's rate", value: 0.14, unit: "%", min: 0.05, max: 0.25, step: 0.01 },
       { key: "persona_priors", label: "Persona priors for the planner", value: false, hint: "Off: lost when the persona was wrong" },
       { key: "text_signals", label: "Read pressure from their e-mails", value: true },
     ],
@@ -59,6 +60,7 @@ export const INITIAL_NODES: StudioNode[] = [
       { key: "claim_order", label: "Order by", value: "measured effect", options: ["measured effect", "strength", "profile"] },
       { key: "should_cost_margin", label: "Cite should-cost when ask is above by", value: 0.08, unit: "%", min: 0.02, max: 0.2, step: 0.01 },
       { key: "rival_only_lower", label: "Cite rivals only when cheaper", value: true },
+      { key: "own_quote_claims", label: "Cite their own previous quote", value: true, hint: "\u201cYour last quote was €X\u201d" },
       { key: "history_claims", label: "Cite order history", value: false, hint: "0 of 26 moved a price" },
     ],
   },
@@ -70,8 +72,6 @@ export const INITIAL_NODES: StudioNode[] = [
     params: [
       { key: "trade_gain", label: "Trade sheet must save", value: 0.006, unit: "%", min: 0.002, max: 0.02, step: 0.001 },
       { key: "cash_trade_always", label: "Always offer faster payment", value: true },
-      { key: "lead_time_trade", label: "Trade lead time for price", value: false, hint: "Capacity cases" },
-      { key: "ppm_trade", label: "Offer ppm relief for price", value: true, hint: "Quality cases" },
       { key: "sticky_max_cost", label: "Keep a term if it costs ≤", value: 0.008, unit: "%", min: 0, max: 0.02, step: 0.001 },
     ],
   },
@@ -124,32 +124,45 @@ export const INITIAL_NODES: StudioNode[] = [
   },
 ];
 
-// grounded in logged weaknesses (vault: 11 Results Capacity & Quality; router.py notes)
+// Each suggestion is grounded in what a real product has: one negotiation's own log, or comparable deals
+// (same category / argument across negotiations). Quotes are verbatim from runs/20261025-025817-router-x-practice.
 export const SEED_SUGGESTIONS: Suggestion[] = [
   {
-    id: "seed-leadtime",
-    nodeId: "levers",
-    paramKey: "lead_time_trade",
-    title: "Trade lead time for price on capacity cases",
+    id: "seed-own-quote",
+    nodeId: "evidence",
+    paramKey: "own_quote_claims",
+    title: "Stop citing a supplier's own previous quote",
     rationale:
-      "Ravensteiner charges about €2.00/unit to hold 42 instead of 56 days. We kept 42 days and took a final €33.20 (0.601). When we took its own 54-day sheet, the score was 0.671.",
-    before: "off",
-    after: "on",
-    evidence: { runId: "20261025-025817-router-x-practice", caseId: "P10", round: 1, quote: "The Lieferzeit 56 days is strictly required to integrate this volume into our production schedule." },
+      "In 6 of 6 comparable deals the supplier checked this argument and marked it irrelevant, while notice period, forecast and quality record were verified. It costs a slot that a verified fact could use.",
+    before: "on",
+    after: "off",
+    evidenceKind: "comparable_deals",
+    evidenceCount: 6,
+    evidence: {
+      runId: "20261025-025817-router-x-practice",
+      caseId: "case:P01",
+      round: 1,
+      quote: "However, the rival quote data you cite does not concern this part or our company.",
+    },
     source: "analysis",
     status: "pending",
     createdAt: "2026-10-25T07:40:00.000Z",
   },
   {
-    id: "seed-ppm",
-    nodeId: "levers",
-    paramKey: "ppm_trade",
-    title: "Stop offering ppm relief on quality cases",
+    id: "seed-cash-signal",
+    nodeId: "planner",
+    title: "Escalate when a supplier keeps asking for faster payment",
     rationale:
-      "A looser ppm doesn't buy price: the supplier granted the 1500 ppm we asked for and still wanted €46. Chargebacks cost us more than they are worth to the supplier.",
-    before: "on",
-    after: "off",
-    evidence: { runId: "20261025-025817-router-x-practice", caseId: "P11", round: 1, quote: "Hello, we can do the 1500 ppm you want, but we need EUR 46." },
+      "Kalwisz asked for faster payment in 4 of 5 replies and offered to reflect it in the price. Payment was outside our brief, so the agent kept answering \u201c60 days is fixed\u201d and the supplier only moved €0.50 per round.",
+    before: "Supplier signals cash pressure and payment terms are outside the brief",
+    after: "Ask the category buyer to unlock faster payment, then trade it for price",
+    evidenceKind: "this_negotiation",
+    evidence: {
+      runId: "20261025-025817-router-x-practice",
+      caseId: "case:P11",
+      round: 2,
+      quote: "Waiting 60 days for cash is tough for us, so we need this price to make it work.",
+    },
     source: "analysis",
     status: "pending",
     createdAt: "2026-10-25T07:52:00.000Z",
