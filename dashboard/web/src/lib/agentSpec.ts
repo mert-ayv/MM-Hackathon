@@ -94,7 +94,7 @@ export const INITIAL_NODES: StudioNode[] = [
     title: "E-mail writer",
     subtitle: "LLM words it · code sets every number",
     params: [
-      { key: "model", label: "Model", value: "claude-haiku-5-5", options: ["claude-haiku-5-5", "claude-sonnet-5-5", "template only"] },
+      { key: "model", label: "Model", value: "claude-opus-5-5", options: ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "template only"] },
       { key: "tone", label: "Tone", value: "warm, precise", options: ["warm, precise", "firm", "formal"] },
       { key: "verbatim_claims", label: "Claim sentences verbatim", value: true, hint: "The arena checks the IDs" },
       { key: "language", label: "Mirror supplier's language", value: false },
