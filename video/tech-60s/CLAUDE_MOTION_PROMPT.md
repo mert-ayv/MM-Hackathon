@@ -69,11 +69,10 @@ Scenes (seconds)
    "an LLM picks the moves" is struck through in red, monospace beside it "measured worse: P07 0.728 vs 0.766 ·
    D02 0.67 vs 0.72".
 10. 56–60 End. The envelope turns over. On its back, bold "csee-base" and, in serif italic, "code checks every
-    euro." Footer in small monospace: "practice mean 0.81 vs house agent 0.70 · docs/ARCHITECTURE.md ·
-    github.com/mert-ayv/MM-Hackathon". Hold to 60.0 s.
+    euro." Nothing else on the frame. Hold to 60.0 s.
 
 Rules
 - Total length exactly 60 seconds. Keep every number and ID exactly as written above and in the script.
 - No sound, no voice, no music, no stock footage, no generated people.
-- Make numbers and timings easy to change later (we may update "489" and "0.81" before submission).
+- Make numbers and timings easy to change later (we may update "489" before submission).
 - Export as MP4, 1920×1080, 25 or 30 fps.
