@@ -23,7 +23,7 @@ ORANGE=0xF2552C
 box() { echo "drawbox=x=$1:y=$2:w=$3:h=$4:color=$ORANGE@0.12:t=fill,drawbox=x=$1:y=$2:w=$3:h=$4:color=$ORANGE:t=6"; }
 hold() { # still dur cx cy Z boxes out
   local n; n=$(python3 -c "print(round($2*$FPS))")
-  local z="1+($5-1)*(1-cos(PI*min(1,on/18)))/2+0.03*on/$n"
+  local z="$5*(0.9+0.1*(1-cos(PI*min(1,on/18)))/2)+0.03*on/$n"   # starts close (no zoom-out pumping between shots)
   ffmpeg -y -loglevel error -loop 1 -framerate $FPS -t "$2" -i "$1" -vf \
     "$6,scale=3840:2160,zoompan=z='$z':x='max(0,min(iw-iw/zoom,$3*2-iw/zoom/2))':y='max(0,min(ih-ih/zoom,$4*2-ih/zoom/2))':d=1:s=1920x1080:fps=$FPS,format=yuv420p" \
     -frames:v "$n" -c:v libx264 -crf 16 "$7"
