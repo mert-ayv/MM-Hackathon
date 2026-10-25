@@ -6,7 +6,7 @@
   "lines": [
     {
       "role": "agent",
-      "text": "Brandlhuber is closed. They wanted nine and a half percent more, and we settled at six and a half percent. That's about fifty-three thousand euros under their opening, and seventy-five thousand euros under our alternative supplier. Want to know where we could have done better?",
+      "text": "Brandlhuber is closed. They wanted 9.5% more, and we settled at 6.5%. That's about €53,000 under their opening, and about €75,000 under our alternative supplier. Want to know where we could have done better?",
       "audio": "/voice/v2-1-debrief.mp3",
       "tool": {
         "name": "get_case_summary",
@@ -19,7 +19,7 @@
     },
     {
       "role": "agent",
-      "text": "In the pace, not in the arguments. In round three the foundry moved about four thousand two hundred euros. We moved sixteen thousand two hundred, almost four times as much.",
+      "text": "In the pace, not in the arguments. In round 3 the foundry moved about €4,200. We moved €16,200, almost four times as much.",
       "audio": "/voice/v2-2-pace.mp3",
       "tool": {
         "name": "find_missed_value",
@@ -28,7 +28,7 @@
     },
     {
       "role": "agent",
-      "text": "Then in round four we pulled back thirteen and a half thousand. The owner called it a significant step backwards, and sent his final offer one round later.",
+      "text": "Then in round 4 we pulled back €13,500. The owner called it a significant step backwards, and sent his final offer one round later.",
       "audio": "/voice/v2-3-round4.mp3",
       "tool": {
         "name": "get_round",
@@ -43,7 +43,7 @@
     },
     {
       "role": "agent",
-      "text": "No. In their last six renewals they always settled below what they asked, between minus five point six and minus zero point one percent. This time they got plus six point five. They are short of cash, and we did offer faster payment, so the lever was right. The pacing was not.",
+      "text": "No. In their last 6 renewals they always settled below what they asked, between −5.6% and −0.1%. This time they got +6.5%. They are short of cash, and we did offer faster payment, so the lever was right. The pacing was not.",
       "audio": "/voice/v2-4-history.mp3",
       "tool": {
         "name": "comparable_deals",
@@ -56,7 +56,7 @@
     },
     {
       "role": "agent",
-      "text": "Never out-concede the supplier. In the concession planner, I would cap our step at zero point eight times their last step, down from one point one. I've sent it to Agent Studio for your approval.",
+      "text": "Never out-concede the supplier. In the concession planner, I would cap our step at 0.8× their last step, down from 1.1×. I've sent it to Agent Studio for your approval.",
       "audio": "/voice/v2-5-proposal.mp3",
       "tool": {
         "name": "propose_change",

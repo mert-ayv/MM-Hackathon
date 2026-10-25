@@ -190,38 +190,20 @@ export function metrics(m: CaseModel) {
 }
 
 // ---------------------------------------------------------------------------------------------------
-// speech: amounts and percentages the way a colleague would say them (the TTS reads digits robotically)
+// speech: rounded amounts and percentages as digits; the transcript shows them as written and
+// ElevenLabs' own text normalisation says them ("€75,000" -> "seventy-five thousand euros")
 
-const ONES = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen"];
-const TENS = ["", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"];
-function words(n: number): string {
-  n = Math.round(Math.abs(n));
-  if (n < 20) return ONES[n];
-  if (n < 100) return TENS[Math.floor(n / 10)] + (n % 10 ? `-${ONES[n % 10]}` : "");
-  if (n < 1000) return `${ONES[Math.floor(n / 100)]} hundred${n % 100 ? ` ${words(n % 100)}` : ""}`;
-  if (n < 1_000_000) return `${words(Math.floor(n / 1000))} thousand${n % 1000 ? ` ${words(n % 1000)}` : ""}`;
-  return `${words(Math.floor(n / 1_000_000))} million${n % 1_000_000 ? ` ${words(n % 1_000_000)}` : ""}`;
-}
-
-/** "about seventy-five thousand euros": two significant figures, rounded the way people say it. */
+/** "about €75,000": rounded the way people say it. */
 export function sayEur(n: number): string {
   const a = Math.abs(n);
-  if (a >= 1_000_000) {
-    const m = Math.round(a / 100_000) / 10;
-    const whole = Math.floor(m);
-    return `about ${words(whole)}${m - whole >= 0.5 ? " and a half" : ""} million euros`;
-  }
-  if (a >= 1000) return `about ${words(Math.round(a / 1000))} thousand euros`;
-  return `about ${words(Math.round(a / 10) * 10)} euros`;
+  if (a >= 1_000_000) return `about €${(Math.round(a / 100_000) / 10).toString()} million`;
+  if (a >= 1000) return `about €${(Math.round(a / 1000) * 1000).toLocaleString("en-US")}`;
+  return `about €${Math.round(a / 10) * 10}`;
 }
 
-/** 0.095 -> "nine and a half percent", 0.041 -> "four percent" (to the nearest half point). */
+/** 0.095 -> "9.5%", 0.041 -> "4.1%" (one decimal, trailing .0 dropped). */
 export function sayPct(x: number): string {
-  const h = Math.round(Math.abs(x) * 200) / 2;
-  const whole = Math.floor(h);
-  if (h === 0) return "less than half a percent";
-  if (whole === 0) return "half a percent";
-  return `${words(whole)}${h - whole ? " and a half" : ""} percent`;
+  return `${(Math.round(Math.abs(x) * 1000) / 10).toString()}%`;
 }
 
 /** The spoken opening: ~12 s, conversational, every figure from the log (rounded for speech). */
@@ -244,7 +226,7 @@ export function buildDebrief(m: CaseModel): string {
       parts.push(`They wanted ${sayPct(x.askPct)} more, and ${settled}.`);
     }
     parts.push(
-      `That's ${sayEur(x.saved)} under their opening${x.vsAlternative && x.vsAlternative > 0 ? `, and ${sayEur(x.vsAlternative).replace(/^about /, "")} under our alternative supplier` : ""}.`,
+      `That's ${sayEur(x.saved)} under their opening${x.vsAlternative && x.vsAlternative > 0 ? `, and ${sayEur(x.vsAlternative)} under our alternative supplier` : ""}.`,
     );
     parts.push("Want to know where we could have done better?");
   } else if (res) {
