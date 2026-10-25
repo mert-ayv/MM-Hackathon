@@ -973,6 +973,8 @@ class LeverMixin:
                 lines.append(f"{lead} package {idx + 1} gives you {what}, at EUR {t['unit_price']:.2f} per unit.")
         fixed = case.get("fixed_terms") or {}
         main = closing_terms(case, sheets[0], {}) if sheets else {}
+        if getattr(self.p, "xc_answer", False):
+            return lines  # the base answer module (agent.answer_claims) states the fixed volume / payment term
         if "volume_per_year" in latest_named and "volume_per_year" not in case["negotiable"]:
             vol, months = fixed.get("volume_per_year") or main.get("volume_per_year"), main.get("contract_months")
             if vol and months:

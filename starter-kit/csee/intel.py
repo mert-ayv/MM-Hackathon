@@ -481,3 +481,165 @@ def alt_quote_claims(case, pkg, supplier_id, ask):
         return []
     p, r = min(below)
     return [Claim(f"Our qualified second source has quoted EUR {p:.2f} per unit for this part ({r}).", [r], "rival", 2.5, p, tag="alt_quote")]
+
+
+# ---------- cross-check plan item 1 (Params.xc_claims): the supplier's own evidence first ----------
+# Claim kinds the arena checks (brief/api.md, What counts) and the logged results (1,204 practice replies, Sun 25 Oct):
+# idx 216 verified / 2 irrelevant, fc 98 verified, sc 212 verified / 7 contradicted (all ppm sentences without the word
+# "quality"), po 94 verified (0 moved a price), news 20/20, doc+ctr notice 28/28, a ctr clause with its days 1/1.
+# A `quote:` of THIS supplier was never cited (0 checks): whether the arena verifies it outside the case's refs is
+# unknown - the api lists "a quote of this case"; an unknown result is at worst `irrelevant` (true, no trust cost).
+OWN_QUOTE_MIN_GAP = 0.01  # cite its own quote only if at least this far below its standing ask
+NOTE_CAPACITY_RE = re.compile(
+    r"idle|second shift|additional parts|spare capacity|short[- ]time|short hours|new customers|free capacity|"
+    r"under-?utili|take (?:on )?(?:more|additional)",
+    re.I,
+)
+FORECAST_TYPES = ("renewal", "bundling", "rfq", "price_increase", "raw_material")
+FORECAST_MIN_GROWTH = 3
+
+
+def _doc_text(pkg, ref):
+    try:
+        return (pkg.document(ref) if pkg else "") or ""
+    except Exception:
+        return ""
+
+
+def own_quote_claims(case, pkg, supplier_id, ask):
+    """This supplier's own most recent quote for the case's part, priced below its standing ask (P08: its live
+    quote 5.45 vs opening 6.05; P03/P04: its list price). Single-part cases, same price unit, one claim."""
+    if not ask or len(case.get("parts") or []) != 1:
+        return []
+    part = case["parts"][0]
+    quotes = [
+        (f.get("date") or "", r, f)
+        for r, f in supplier_facts(case, pkg, supplier_id, "quote:").items()
+        if f.get("part") == part and f.get("unit_price") and (f.get("price_unit") or 1) == 1
+    ]
+    below = [q for q in quotes if float(q[2]["unit_price"]) < ask * (1 - OWN_QUOTE_MIN_GAP)]
+    if not below:
+        return []
+    latest = max(below)[0]
+    # the lowest of its quotes from the last twelve months (P04: list price 4.39, not the small-lot RFQ quote 4.63
+    # two weeks later; P08: its live quote 5.45, not a 16-month-old 5.34)
+    recent = [q for q in below if q[0] >= _month_minus(latest[:7], 12)] or [max(below)]
+    date, ref, fact = min(recent, key=lambda q: (float(q[2]["unit_price"]), q[0]))
+    newer = [q for q in quotes if q[0] > date]  # a newer own quote exists: this one is not its "most recent"
+    rows = _q(pkg, "SELECT remarks FROM quotes WHERE id = ?", (ref,))
+    remark = ((rows[0].get("remarks") if rows else "") or "").lower()
+    price = float(fact["unit_price"])
+    if "list" in remark:
+        sentence = f"Your own list price for this part is EUR {price:.2f} per unit ({ref})."
+    else:
+        sentence = f"Your own {'most recent ' if not newer else ''}quote to us for this part was EUR {price:.2f} per unit ({ref})."
+    return [Claim(sentence, [ref], "own_quote", strength=4.5, price=price, tag="own_quote")]
+
+
+def hedge_claims(case, pkg, supplier_id, opening_text=""):
+    """The symmetric reading of the supplier's own hedge letter (P08: "nickel covered at fixed prices until March
+    2027"): a rise it blames has not reached its cost either while the cover runs past the new contract year.
+    One sentence without figures (the arena takes the document's own value), cited by its ID."""
+    from . import dossier  # hedge wording parser shared with the dossier
+
+    start = (case.get("fixed_terms") or {}).get("effective_date") or min(
+        (d for d in (case.get("term_options") or {}).get("effective_date") or [] if d), default=""
+    )
+    if not start:
+        return []
+    named = set(DRIVER_RE.findall(opening_text or ""))
+    series_in_case = {c["series"] for c in (case.get("term_options") or {}).get("index_clause") or [] if c}
+    best = None
+    for ref, fact in supplier_facts(case, pkg, supplier_id, "doc:").items():
+        if fact.get("type") not in ("letter", "call_note", "meeting_note", "email"):
+            continue
+        for material, series, until in dossier.hedges_from_text(_doc_text(pkg, ref)):
+            if until < start[:7] or not material:
+                continue
+            blamed = bool(named & set(series)) or bool(series_in_case & set(series))
+            key = (blamed, fact.get("type") == "letter", until, ref)
+            if best is None or key > best[0]:
+                best = (key, ref, material, series)
+    if not best or not best[0][0]:  # only when the hedged material is the one in play
+        return []
+    _, ref, material, series = best
+    label = series_label(pkg, next(iter(named & set(series)), series[0])) if series else "that material"
+    sentence = (
+        f"Your own letter on material costs ({ref}) states that your {material} requirement is covered at fixed "
+        f"prices beyond the start of the new contract year, so the rise in {label} you cite does not reach your "
+        f"cost in that period either."
+    )
+    return [Claim(sentence, [ref], "hedge", strength=2.6, tag="hedge")]
+
+
+def note_claims(case, pkg, supplier_id):
+    """Our own call / meeting notes that record spare capacity at this supplier (P07: "could take additional parts
+    at short notice; the second shift has been on hold"). Meeting notes are context for the arena, never a wrong
+    figure; the bots verified the doc IDs we cited. Volume-hungry suppliers only (same case types as forecasts)."""
+    if case.get("type") not in FORECAST_TYPES:
+        return []
+    notes = [
+        (f.get("date") or "", r)
+        for r, f in supplier_facts(case, pkg, supplier_id, "doc:").items()
+        if f.get("type") in ("call_note", "meeting_note") and NOTE_CAPACITY_RE.search(_doc_text(pkg, r))
+    ]
+    if not notes:
+        return []
+    _, ref = max(notes)
+    return [
+        Claim(
+            f"Our meeting notes record that you have spare capacity for additional parts at present ({ref}).",
+            [ref],
+            "news",
+            strength=1.3,
+            tag="note",
+        )
+    ]
+
+
+def forecast_claims(case, pkg, any_type=False):
+    """One forecast claim per case part with growth >= 3 %, the LARGEST growth first (P07: fc:360011 +15.3 % is
+    the part that is new business for the supplier; the old loop broke at the first part, +6.0 %). `any_type`:
+    also in quality / capacity cases, as the verifiable fact behind an answer to "which volume" (P11 +20 %)."""
+    if not any_type and case.get("type") not in FORECAST_TYPES:
+        return []
+    known = list((pkg.facts if pkg else {}).items()) + list((case.get("facts") or {}).items())
+    found = []
+    for part in case.get("parts", []):
+        fcs = sorted((r, f) for r, f in known if r.startswith(f"fc:{part.split(':')[-1]}@") and isinstance(f, dict))
+        if fcs and (fcs[-1][1].get("change_pct") or 0) >= FORECAST_MIN_GROWTH:
+            found.append(fcs[-1])
+    found.sort(key=lambda x: -(x[1]["change_pct"]))
+    out = []
+    for rank, (ref, fc) in enumerate(found):
+        out.append(
+            Claim(
+                f"Our demand forecast for this part grows {fc['change_pct']:+.1f}% ({ref}).",
+                [ref],
+                "forecast",
+                strength=(1.2 + 0.05 * fc["change_pct"]) * (0.9**rank),
+            )
+        )
+    return out
+
+
+def quality_wording(claim):
+    """A ppm claim must say "quality": the arena judged sc sentences without the word as on-time delivery and
+    contradicted every one of them (7/7; P11 "that costs trust")."""
+    if claim.tag == "ppm" and "quality" not in claim.sentence.lower():
+        s = claim.sentence
+        claim.sentence = "On quality: " + s[0].lower() + s[1:]
+    return claim
+
+
+def refine_claims(case, pkg, supplier_id, claims, ask=None, opening_text=""):
+    """The xc_claims claim list: the supplier's own evidence (quote, hedge letter) first, spare-capacity notes,
+    forecasts by growth, "quality" on every ppm sentence, no index that rose. Strongest first, as claims_for."""
+    out = [c for c in claims if c.kind != "forecast"]
+    out = [c for c in out if not (c.kind == "index" and re.search(r"changed \+", c.sentence))]
+    out = [quality_wording(c) for c in out]
+    out += own_quote_claims(case, pkg, supplier_id, ask)
+    out += hedge_claims(case, pkg, supplier_id, opening_text)
+    out += note_claims(case, pkg, supplier_id)
+    out += forecast_claims(case, pkg)
+    return sorted(out, key=lambda c: -c.strength)

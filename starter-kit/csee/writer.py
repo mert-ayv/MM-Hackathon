@@ -131,6 +131,50 @@ def strip_notes(text):
     return "\n".join(lines).rstrip()
 
 
+FIXED_WORDS = {  # a term the case fixes, as the model would name it (xc_answer: never promise movement on it)
+    "payment_days": r"payment",
+    "volume_per_year": r"volume|quantit",
+    "lead_time_days": r"lead[- ]time",
+    "contract_months": r"contract (?:term|length|duration)|term of the (?:contract|agreement)",
+    "effective_date": r"effective date|start date|validity",
+    "index_clause": r"index clause|escalat|preisgleit|indexation",
+    "incoterm": r"incoterm|delivery terms",
+    "ppm_commitment": r"\bppm\b",
+}
+PROMISE_RE = re.compile(  # a promise of movement later, not the package sentence ("We propose EUR ..., 14 days lead time")
+    r"come back|revert|get back|follow up|return to (?:you|this)|separately|(?:open|willing|prepared|happy|glad|ready) to "
+    r"(?:discuss|look|talk|explore|consider|review)|will (?:address|reply|respond|look|review|consider|discuss|explore)|"
+    r"concrete proposal|welcome your (?:concrete )?proposal|revisit",
+    re.I,
+)
+FIXED_SAID_RE = re.compile(r"\bfixed\b|not part of|not open|not negotiable|cannot (?:be )?chang|stays? (?:at|as)", re.I)
+
+
+def fixed_term_words(case):
+    """{field: value} of the terms the case fixes (fixed_terms, not negotiable)."""
+    fixed = case.get("fixed_terms") or {}
+    return {f: v for f, v in fixed.items() if f not in case.get("negotiable", []) and v is not None and f in FIXED_WORDS}
+
+
+def strip_fixed_promises(text, case, keep=()):
+    """Drop every sentence that promises movement on a term the case fixes ("we will come back to you with a concrete
+    proposal on payment timing": P11 v18, three times on a fixed payment term; the bot waited and held). Sentences in
+    `keep` (claims, answers) stay as they are; a sentence that states the term as fixed stays too."""
+    fields = fixed_term_words(case)
+    if not fields or not text:
+        return text
+    rx = re.compile("|".join(FIXED_WORDS[f] for f in fields), re.I)
+    out = []
+    for para in text.split("\n"):
+        sents = re.split(r"(?<=[.!?])\s+", para)
+        kept = [
+            s for s in sents
+            if not s or s in keep or not rx.search(s) or not PROMISE_RE.search(s) or FIXED_SAID_RE.search(s)
+        ]
+        out.append(" ".join(kept))
+    return "\n".join(out)
+
+
 class LLMWriter:
     """A model writes the body around fixed facts; the template is the safety net."""
 
@@ -159,9 +203,19 @@ no notes or comments to our own team - everything you write is sent to the suppl
                 f"PROFILE: {json.dumps({k: profile.get(k) for k in ('name', 'situation', 'what_it_values', 'persona', 'arguments_to_avoid')}, ensure_ascii=False)[:2500]}",
             ]
         )
+        xc_answer = bool(getattr(getattr(agent, "p", None), "xc_answer", False))
+        fixed = fixed_term_words(case) if xc_answer else {}
         user = "\n".join(
             [
                 *([f"WHAT TO STRESS (our plan for this e-mail): {focus[:400]}"] if focus else []),
+                *(
+                    [
+                        "FIXED TERMS (set by the case, not negotiable; state them as fixed if asked, never offer to come "
+                        "back with a proposal on them): " + ", ".join(f"{k}={v}" for k, v in fixed.items())
+                    ]
+                    if fixed
+                    else []
+                ),
                 f"THEIR LAST E-MAIL:\n{(last.get('body') or '')[:1500]}",
                 f"PACKAGES TO PROPOSE: {json.dumps(sheets)}",
                 "CLAIMS (verbatim):\n" + "\n".join(c.sentence for c in claims),
@@ -201,6 +255,8 @@ no notes or comments to our own team - everything you write is sent to the suppl
         # an ID the model added and we dropped can leave "the washer award ()." behind (3 of 337 practice e-mails;
         # the jury reads every replay): drop empty brackets and the space before them
         text = re.sub(r"\s*\(\s*[,;]?\s*\)", "", text)
+        if fixed:  # xc_answer: no "we will come back to you on payment" when payment is fixed
+            text = strip_fixed_promises(text, case, keep={c.sentence for c in claims})
         for c in claims:  # the checked sentences must survive word for word
             if c.sentence not in text:
                 text = insert_before_signature(text, c.sentence)

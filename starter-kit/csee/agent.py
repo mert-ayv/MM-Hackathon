@@ -13,6 +13,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 
+from arena_kit.agents.llm import ID_RE
 from arena_kit.cost import RELATIONSHIP_GOALS, closing_terms, complete_offer, supplier_value, total_cost
 from arena_kit.cost import must_haves_ok as _kit_must_haves_ok
 from arena_kit.docs import standard_terms
@@ -73,6 +74,115 @@ def avoided(claim, avoid_text):
         words = ("ppm", "complaint", "quality") if claim.tag == "ppm" else ("otd", "on-time", "delivery record")
         return any(w in avoid_text for w in words)
     return any(w in avoid_text for w in AVOID_WORDS.get(claim.kind, ()))
+
+
+# ---------- cross-check plan items 1 and 4 (Params.xc_claims / xc_answer): module helpers ----------
+INDEX_THEMES = {"ppi-d": ("electric", "energy", "power"), "smard": ("electric", "energy", "power"), "cu": ("copper",),
+                "wb-cu": ("copper",), "as-": ("alloy", "stainless", "nickel"), "ppi-c24": ("steel",), "wb-ni": ("nickel",)}
+PPM_AVOID_RE = re.compile(r"ppm|complaint|scorecard|quality (?:record|data|claim|history|argument)", re.I)
+OTD_AVOID_RE = re.compile(r"otd|on-time|delivery (?:record|performance|history)|scorecard", re.I)
+
+
+def avoided_x(claim, arguments):
+    """avoided() by the ARGUMENT the profile names, never by its `why` text: "PLN/energy arguments - irrelevant to a
+    quality case" (profile 70140) banned every ppm claim on P11 through the bare substring "quality"."""
+    for arg in arguments:
+        a = (arg or "").lower()
+        if not a:
+            continue
+        if any(i.lower() in a for i in claim.ids if isinstance(i, str)):
+            return True  # the profile names this very ID (70620: "its own second-source quote:7200019")
+        if claim.kind == "index":
+            tag = claim.tag.lower()
+            words = [tag] + [w for k, ws in INDEX_THEMES.items() if tag.startswith(k) for w in ws]
+            if any(w and w in a for w in words):
+                return True
+        elif claim.kind == "scorecard":
+            if (PPM_AVOID_RE if claim.tag == "ppm" else OTD_AVOID_RE).search(a):
+                return True
+        elif any(w in a for w in AVOID_WORDS.get(claim.kind, ())):
+            return True
+    return False
+
+
+# "We checked the delivery record data you cited; it holds, but it does not change our calculation." (161 logged replies)
+NO_CHANGE_RE = re.compile(r"(?:does not|doesn't|did not|do not) change our (?:calculation|position|costs?)", re.I)
+NO_CHANGE_KINDS = (
+    (re.compile(r"delivery", re.I), ("scorecard", "otd")),
+    (re.compile(r"price history|order history|orders?\b|historical", re.I), "history"),
+    (re.compile(r"quality|complaint|ppm", re.I), ("scorecard", "ppm")),
+    (re.compile(r"volume|forecast|demand", re.I), "forecast"),
+    (re.compile(r"should[- ]cost|cost estimate", re.I), "should_cost"),
+    (re.compile(r"news|press|report", re.I), "news"),
+    (re.compile(r"notice", re.I), "notice"),
+)
+WEAK_TAGS = ("po", "otd")  # order history 0/94 moved a price; delivery record 7/29 - last resort only
+
+
+def dead_kinds(events):
+    """Claim kinds this supplier has already answered "does not change our calculation": {kind | (kind, tag) |
+    ("index", series)}. An index series is dead on its own (P08: the hedged series was waved away, the unhedged
+    fall moved the price a round later); a rival offer never is (a lower one is new information)."""
+    dead, ours = set(), None
+    for m in events or []:
+        if m.get("from") == "buyer":
+            ours = m
+            continue
+        for sent in re.split(r"(?<=[.!?])\s+|\n", m.get("body") or ""):
+            if not NO_CHANGE_RE.search(sent):
+                continue
+            if re.search(r"index", sent, re.I) and ours:
+                text = (ours.get("body") or "") + " " + " ".join(ours.get("refs") or [])
+                dead.update(("index", s) for s in re.findall(r"idx:([A-Za-z0-9-]+)@", text))
+            for rx, kind in NO_CHANGE_KINDS:
+                if rx.search(sent):
+                    dead.add(kind)
+    return dead
+
+
+def is_dead(claim, dead):
+    if claim.kind == "index":
+        return any(("index", i[4:].split("@")[0]) in dead for i in claim.ids if isinstance(i, str))
+    return claim.kind in dead or (claim.kind, claim.tag) in dead
+
+
+# the supplier's direct questions (140 logged: "Which volume can you commit to?" 74, "Which figures is that based on?"
+# 59, "what payment terms can you offer" 6) - answered in the same e-mail with the case's fixed fact (xc_answer)
+QUESTION_RES = {
+    "volume": re.compile(
+        r"which volume|what volume|how much volume|volume (?:can|could|would|are) you|volumes? (?:can|could) you|"
+        r"increas\w* (?:the |your )?(?:order )?volume|binding (?:higher )?volume|volume can be made binding|forecast data",
+        re.I,
+    ),
+    "figures": re.compile(
+        r"which figures|what figures|based on\?|(?:send|share|provide)[^.?!]{0,40}(?:the |some |your )?"
+        r"(?:data|figures|numbers|documentation)|which data",
+        re.I,
+    ),
+    "payment": re.compile(
+        r"payment terms? (?:can|could|would|do) you|what (?:exact )?payment terms|which payment terms|"
+        r"how many days|exactly how many days|payment[^.?!]{0,40}(?:offer|propose)|"
+        r"(?:faster|quicker|shorter|earlier) payment",
+        re.I,
+    ),
+}
+DATA_WORDS = {
+    "idx": "the published index series", "sc": "your delivery and quality scorecards", "qn": "our quality notifications",
+    "fc": "our demand forecast", "cost": "our should-cost model", "po": "our order history", "news": "press reports",
+    "quote": "the quotes we hold", "offer": "the offers in this enquiry", "doc": "your letter", "ctr": "our agreement",
+}
+
+
+def detect_questions(body):
+    """Topics the supplier asks about in a reply, from its question sentences (and "please send us the data")."""
+    topics = set()
+    for sent in re.split(r"(?<=[.!?])\s+|\n", body or ""):
+        if "?" not in sent and not re.search(r"\bplease\b", sent, re.I):
+            continue
+        for topic, rx in QUESTION_RES.items():
+            if rx.search(sent):
+                topics.add(topic)
+    return topics
 
 
 # the person at the desk is asking for approval: 16 of 19 such replies were followed by a further step
@@ -213,6 +323,8 @@ class CseeAgent:
                 case, self.pkg, sid, opening.get("unit_price"), body, opening=first,
                 should_cost_margin=self.p.should_cost_margin,
             )
+            if self.p.xc_claims:  # its own evidence first, largest forecast, "quality" on ppm claims (intel.refine_claims)
+                info.claims = intel_mod.refine_claims(case, self.pkg, sid, info.claims, opening.get("unit_price"), body)
             if self.p.claim_evidence:
                 info.claims = evidence_order(info.claims)
             ask = opening.get("unit_price")
@@ -491,6 +603,8 @@ class CseeAgent:
         sheets = self.sheets(case, sid, ours, std, supplier)
         st.our_prices.append(ours["unit_price"])  # sheets carry no price when the price is fixed
         claims = self.pick_claims(case, threads, sid)
+        if self.p.xc_answer:  # its direct questions answered in this e-mail, with the fixed fact (item 4)
+            claims = claims + self.answer_claims(case, threads, sid, sheets, claims)
         ask_breakdown = not st.asked_breakdown and not st.breakdown
         st.asked_breakdown = st.asked_breakdown or ask_breakdown
         if self.log.enabled:
@@ -876,22 +990,93 @@ class CseeAgent:
         avoid = " ".join(
             f"{a.get('argument', '')} {a.get('why', '')}" for a in st.intel.profile.get("arguments_to_avoid", [])
         ).lower()
+        xc = self.p.xc_claims
+        avoid_args = [a.get("argument", "") for a in st.intel.profile.get("arguments_to_avoid", [])] if xc else []
+        pools = self.xc_pools(threads[sid], claims) if xc else [claims]
         out = []
         with self.shared_lock:  # check-and-claim: two threads must not cite the same ID
-            for c in claims:
-                key = tuple(c.ids) if c.kind != "rival" else (sid, *c.ids)
-                if key in self.used_ids or any(i in self.used_ids for i in c.ids if c.kind != "rival"):
-                    continue
-                if avoided(c, avoid) and c.tag != "alt_quote":  # profiles avoid a PRICIER alternative only
-                    continue
-                out.append(c)
-                if c.kind == "rival" and self.p.alt_quote_claim:
-                    st.cited_rival = c.price if st.cited_rival is None else min(st.cited_rival, c.price)
-                self.used_ids.add(key)
-                self.used_ids.update(i for i in c.ids if c.kind != "rival")
-                first = not any(m.get("from") == "buyer" for m in threads[sid])
-                if len(out) >= (self.p.max_claims + 1 if first else self.p.max_claims):
-                    break
+            for pool in pools:
+                for c in pool:
+                    key = tuple(c.ids) if c.kind != "rival" else (sid, *c.ids)
+                    if key in self.used_ids or any(i in self.used_ids for i in c.ids if c.kind != "rival"):
+                        continue
+                    if (avoided_x(c, avoid_args) if xc else avoided(c, avoid)) and c.tag != "alt_quote":
+                        continue  # profiles avoid a PRICIER alternative only
+                    if xc and c.kind == "forecast" and any(o.kind == "forecast" for o in out):
+                        continue  # one forecast per round, the next part next round
+                    out.append(c)
+                    if c.kind == "rival" and self.p.alt_quote_claim:
+                        st.cited_rival = c.price if st.cited_rival is None else min(st.cited_rival, c.price)
+                    self.used_ids.add(key)
+                    self.used_ids.update(i for i in c.ids if c.kind != "rival")
+                    first = not any(m.get("from") == "buyer" for m in threads[sid])
+                    if len(out) >= (self.p.max_claims + 1 if first else self.p.max_claims):
+                        break
+                if out:
+                    break  # xc_claims: order history / delivery record only when nothing else is left
+        return out
+
+    @staticmethod
+    def xc_pools(events, claims):
+        """xc_claims: [arguments worth making, last-resort ones]. Kinds this supplier waved away ("does not change our
+        calculation") are gone; order history and the delivery record (WEAK_TAGS) are cited only when nothing else
+        is left; an index that rose never argues for a lower price."""
+        dead = dead_kinds(events)
+        live = [c for c in claims if not is_dead(c, dead)]
+        live = [c for c in live if not (c.kind == "index" and re.search(r"changed \+", c.sentence))]
+        return [[c for c in live if c.tag not in WEAK_TAGS], [c for c in live if c.tag in WEAK_TAGS]]
+
+    def answer_claims(self, case, threads, sid, sheets, claims):
+        """xc_answer: one sentence per direct question in its latest reply, as Claim objects (kept verbatim by every
+        writer): the fixed volume / payment term of the case stated as fixed (never a promise to come back), the data
+        kinds behind our figures, and - for volume - the forecast ID as the verifiable reference when one is free.
+        "Which volume" was asked 74 times and answered with the figure 0 times; P11's writer promised a payment
+        proposal three times on a fixed term and the bot held."""
+        ev = threads[sid]
+        last = latest(ev)
+        if last.get("from") == "buyer":
+            return []
+        topics = detect_questions(last.get("body"))
+        if not topics:
+            return []
+        st = self.threads[sid]
+        fixed = case.get("fixed_terms") or {}
+        neg = case["negotiable"]
+        main = closing_terms(case, sheets[0], standard_terms(ev)) if sheets else {}
+        out = []
+        if "volume" in topics:
+            vol = fixed.get("volume_per_year") if "volume_per_year" not in neg else None
+            if vol:
+                months = fixed.get("contract_months") if "contract_months" not in neg else None
+                over = f" over {months:g} months" if months else ""
+                out.append(intel_mod.Claim(f"On volume: our requirement of {vol:,.0f} units a year{over} is fixed in this enquiry, "
+                                 "and every package commits to it in full.", [], "answer", 0.0, tag="volume"))
+            elif sheets and sheets[0].get("volume_per_year"):
+                out.append(intel_mod.Claim(f"On volume: our packages commit to {sheets[0]['volume_per_year']:,.0f} units a year, "
+                                 "as stated in the term sheets.", [], "answer", 0.0, tag="volume"))
+            if not any(c.kind == "forecast" for c in claims) and sum(1 for c in claims if c.ids) < 3:
+                cands = [c for c in st.intel.claims if c.kind == "forecast"] or intel_mod.forecast_claims(case, self.pkg, any_type=True)
+                with self.shared_lock:
+                    fc = next((c for c in cands if c.ids and not any(i in self.used_ids for i in c.ids)), None)
+                    if fc and not is_dead(fc, dead_kinds(ev)):
+                        self.used_ids.update(fc.ids)
+                        out.append(fc)
+        if "figures" in topics:
+            prev = next((m for m in reversed(ev) if m.get("from") == "buyer"), None)
+            ids = (ID_RE.findall(prev.get("body") or "") + list(prev.get("refs") or [])) if prev else []
+            words = sorted({DATA_WORDS[i.split(":")[0]] for i in ids if i.split(":")[0] in DATA_WORDS})
+            basis = ", ".join(words) if words else "the data referenced in this e-mail"
+            out.append(intel_mod.Claim(f"The figures we cited are based on {basis}; each carries its data reference in our "
+                             "e-mails so that you can check it.", [], "answer", 0.0, tag="figures"))
+        if "payment" in topics:
+            if "payment_days" not in neg and fixed.get("payment_days"):
+                out.append(intel_mod.Claim(f"On payment: the payment term is fixed at {fixed['payment_days']} days net in this "
+                                 "enquiry and is not part of this negotiation.", [], "answer", 0.0, tag="payment"))
+            elif "payment_days" in neg and sheets:
+                days = sorted({s.get("payment_days") for s in sheets if s.get("payment_days")})
+                if days:
+                    out.append(intel_mod.Claim("On payment: the terms we can offer are those in our packages, "
+                                     f"{' or '.join(str(d) for d in days)} days net.", [], "answer", 0.0, tag="payment"))
         return out
 
     @staticmethod
