@@ -64,7 +64,7 @@
    "settled below its own ask every time (-5.9, 0.0, -1.7 %)"
   ]
  },
- "situation": "Czech family foundry that has just doubled its stainless-casting capacity with a new automatic moulding line. It now needs to fill it and calls Hollerau an important reference customer. It is the cheaper HI 80-250 source (559.61 vs Allgäu-Reiter 654.52) but holds only 25 %. It also asked for 10-day payment. Volume and reference value are the currency; it has accepted cuts readily.",
+ "situation": "Czech family foundry that has just doubled its stainless-casting capacity with a new automatic moulding line (news:20260420-09). The start-up ran over budget, and on 14 Oct its house bank cut the credit line (news:20261014-S11). It now asks customers to pay within 10 days from November to keep alloy material flowing (doc:20261016-70170-S12). It still needs volume, calls Hollerau an important reference customer, and is the cheaper HI 80-250 source (559.61 vs Allgäu-Reiter 654.52), yet holds only 25 %. Cash is now the main currency, ahead of volume and reference value; it has accepted cuts readily, and it promises a report on porosity corrective actions. Supply-security risk has risen, so any volume shift should be staged and tied to evidence of stable finances.",
  "pressures": [
   {
    "type": "utilisation",
@@ -87,12 +87,21 @@
     "sc:70170@2026Q3",
     "qn:20005004"
    ]
+  },
+  {
+   "type": "cash",
+   "evidence": "house bank cut the credit line after the moulding-line start-up ran over budget; formal request to all customers for 10-day payment from November",
+   "ids": [
+    "news:20261014-S11",
+    "doc:20261016-70170-S12",
+    "doc:20261023-HPW-MEMO"
+   ]
   }
  ],
  "what_it_values": [
+  "faster payment",
   "more volume for the new line",
   "Hollerau as a reference customer",
-  "faster payment",
   "multi-year visibility"
  ],
  "likely_tradeables": [
@@ -123,6 +132,17 @@
    "ids": [
     "doc:20260210-70170-M1"
    ]
+  },
+  {
+   "lever": "payment_days",
+   "give": "10 days from November (from 45)",
+   "get": "unit price below 559.61 or a cash discount, plus a committed porosity 8D/corrective-action report",
+   "why": "bank cut its credit line; 10-day payment is now its top need and worth more to it than before",
+   "ids": [
+    "doc:20261016-70170-S12",
+    "news:20261014-S11",
+    "ctr:4600070170"
+   ]
   }
  ],
  "arguments_that_should_land": [
@@ -146,6 +166,15 @@
     "sc:70170@2026Q3"
    ],
    "why": "appreciation; then ask for ppm containment"
+  },
+  {
+   "argument": "We can move from 45 to 10-day payment, as you asked on 16 Oct, in return for a price step below 559.61 and your porosity corrective-action report.",
+   "ids": [
+    "doc:20261016-70170-S12",
+    "ctr:4600070170",
+    "qn:20005004"
+   ],
+   "why": "directly answers its liquidity need after the credit-line cut and links cash to quality containment"
   }
  ],
  "arguments_to_avoid": [
@@ -160,13 +189,21 @@
   {
    "argument": "Revealing Allgäu-Reiter's higher price",
    "why": "invites Vrbensky to price up toward 654.52"
+  },
+  {
+   "argument": "Threatening to withdraw volume or pushing a steep cut without a cash offer",
+   "why": "credit line just cut (news:20261014-S11); squeezing a cash-strapped single family foundry risks supply failure on the cheaper HI 80-250 source"
+  },
+  {
+   "argument": "Promising a firm large volume uplift right now",
+   "why": "its finances are under bank scrutiny and pump tenders are slipping into 2027 (news:20261021-S17); keep any shift staged"
   }
  ],
  "persona": {
   "who_writes": "owner / sales, family firm",
   "style": "eager, partnership-minded",
   "decision_making": "owner decides quickly",
-  "relationship_notes": "proud of being Hollerau's supplier (reference customer)"
+  "relationship_notes": "proud of being Hollerau's supplier (reference customer) [2026-10-23] Tone has shifted from eager partner to a strained, formal circular to all customers, openly admitting bank pressure while promising a porosity fix."
  },
  "noise": [
   "doc:20251109-70170-N trade fair invitation"
@@ -175,7 +212,31 @@
   {
    "id": "doc:20260512-70170-M2",
    "quote": "Hollerau is an important reference customer for them"
+  },
+  {
+   "id": "doc:20261016-70170-S12",
+   "quote": "the start-up of our new moulding line has tied up more cash than we planned, and our bank is watching our figures closely"
+  },
+  {
+   "id": "doc:20261016-70170-S12",
+   "quote": "we kindly ask our customers to pay within 10 days from November"
   }
  ],
- "confidence": "medium"
+ "confidence": "medium",
+ "updated_from": [
+  "doc:20261016-70170-S12",
+  "doc:20261023-HPW-MEMO",
+  "news:20261014-S11"
+ ],
+ "update_notes": [
+  {
+   "release": "2026-10-23",
+   "ids": [
+    "doc:20261016-70170-S12",
+    "doc:20261023-HPW-MEMO",
+    "news:20261014-S11"
+   ],
+   "summary": "Vrbenský's house bank has cut its credit line after the new moulding line ran over budget, and the foundry now formally asks all customers to pay within 10 days from November. The cash pressure has become acute, so fast payment is now our strongest lever for price and porosity containment, but its financial-health and supply-security risk has risen. The foundry also promises corrective actions on porosity."
+  }
+ ]
 }

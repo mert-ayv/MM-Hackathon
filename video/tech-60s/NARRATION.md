@@ -1,5 +1,24 @@
 # Narration cue sheet (technical video, 60 s)
 
+**Current: v2 (Sun 12:20), design decisions explained.** `tech-60s_v2_motion.mp4` = Claude Motion picture
+re-timed to the voice; `tech-60s_v2_local.mp4` = local build re-timed the same way. Voice "Artaius, Calm British
+Narrator" (ElevenLabs eleven_v4), clips in `narration/v2/`, tempo 1.17, layout in `narration/v2/layout.json`,
+picture remap anchors in `build/remap_v2.json`. 164 words. Each line states a choice and why.
+
+| Start (s) | Line | Design decision and evidence |
+|---|---|---|
+| 0.4 | Our AI buyer negotiates with supplier bots by e-mail, alone, and is judged on total cost. | task |
+| 6.4 | Main design choice: a program calculates every price and term. The AI only writes, because one wrong number costs money. | code vs LLM for numbers; calculator reproduces the arena's cost to the euro on all 40 deals (README) |
+| 14.4 | Before the clock starts, we profile each supplier from its letters and news. The bots fact-check our claims, so each one has a source. | offline dossier vs reading at runtime; 230 of 244 claim checks `verified`, none contradicted (qa.md) |
+| 22.1 | A calculator prices each offer exactly the way the organisers score it. | exact total-cost model |
+| 26.4 | Each e-mail offers up to three options, not one. The one the supplier picks shows what it values, like faster payment. | several offers vs one counter; P01 owner picked the 14-day-payment package (replays.md) |
+| 33.7 | Claude answers their questions in their tone. Numbers and facts are pasted in unchanged. | LLM for wording only; P07: answering the volume question brought a concession (qa.md) |
+| 40.1 | We modelled the bots from two hundred sixty of our negotiations. They mirror our moves and give less each round, so we concede early and never push after a final offer: it made suppliers walk. | fitted model vs guessing; 2 of 17 pushes after a final offer ended in a walk-away, P02 0.48 to 0 (qa.md) |
+| 51.0 | Every change was tested first. When an AI chose the offers, it scored lower, so the math stays in code. | rejected alternative: P07 0.728 vs 0.766, D02 0.67 vs 0.72, P05 0.52/0.72 vs 0.81 (pitch-outline) |
+| 57.6 | Code checks every euro. | close |
+
+## v1 (superseded)
+
 **Done (Sun 11:40): `tech-60s_v1_elevenlabs.mp4`** = the Claude Motion master + ElevenLabs narration (voice
 "Artaius, Calm British Narrator", model eleven_v4, nine clips on flow `SiYdq5NFhjd2HYwTDuyt`, clips in
 `narration/`, placement in `narration/layout.txt`). The voice reads at about 2.2 words/s, slower than the

@@ -1,0 +1,54 @@
+{
+ "date": "2026-10-23",
+ "note": "Company-wide items of the data releases (market news, memos). Built by csee.profile_builder.",
+ "items": [
+  {
+   "id": "news:20261021-S17",
+   "date": "2026-10-21",
+   "title": "Water utilities push pump tenders into 2027",
+   "summary": "German water utilities have postponed several pump station tenders into the first half of 2027, and pump makers expect a slow winter and a busy spring.",
+   "affected_categories": [
+    "castings",
+    "machined parts",
+    "sheet metal",
+    "seals",
+    "electrical"
+   ],
+   "affected_series": [
+    "PPI-C2813"
+   ],
+   "affected_suppliers": [],
+   "implications": "Weaker winter demand across the pump supply chain supports arguments that suppliers have spare capacity and should hold prices or offer volume incentives now; it undermines supplier claims of tight capacity through winter. Caution: Hollerau's own call-off volumes may also dip, so avoid committing to firm winter volumes in exchange for price, and anticipate suppliers arguing for higher prices or longer lead times once spring demand picks up — consider locking in terms for H1 2027 now."
+  },
+  {
+   "id": "doc:20261023-HPW-MEMO",
+   "date": "2026-10-23",
+   "title": "Market memo, October 2026",
+   "summary": "Purchasing memo of 23 Oct 2026 lists post-freeze events (14 Oct bank tightens Slévárna Vrbenský's credit line; 15 Oct a heating maker cancels foundry orders at Gießerei Pfaffenreuth; 17 Oct Kugellager-Vertrieb Inntal loses a large distribution contract; 20 Oct Obrábění Kraslin puts its turning shop on short-time work; 21 Oct water utilities push pump tenders into 2027), notes supplier letters from Vrbenský (payment terms for stainless castings), Pfaffenreuth (liquidity and call-offs) and Metallbau Steinfelder (steel for 2027), and states index series remain frozen at reference month 2026-09.",
+   "affected_categories": [
+    "castings",
+    "machined parts",
+    "sheet metal",
+    "C-parts"
+   ],
+   "affected_series": [
+    "PPI-C2451",
+    "PPI-C2452",
+    "PPI-C2562",
+    "PPI-C2815",
+    "PPI-C2511",
+    "PPI-C241",
+    "AS-14404",
+    "AS-14301"
+   ],
+   "affected_suppliers": [
+    "sup:70170",
+    "sup:70190",
+    "sup:70270",
+    "sup:70340",
+    "sup:70640"
+   ],
+   "implications": "Casting, machining and bearing-distribution suppliers show demand weakness and spare capacity, which supports Hollerau resisting price increases and seeking price holds or reductions for castings, machined parts and bearings; do not accept capacity-scarcity arguments from these suppliers. However, the liquidity stress at Vrbenský and Pfaffenreuth is a supply-security risk: expect requests for shorter payment terms or firmer call-offs, treat any such concession as a trade against price, and check supply continuity and dual sourcing before relying on them. Metallbau Steinfelder's 'Steel for 2027' letter likely carries a steel-related ask; index data is frozen at 2026-09, so verify any steel argument against PPI-C241/PPI-C2511 rather than accepting claimed movements, and do not cite post-September index changes because none are available."
+  }
+ ]
+}

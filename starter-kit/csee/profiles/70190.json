@@ -99,7 +99,7 @@
    "310040 cut -2.5 % in 2025-12 to its should-cost level"
   ]
  },
- "situation": "Small German family foundry for which we are a big customer (7.1 % of turnover). It bought power forward to Dec 2028 and has covered material to Dec 2028, so it offers a price fixed until then. Market-energy arguments are 'not our reality' in either direction. The casing cover is priced exactly at should-cost (33.94 vs 33.93); the HB 40 housing (43.39) carries margin and is 35 % above Tarsevi. It is the qualified backup for three distressed suppliers' parts (310011, 310020, 310030), on our tooling.",
+ "situation": "Small German family foundry for which we are a big customer: 7.1 % of turnover, and our weight rises once it loses about a fifth of its turnover from January 2027 (news:20261015-S14). Its bank is watching its liquidity closely. It has asked us to pay within 10 days from November and to confirm firm Q1 call-offs (doc:20261019-70190-S13), so the 'stable' financial signal is now questionable. Power is bought forward and material covered to Dec 2028, so it still offers a price fixed until then; market-energy arguments are 'not our reality'. The casing cover is priced at should-cost (33.94 vs 33.93), while the HB 40 housing (43.39) carries margin and is 35 % above Tarsevi. It is the qualified backup for three distressed suppliers' parts (310011, 310020, 310030), on our tooling, so its own liquidity strain concentrates risk.",
  "pressures": [
   {
    "type": "energy",
@@ -116,12 +116,29 @@
     "quote:7300068",
     "quote:7200011"
    ]
+  },
+  {
+   "type": "cash",
+   "evidence": "bank watching liquidity closely; asks for 10-day payment from November (contract: 30 days)",
+   "ids": [
+    "doc:20261019-70190-S13"
+   ]
+  },
+  {
+   "type": "volume",
+   "evidence": "heating customer cancelled 2027 orders and moved cast housings to an Eastern European foundry; about a fifth of turnover lost from January; asks for firm Q1 call-offs",
+   "ids": [
+    "news:20261015-S14",
+    "doc:20261019-70190-S13"
+   ]
   }
  ],
  "what_it_values": [
+  "liquidity: faster payment of invoices",
+  "volume security / firm call-offs and additional parts",
   "long fixed-price contract matching its 2028 hedge",
-  "volume security / additional parts",
-  "predictability over index mechanics"
+  "predictability over index mechanics",
+  "volume security / additional parts"
  ],
  "likely_tradeables": [
   {
@@ -152,6 +169,28 @@
    "ids": [
     "doc:20260623-70190-M1"
    ]
+  },
+  {
+   "lever": "payment_days",
+   "give": "payment in 10 days instead of 30 from November",
+   "get": "310060 price reduction toward Tarsevi level (32.24), or a skonto equivalent",
+   "why": "it explicitly asked for 10-day payment because of bank liquidity scrutiny; cash is worth more to it now than margin on 310060",
+   "ids": [
+    "doc:20261019-70190-S13",
+    "quote:7300068",
+    "cost:310060"
+   ]
+  },
+  {
+   "lever": "volume_per_year",
+   "give": "firm Q1 2027 call-offs, possibly plus 310020/310030 backup volume",
+   "get": "price fixed to Dec 2028 at or below today's level on 310040/310060",
+   "why": "it asked for firm Q1 call-offs to replace the cancelled heating volume (about a fifth of turnover); only commit what our demand supports, since water-utility pump tenders slip into 2027",
+   "ids": [
+    "doc:20261019-70190-S13",
+    "news:20261015-S14",
+    "news:20261021-S17"
+   ]
   }
  ],
  "arguments_that_should_land": [
@@ -175,6 +214,22 @@
     "quote:7200011"
    ],
    "why": "volume carrot"
+  },
+  {
+   "argument": "You asked for 10-day payment and firm Q1 call-offs; we can offer both if the HB 40 housing (43.39) moves toward the 32.24 we see in parallel sourcing.",
+   "ids": [
+    "doc:20261019-70190-S13",
+    "quote:7300068"
+   ],
+   "why": "links its own request to the part that carries margin over cost:310060"
+  },
+  {
+   "argument": "With about a fifth of your turnover gone from January, our volume becomes a larger share of your business; a long fixed-price agreement to Dec 2028 gives you planning security.",
+   "ids": [
+    "news:20261015-S14",
+    "quote:7300064"
+   ],
+   "why": "matches its hedge horizon and its need to fill capacity"
   }
  ],
  "arguments_to_avoid": [
@@ -189,13 +244,21 @@
   {
    "argument": "Index clause on PPI-D351",
    "why": "decoupled from its real cost"
+  },
+  {
+   "argument": "Threatening to move HB 40 wholesale to Tarsevi or cutting volume",
+   "why": "it is already under liquidity strain (doc:20261019-70190-S13) and is our backup for 310011/310020/310030; pushing it into distress hurts our supply security"
+  },
+  {
+   "argument": "Granting 10-day payment without a price or term concession in return",
+   "why": "it is the main lever it requested; trade it, don't give it away"
   }
  ],
  "persona": {
   "who_writes": "inside sales (new contact from 2025-10), owner behind",
   "style": "matter-of-fact, planning-oriented",
   "decision_making": "family owner; values planning certainty",
-  "relationship_notes": "reliable mid-quality supplier, many small QNs"
+  "relationship_notes": "reliable mid-quality supplier, many small QNs [2026-10-23] Tone has shifted from planning-oriented confidence to a polite, open plea for help on cash and volume, which gives us leverage but also obliges us to monitor the supplier's risk."
  },
  "noise": [
   "doc:20251014-70190-N new contact person"
@@ -208,7 +271,35 @@
   {
    "id": "quote:7300064",
    "quote": "Material covered until December 2028; price valid accordingly."
+  },
+  {
+   "id": "doc:20261019-70190-S13",
+   "quote": "our bank is watching our liquidity closely"
+  },
+  {
+   "id": "doc:20261019-70190-S13",
+   "quote": "pay our invoices within 10 days from November and confirm firm call-offs for the first quarter"
+  },
+  {
+   "id": "news:20261015-S14",
+   "quote": "loses about a fifth of its turnover from January"
   }
  ],
- "confidence": "high"
+ "confidence": "high",
+ "updated_from": [
+  "doc:20261019-70190-S13",
+  "doc:20261023-HPW-MEMO",
+  "news:20261015-S14"
+ ],
+ "update_notes": [
+  {
+   "release": "2026-10-23",
+   "ids": [
+    "doc:20261019-70190-S13",
+    "doc:20261023-HPW-MEMO",
+    "news:20261015-S14"
+   ],
+   "summary": "Pfaffenreuth loses about a fifth of its turnover from January after a heating customer moved its castings to Eastern Europe. Its bank is watching liquidity, and it asks us for 10-day payment from November plus firm Q1 call-offs. This gives us payment-term and volume levers to trade for price, especially on the margin-carrying HB 40 housing (310060). It is also a new supply risk, because Pfaffenreuth is our backup for three distressed suppliers' parts."
+  }
+ ]
 }

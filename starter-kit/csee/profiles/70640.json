@@ -10,36 +10,204 @@
  "our_spend_fy2026_eur": 98435,
  "our_share_of_their_turnover_pct": 0.27,
  "parts": [
-  {"part_id": "part:360020", "name": "Deep groove ball bearing 6306-2Z C3", "current_price": 4.2, "price_unit": 1, "quota_pct": 30, "qualified_alternatives": ["sup:70620"], "should_cost_id": null, "should_cost_unit": null},
-  {"part_id": "part:360021", "name": "Deep groove ball bearing 6308-2Z C3", "current_price": 7.21, "price_unit": 1, "quota_pct": 60, "qualified_alternatives": ["sup:70620"], "should_cost_id": null, "should_cost_unit": null}
+  {
+   "part_id": "part:360020",
+   "name": "Deep groove ball bearing 6306-2Z C3",
+   "current_price": 4.2,
+   "price_unit": 1,
+   "quota_pct": 30,
+   "qualified_alternatives": [
+    "sup:70620"
+   ],
+   "should_cost_id": null,
+   "should_cost_unit": null
+  },
+  {
+   "part_id": "part:360021",
+   "name": "Deep groove ball bearing 6308-2Z C3",
+   "current_price": 7.21,
+   "price_unit": 1,
+   "quota_pct": 60,
+   "qualified_alternatives": [
+    "sup:70620"
+   ],
+   "should_cost_id": null,
+   "should_cost_unit": null
+  }
  ],
- "contract": {"id": "ctr:4600070640", "valid_to": "2027-06-30", "payment_days": 30, "incoterm": "DAP", "notice_days": 90, "index_clauses": []},
- "standard_terms_hint": {"payment_days": 30, "incoterm": "DAP", "lead_time_days": 10, "skonto": null},
- "quality": {"latest_scorecard_id": "sc:70640@2026Q3", "otd_pct": 86.5, "ppm": 0, "colour": "green", "trend": "OTD 83.7%->84.1%, ppm 148->160 (mean 2024Q3-25Q2 vs 2025Q4-26Q3)", "open_8d_overdue": 0},
- "payment_behaviour": {"avg_days_late_by_us": 2.9, "note": "last 12m: 20 of 48 invoices paid >3 days late, max 7 days. Avg 2.9 days late; minor."},
- "financial_health": {"equity_ratio_pct": 43.4, "credit_index": 180, "credit_index_12m_ago": 180, "signal": "Family, credit 180 unchanged, equity 43.4%; healthy. Idle second shift."},
- "negotiation_history": {"events": 6, "avg_asked_pct": 3.88, "avg_settled_pct": 1.53, "settle_to_ask_ratio": 0.39, "notes": ["Asks avg 3.9%, settles ~2.4 pp lower; 6306 2026 asked 3.4, settled 0.0 (EV-2026-70640-360020)."]},
- "situation": "Austrian bearing distributor (EUR 37 m) holding 30% of the 6306 (EUR 4.20, cheaper than WZS 4.39) and 60% of the 6308. It has idle capacity (second shift on hold) and wants volume customers; it already asks for our expected volumes to renew the 6306 agreement (expires 2027-06-30). Its second-source quote for 20,000/yr 6306 was EUR 5.04, far above its contract price.",
+ "contract": {
+  "id": "ctr:4600070640",
+  "valid_to": "2027-06-30",
+  "payment_days": 30,
+  "incoterm": "DAP",
+  "notice_days": 90,
+  "index_clauses": []
+ },
+ "standard_terms_hint": {
+  "payment_days": 30,
+  "incoterm": "DAP",
+  "lead_time_days": 10,
+  "skonto": null
+ },
+ "quality": {
+  "latest_scorecard_id": "sc:70640@2026Q3",
+  "otd_pct": 86.5,
+  "ppm": 0,
+  "colour": "green",
+  "trend": "OTD 83.7%->84.1%, ppm 148->160 (mean 2024Q3-25Q2 vs 2025Q4-26Q3)",
+  "open_8d_overdue": 0
+ },
+ "payment_behaviour": {
+  "avg_days_late_by_us": 2.9,
+  "note": "last 12m: 20 of 48 invoices paid >3 days late, max 7 days. Avg 2.9 days late; minor."
+ },
+ "financial_health": {
+  "equity_ratio_pct": 43.4,
+  "credit_index": 180,
+  "credit_index_12m_ago": 180,
+  "signal": "Family, credit 180 unchanged, equity 43.4%; healthy. Idle second shift."
+ },
+ "negotiation_history": {
+  "events": 6,
+  "avg_asked_pct": 3.88,
+  "avg_settled_pct": 1.53,
+  "settle_to_ask_ratio": 0.39,
+  "notes": [
+   "Asks avg 3.9%, settles ~2.4 pp lower; 6306 2026 asked 3.4, settled 0.0 (EV-2026-70640-360020)."
+  ]
+ },
+ "situation": "Austrian bearing distributor (EUR 37 m) holding 30% of the 6306 (EUR 4.20, cheaper than WZS 4.39) and 60% of the 6308. It already had idle capacity (second shift on hold). On 17 Oct 2026 it lost a large distribution contract, about a tenth of its volume, when a machinery group moved its bearing purchasing to a central European platform. It is now looking for new customers to fill its warehouse (news:20261017-S19). It already asks for our expected volumes to renew the 6306 agreement (expires 2027-06-30). Its second-source quote for 20,000/yr 6306 was EUR 5.04, far above its contract price.",
  "pressures": [
-  {"type": "utilisation", "evidence": "Could take additional parts at short notice; second shift on hold.", "ids": ["doc:20260201-70640-M5", "doc:20260715-70640-M4"]},
-  {"type": "volume", "evidence": "Focus on customers with volume; renewal asks volumes.", "ids": ["doc:20260819-70640-M1", "doc:20260925-70640-P19"]}
+  {
+   "type": "utilisation",
+   "evidence": "Could take additional parts at short notice; second shift on hold.",
+   "ids": [
+    "doc:20260201-70640-M5",
+    "doc:20260715-70640-M4"
+   ]
+  },
+  {
+   "type": "volume",
+   "evidence": "Focus on customers with volume; renewal asks volumes.",
+   "ids": [
+    "doc:20260819-70640-M1",
+    "doc:20260925-70640-P19"
+   ]
+  },
+  {
+   "type": "volume",
+   "evidence": "Lost about a tenth of its volume after a machinery group centralised bearing purchasing; looking for new customers to fill its warehouse.",
+   "ids": [
+    "news:20261017-S19",
+    "doc:20261023-HPW-MEMO"
+   ]
+  }
  ],
- "what_it_values": ["more volume to fill capacity", "multi-year visibility", "staying <=2%"],
+ "what_it_values": [
+  "more volume to fill capacity and warehouse",
+  "multi-year visibility",
+  "staying <=2%"
+ ],
  "likely_tradeables": [
-  {"lever": "volume_per_year", "give": "larger 6306/6308 share (WZS is disengaging)", "get": "hold 4.20 or lower", "why": "idle capacity", "ids": ["doc:20260201-70640-M5"]},
-  {"lever": "contract_months", "give": "24-36 months", "get": "price fixed", "why": "volume visibility", "ids": ["ctr:4600070640#8.1"]}
+  {
+   "lever": "volume_per_year",
+   "give": "larger 6306/6308 share (WZS is disengaging)",
+   "get": "hold 4.20 or lower",
+   "why": "idle capacity",
+   "ids": [
+    "doc:20260201-70640-M5"
+   ]
+  },
+  {
+   "lever": "contract_months",
+   "give": "24-36 months",
+   "get": "price fixed",
+   "why": "volume visibility",
+   "ids": [
+    "ctr:4600070640#8.1"
+   ]
+  },
+  {
+   "lever": "unit_price",
+   "give": "move WZS-disengaging 6306/6308 share to Inntal at renewal",
+   "get": "6306 below EUR 4.20 or price fixed for contract term",
+   "why": "needs to replace roughly 10% of lost volume",
+   "ids": [
+    "news:20261017-S19",
+    "doc:20260201-70640-M5"
+   ]
+  }
  ],
  "arguments_that_should_land": [
-  {"argument": "Bearing PPI +0.8% yoy.", "ids": ["idx:PPI-C2815@2025-08", "idx:PPI-C2815@2026-08"], "why": "no cost case"},
-  {"argument": "6308 forecast +16.0%, 6306 +4.2%.", "ids": ["fc:360021@2026-09", "fc:360020@2026-09"], "why": "volume carrot"}
+  {
+   "argument": "Bearing PPI +0.8% yoy.",
+   "ids": [
+    "idx:PPI-C2815@2025-08",
+    "idx:PPI-C2815@2026-08"
+   ],
+   "why": "no cost case"
+  },
+  {
+   "argument": "6308 forecast +16.0%, 6306 +4.2%.",
+   "ids": [
+    "fc:360021@2026-09",
+    "fc:360020@2026-09"
+   ],
+   "why": "volume carrot"
+  },
+  {
+   "argument": "Inntal lost about a tenth of its volume (news:20261017-S19). Our 6308 forecast is +16.0% and 6306 is +4.2%, which offers replacement volume in exchange for price.",
+   "ids": [
+    "news:20261017-S19",
+    "fc:360021@2026-09",
+    "fc:360020@2026-09"
+   ],
+   "why": "links our volume carrot to its new gap"
+  }
  ],
  "arguments_to_avoid": [
-  {"argument": "Treat quote:7200004 (5.04) as its real level", "why": "it is a small-lot RFQ price; anchor on contract 4.20"}
+  {
+   "argument": "Treat quote:7200004 (5.04) as its real level",
+   "why": "it is a small-lot RFQ price; anchor on contract 4.20"
+  },
+  {
+   "argument": "Openly gloat about the lost contract",
+   "why": "cooperative family relationship; use the volume gap implicitly through the offer"
+  }
  ],
- "persona": {"who_writes": "Sales / KAM", "style": "cooperative", "decision_making": "family; committee >2%", "relationship_notes": "since 2023; best ppm (0 in 2026Q3)"},
- "noise": ["doc:20251212-70640-N (ISO certificate)", "duplicate capacity and review notes"],
+ "persona": {
+  "who_writes": "Sales / KAM",
+  "style": "cooperative",
+  "decision_making": "family; committee >2%",
+  "relationship_notes": "since 2023; best ppm (0 in 2026Q3)"
+ },
+ "noise": [
+  "doc:20251212-70640-N (ISO certificate)",
+  "duplicate capacity and review notes"
+ ],
  "key_quotes": [
-  {"id": "doc:20260201-70640-M5", "quote": "they could take additional parts at short notice"}
+  {
+   "id": "doc:20260201-70640-M5",
+   "quote": "they could take additional parts at short notice"
+  },
+  {
+   "id": "news:20261017-S19",
+   "quote": "loses about a tenth of its volume and is looking for new customers to fill its warehouse"
+  }
  ],
- "confidence": "medium"
+ "confidence": "medium",
+ "updated_from": [
+  "doc:20261023-HPW-MEMO",
+  "news:20261017-S19"
+ ],
+ "update_notes": [
+  {
+   "release": "2026-10-23",
+   "ids": [
+    "doc:20261023-HPW-MEMO",
+    "news:20261017-S19"
+   ],
+   "summary": "Inntal lost a large distribution contract (about a tenth of its volume) and is actively seeking new customers to fill its warehouse (news:20261017-S19). This adds volume pressure and strengthens our position: offer a larger 6306/6308 share for a held or lower price at renewal."
+  }
+ ]
 }
