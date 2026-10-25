@@ -76,3 +76,29 @@ def session():
     except OSError as e:
         raise HTTPException(502, f"ElevenLabs unreachable: {e}") from None
     return {"signed_url": data["signed_url"], "agent_id": agent}
+
+
+# ---------------------------------------------------------------------------------------------------
+# knowledge for the copilot's tools (read-only, local data; the browser forwards it to the agent)
+
+from . import voice_data  # noqa: E402
+
+
+@router.get("/supplier/{sid}")
+def supplier(sid: str):
+    data = voice_data.supplier(sid)
+    if data is None:
+        raise HTTPException(404, f"no data for supplier {sid}")
+    return data
+
+
+@router.get("/history/{sid}")
+def history(sid: str):
+    sid = sid if sid.startswith("sup:") else f"sup:{sid}"
+    category = voice_data.category_of(sid)
+    return {
+        "supplier_id": sid,
+        "category": category,
+        "with_this_supplier": voice_data.history(sid),
+        "same_category_other_suppliers": voice_data.category_history(category, exclude=sid) if category else [],
+    }

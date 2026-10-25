@@ -3,28 +3,35 @@
   "lines": [
     {
       "role": "agent",
-      "text": "P01, Brandlhuber. We closed in seven rounds at one hundred thirty-four euros eighty per unit, from April 2027 instead of November. That is fifty-two thousand seven hundred sixty-four euros below their opening offer, a score of zero point nine three. All three arguments in round one were verified by the foundry: quality record, volume change and notice period. About four thousand two hundred euros stayed on the table. Ask me why, or what I would change.",
-      "audio": "/voice/demo-1-debrief.mp3",
+      "text": "P01, Brandlhuber. We closed in seven rounds at one hundred thirty-four euros eighty per unit, from April 2027. They asked for nine and a half percent more, we settled at six and a half. That is fifty-two thousand seven hundred sixty-four euros below their opening offer, and seventy-five thousand below our alternative supplier. Ask me where we left money, or what I would change.",
+      "audio": "/voice/v2-1-debrief.mp3",
       "tool": { "name": "get_case_summary", "params": {} }
     },
-    { "role": "user", "text": "Where did we leave that money?" },
+    { "role": "user", "text": "Where did we leave money on the table?" },
     {
       "role": "agent",
-      "text": "Round three. The foundry came down about four thousand two hundred euros, and we gave sixteen thousand two hundred in a single step, almost four times their move.",
-      "audio": "/voice/demo-2-round3.mp3",
-      "tool": { "name": "get_round", "params": { "round": 3 } }
+      "text": "In the pace, not in the arguments. In round three the foundry moved about four thousand two hundred euros. We moved sixteen thousand two hundred, almost four times as much.",
+      "audio": "/voice/v2-2-pace.mp3",
+      "tool": { "name": "find_missed_value", "params": {} }
     },
     {
       "role": "agent",
-      "text": "In round four we pulled back thirteen and a half thousand. The owner called it a step backwards, and one round later he sent his final offer.",
-      "audio": "/voice/demo-3-round4.mp3",
+      "text": "Then in round four we pulled back thirteen and a half thousand. The owner called it a significant step backwards, and sent his final offer one round later.",
+      "audio": "/voice/v2-3-round4.mp3",
       "tool": { "name": "get_round", "params": { "round": 4 } }
+    },
+    { "role": "user", "text": "Is that normal for Brandlhuber?" },
+    {
+      "role": "agent",
+      "text": "No. In their last six renewals they always settled below what they asked, between minus five point six and minus zero point one percent. This time they got plus six point five. They are short of cash, and we did offer faster payment, so the lever was right. The pacing was not.",
+      "audio": "/voice/v2-4-history.mp3",
+      "tool": { "name": "comparable_deals", "params": {} }
     },
     { "role": "user", "text": "What would you change?" },
     {
       "role": "agent",
-      "text": "Never out-concede the supplier. In the planner, I would cap our step at zero point eight times their last step, down from one point one, so we never have to take an offer back. I have sent it to Agent Studio for your approval.",
-      "audio": "/voice/demo-4-proposal.mp3",
+      "text": "Never out-concede the supplier. In the concession planner, I would cap our step at zero point eight times their last step, down from one point one. I've sent it to Agent Studio for your approval.",
+      "audio": "/voice/v2-5-proposal.mp3",
       "tool": {
         "name": "propose_change",
         "params": {
@@ -33,7 +40,9 @@
           "title": "Never out-concede the supplier",
           "rationale": "P01 round 3: the foundry moved €4,235, we moved €16,190 (3.8×). In round 4 we pulled back €13,496; the owner called it \"a significant step backwards\" and sent a final offer one round later.",
           "after": "0.8",
-          "round": 3
+          "round": 3,
+          "evidenceKind": "this_negotiation",
+          "quote": "Your latest proposal for 30-day payment terms represents a significant step backwards from your previous offer."
         }
       }
     }
