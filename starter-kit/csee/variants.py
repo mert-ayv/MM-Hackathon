@@ -164,6 +164,7 @@ VARIANTS["v14s"] = {**VARIANTS["v14a"], "anchor_below_open": 0.04}
 VARIANTS["baseacr"] = {**VARIANTS["basea"], "close_room": 0.05}
 VARIANTS["v7acr"] = {**VARIANTS["v7a"], "close_room": 0.05}
 VARIANTS["v14sc"] = {**VARIANTS["v14s"], "claim_evidence": True}
+VARIANTS["basea22"] = {**VARIANTS["basea"], "anchor_below_open": 0.22}
 VARIANTS["v17"] = {**VARIANTS["v16"], "rel_anchor": False, "close_gap": 0.001, "close_room": 0.05}
 
 
@@ -216,6 +217,7 @@ DESCRIPTIONS = {
     "'the rival offer is still higher than our price', P05) + the v14a alternative-quote argument.",
     "baseacr": "basea + patience: a thread is done only when the C gap <= 5 % of the room (EHL final: closing at reply 2 within 0.4 % of C lost ~0.3 on H30/H34 to teams that pushed to reply 3-4).",
     "v7acr": "v7a + baseacr's patience rule (close only when the gap <= 5 % of the room).",
+    "basea22": "basea with a 22 % first ask instead of 12 % (routine bundling: no supplier-health cost outside strategic/bottleneck parts, Tacto deck 06B).",
     "v14": "v13 + price-increase review: relationship goals anchor at the relationship-optimal price at the "
     "supplier's real cost (should-cost x0.98), not the should-cost floor (P02 369 -> 358); trade sheets priced "
     "without the relationship term (they were all dropped); close only when the gap <= 10 % of the room.",

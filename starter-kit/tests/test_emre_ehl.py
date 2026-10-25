@@ -55,3 +55,39 @@ def test_typed_router_wraps_routed_agent():
     inner = r._route({"case_id": "case:X", "type": "renewal"})
     assert isinstance(inner, SupplierTypeMixin)
     assert isinstance(inner, agents.get("mert-plan-dc"))
+
+
+def test_hold_guard_takes_offer_after_mutual_hold():
+    # A1 practice P08: it held at 5.43, we would hold at 5.35 again -> take its standing offer instead (it walked)
+    from types import SimpleNamespace
+
+    from csee.agents.emre_ehl import HoldGuardMixin
+
+    class Parent:
+        def __init__(self, price):
+            self.price, self.threads = price, {"s": SimpleNamespace(ready=False)}
+
+        def thread_move(self, case, threads, sid):
+            return {"term_sheets": [{"terms": {"unit_price": self.price}}]}
+
+    class Agent(HoldGuardMixin, Parent):
+        pass
+
+    def sheet(p):
+        return [{"terms": {"unit_price": p}}]
+
+    ev = [
+        {"from": "sales", "term_sheets": sheet(6.05)},
+        {"from": "buyer", "term_sheets": sheet(5.31)},
+        {"from": "sales", "term_sheets": sheet(5.43)},
+        {"from": "buyer", "term_sheets": sheet(5.35)},
+        {"from": "sales", "term_sheets": sheet(5.43)},
+    ]
+    a = Agent(5.35)
+    assert a.thread_move({"case_id": "c"}, {"s": ev}, "s") is None and a.threads["s"].ready
+    b = Agent(5.38)  # we still move: no guard
+    assert b.thread_move({"case_id": "c"}, {"s": ev}, "s") is not None
+    far = ev[:-1] + [{"from": "sales", "term_sheets": sheet(5.43)}]
+    far[2] = {"from": "sales", "term_sheets": sheet(5.80)}
+    far[4] = {"from": "sales", "term_sheets": sheet(5.80)}
+    assert Agent(5.35).thread_move({"case_id": "c"}, {"s": far}, "s") is not None  # 8 % apart: keep negotiating

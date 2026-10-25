@@ -240,3 +240,51 @@ class LeverPriceRouterAgent(TypedRouterAgent):
         ("corporate_alt_discount", 0.015),
         ("corporate_skip_types", frozenset({"quality", "capacity"})),
     )
+
+
+# ---------- hold guard: never answer a supplier's hold with a second hold of ours near agreement ----------
+# A1 practice P08 (Donautal, inside sales): it held at 5.43, we held at 5.35 twice (planner "no-cross cap"), it walked
+# away - score 0 instead of ~0.6. Router sim: 7 of 330 threads repeat an identical ask, 5 of them P08's raw route.
+HOLD_GAP = 0.02  # accept its standing offer when it is within this share of our ask
+
+
+def _main_price(msg):
+    sheets = msg.get("term_sheets") or []
+    return (sheets[0].get("terms") or {}).get("unit_price") if sheets else None
+
+
+class HoldGuardMixin:
+    def thread_move(self, case, threads, sid):
+        msg = super().thread_move(case, threads, sid)
+        if not msg:
+            return msg
+        ev = threads.get(sid) or []
+        ours = [p for p in (_main_price(m) for m in ev if m.get("from") == "buyer") if p]
+        theirs = [p for p in (_main_price(m) for m in ev if m.get("from") != "buyer") if p]
+        new = (msg.get("term_sheets") or [{}])[0].get("terms", {}).get("unit_price")
+        if (
+            new
+            and ours
+            and len(theirs) >= 2
+            and abs(new - ours[-1]) <= 0.001 * new  # we would hold ...
+            and abs(theirs[-1] - theirs[-2]) <= 0.001 * theirs[-1]  # ... after it held
+            and theirs[-1] <= new * (1 + HOLD_GAP)  # and it is close
+        ):
+            self.threads[sid].ready = True  # close() takes its standing offer if it beats the alternative
+            log.info("%s %s: hold guard - it held at %.2f, we would hold at %.2f: take it", case["case_id"], sid,
+                     theirs[-1], new)
+            return None
+        return msg
+
+
+class GuardedRouterAgent(TypedRouterAgent):
+    """The final router unchanged (no supplier-type settings) + the hold guard."""
+
+    settings = (("corporate", False), ("owner_anchor", 0.0), ("owner_step", 1.0))
+
+    def _route(self, case):
+        fresh = self.case_id != case["case_id"]
+        inner = RouterAgent._route(self, case)
+        if fresh and not isinstance(inner, HoldGuardMixin):
+            inner.__class__ = type(f"Guarded{type(inner).__name__}", (HoldGuardMixin, type(inner)), {})
+        return inner
