@@ -116,7 +116,7 @@ export const INITIAL_NODES: StudioNode[] = [
     id: "outcome",
     kind: "outcome",
     title: "Deal signed",
-    subtitle: "Score, € saved, lessons to the ledger",
+    subtitle: "€ saved, terms, lessons to the ledger",
     params: [
       { key: "log_ledger", label: "Write to experiment ledger", value: true },
       { key: "voice_debrief", label: "Voice debrief to the buyer", value: true },
@@ -166,5 +166,44 @@ export const SEED_SUGGESTIONS: Suggestion[] = [
     source: "analysis",
     status: "pending",
     createdAt: "2026-10-25T07:52:00.000Z",
+  },
+  {
+    id: "seed-verified-facts",
+    nodeId: "evidence",
+    paramKey: "max_claims",
+    title: "Allow a third argument when all three are verified facts",
+    rationale:
+      "In Brandlhuber's first reply all three facts we cited (quality record, volume change, notice period) came back verified, and their offer moved 4.2 % in one round, the biggest step of the negotiation.",
+    before: "2",
+    after: "3",
+    evidenceKind: "this_negotiation",
+    evidence: {
+      runId: "20261024-165810-go49mor-v15",
+      caseId: "case:P01",
+      round: 1,
+      quote: "We did not know that - a fair point.",
+    },
+    source: "analysis",
+    status: "pending",
+    createdAt: "2026-10-25T08:05:00.000Z",
+  },
+  {
+    id: "seed-lead-time",
+    nodeId: "levers",
+    title: "Trade lead time when the supplier calls it a hard requirement",
+    rationale:
+      "Ravensteiner called its 56-day lead time strictly required in round 1. Insisting on our shorter lead time costs a concession every round; conceding the lead time early buys a price step instead.",
+    before: "Supplier states a lead time is strictly required",
+    after: "Offer their lead time in the next term sheet and ask for a lower unit price in return",
+    evidenceKind: "this_negotiation",
+    evidence: {
+      runId: "20261025-025817-router-x-practice",
+      caseId: "case:P10",
+      round: 1,
+      quote: "The Lieferzeit 56 days is strictly required to integrate this volume into our production schedule.",
+    },
+    source: "analysis",
+    status: "pending",
+    createdAt: "2026-10-25T08:10:00.000Z",
   },
 ];

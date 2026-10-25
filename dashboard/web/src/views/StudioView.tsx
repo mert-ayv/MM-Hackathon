@@ -267,7 +267,7 @@ export function StudioView({ nodeId }: { nodeId?: string }) {
           onEdgeMouseEnter={(_, e) => setHoverEdge(e.id)}
           onEdgeMouseLeave={() => setHoverEdge(null)}
           fitView
-          fitViewOptions={{ padding: 0.03 }}
+          fitViewOptions={{ padding: { top: "16px", left: "16px", right: "16px", bottom: "84px" } }} // bottom: room for the voice dock
           minZoom={0.3}
           maxZoom={1.6}
           proOptions={{ hideAttribution: true }}

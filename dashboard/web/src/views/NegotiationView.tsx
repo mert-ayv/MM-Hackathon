@@ -109,7 +109,7 @@ function Story({ model, runId, caseId, round }: { model: CaseModel; runId: strin
       <Card className="animate-rise overflow-hidden motion-reduce:animate-none">
         <div className="grid items-center gap-8 p-7 lg:grid-cols-[auto_1fr_400px]">
           {isNum(o.increaseAvertedPct) ? (
-            <ScoreRing score={o.increaseAvertedPct} size={148} label="of increase averted" fmt={(x) => `${Math.round(x * 100)}%`} />
+            <ScoreRing score={o.increaseAvertedPct} size={148} label="increase averted" fmt={(x) => `${Math.round(x * 100)}%`} />
           ) : (
             <ScoreRing score={o.savedPct} size={148} label="below their quote" fmt={(x) => `${(x * 100).toFixed(1)}%`} />
           )}
