@@ -61,6 +61,11 @@ export function whyLine(s: RoundStory): string {
   return parts.join(" · ");
 }
 
+/** "Gießerei Brandlhuber GmbH & Co. KG" -> "Gießerei Brandlhuber" */
+export function plainName(name: string): string {
+  return name.replace(/\s+(GmbH|AG|KG|SE|Ltd\.?|Sp\. z o\.o\.|s\.r\.o\.|a\.s\.|A\.Ş\.|Kft\.)(\s|$).*$/i, "").trim() || name;
+}
+
 /** Display names that stay distinct when two suppliers shorten to the same word. */
 export function threadLabels(threads: Thread[]): Map<string, string> {
   const count = new Map<string, number>();
@@ -69,7 +74,7 @@ export function threadLabels(threads: Thread[]): Map<string, string> {
     threads.map((t) => [
       t.sid,
       (count.get(t.short) ?? 0) > 1
-        ? t.name.replace(/\s+(GmbH|AG|KG|SE|Ltd\.?|Sp\. z o\.o\.|s\.r\.o\.|& Co\. KG)(\s|$).*$/i, "").trim() || t.sid
+        ? plainName(t.name)
         : t.short,
     ]),
   );

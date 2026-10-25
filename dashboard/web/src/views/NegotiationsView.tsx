@@ -7,6 +7,7 @@ import { href } from "../lib/router";
 import { Card, cx, Empty, Label, Pill, Segmented, StatusBadge } from "../components/ui";
 import { ScoreRing, Sparkline } from "../components/story/visuals";
 import { withLabels } from "./NegotiationView";
+import { plainName } from "../lib/story";
 
 const isNum = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n);
 
@@ -126,7 +127,7 @@ function NegCard({ p, big }: { p: Pick; big?: boolean }) {
   const model = useMemo(() => (data ? withLabels(buildModel(data.events)) : null), [data]);
   const t = model?.threads.find((x) => x.sid === model.result?.supplier_id) ?? model?.threads[0];
   const cid = (p.c.real_case_id ?? p.c.case_id).replace(/^case:/, "").replace(/~\d+$/, "");
-  const supplier = model ? (model.threads.length > 1 ? `${t?.short ?? ""} + ${model.threads.length - 1} more` : t?.name) : p.c.supplier_name;
+  const supplier = model ? (model.threads.length > 1 ? `${t?.short ?? ""} + ${model.threads.length - 1} more` : t && plainName(t.name)) : p.c.supplier_name;
 
   return (
     <a href={href({ name: "negotiation", runId: p.run.run_id, caseId: p.c.case_id })} className="group block">

@@ -108,7 +108,7 @@ function Story({ model, runId, caseId, round }: { model: CaseModel; runId: strin
             ) : (
               <div className="mt-3 text-[1.1rem] text-ink-2">{model.result ? `No deal · ${model.result.end_reason ?? ""}` : "In progress"}</div>
             )}
-            {isNum(v.askPct) && isNum(v.dealPct) && (
+            {isNum(v.askPct) && isNum(v.dealPct) && v.askPct > 0 && (
               <div className="mt-1 text-[1rem] text-ink-2">
                 <span className="font-semibold text-ink">{fmtPct(v.dealPct)}</span> instead of <span className="line-through decoration-accent/60">{fmtPct(v.askPct)}</span> on
                 today's price
@@ -190,7 +190,7 @@ function Story({ model, runId, caseId, round }: { model: CaseModel; runId: strin
                 >
                   <span className="h-2 w-2 rounded-full" style={{ background: t.color, boxShadow: "0 0 0 1.5px white" }} />
                   {t.short}
-                  <span className="opacity-60">{t.status === "accepted" || t.status === "agreed" ? "✓" : t.status === "walked_away" ? "✕" : ""}</span>
+                  <span className="opacity-60">{t.sid === model.result?.supplier_id && model.result?.deal ? "✓ deal" : t.status === "walked_away" || t.status === "no_bid" ? "✕" : ""}</span>
                 </button>
               ))}
             </div>
