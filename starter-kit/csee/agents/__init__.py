@@ -45,7 +45,7 @@ The runner's contract (`runner.play_case`), in call order:
 """
 
 from ..agent import CseeAgent
-from .annika import AnnikaAgent, AnnikaLeverCap, AnnikaRawLeverCap
+from .annika import AnnikaAgent, AnnikaCapOnly, AnnikaLeverCap, AnnikaRawLeverCap
 from .annika_capacity import AnnikaCapacity9Agent, AnnikaCapacity9J2Agent, AnnikaCapacity9JAgent, AnnikaCapacityAgent
 from .ege import EgeAgent
 from .emre import EmreAgent
@@ -187,6 +187,7 @@ AGENTS = {
     "mert-plan-meso": PlanMesoBase,  # planner + payment MESO on base terms (renewal / capacity / bundling candidate)
     "mert-rfq-anchor-d": RfqAnchorDossierClaims,  # final RFQ route: deeper opening + dossier claims
     "annika-lever-cap": AnnikaLeverCap,  # Sun 09:30: mert-plan-meso-lever-dc + lever sheets never dearer for us than the main sheet (P02)
+    "annika-cap-only": AnnikaCapOnly,  # routed price_increase planner + cap only (no alternative sheet dearer for us than the main sheet)
     "annika-raw-lever-cap": AnnikaRawLeverCap,  # same cap on the raw planner
     "router": RouterAgent,
     "router-plan": RouterPlanAgent,  # A/B candidate: the planner on every non-RFQ type

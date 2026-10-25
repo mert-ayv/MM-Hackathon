@@ -13,7 +13,7 @@ import math
 import os
 import sys
 
-from arena_kit.cost import RELATIONSHIP_GOALS, total_cost
+from arena_kit.cost import RELATIONSHIP_GOALS, complete_offer, must_haves_ok, total_cost
 
 from .. import levers
 
@@ -56,7 +56,7 @@ class LeverCapMixin:
                           and "index_clause" in case["negotiable"] and "unit_price" in case["negotiable"] and main.get("unit_price"))
         # P01 (no clause option): the planner's low anchor still ends at 133.1 (0.99); lifting it to the relationship
         # optimum (134.5) ended at 134.49 (0.93) on realsim, so the lift is only for the clause pattern below.
-        if clause_pattern:
+        if clause_pattern and getattr(self, "desk_band", True):
             # stabilise / secure_supply: never ask below the price that minimises OUR true C (price + relationship
             # charge). P02: the planner's 12 % anchor (330.85) costs us 2.35M under the true model; the C-minimal
             # no-clause price is ~362 (2.23M), and every close up to 366 scores 1.0.
@@ -77,7 +77,7 @@ class LeverCapMixin:
         status = (theirs[-1].get("status") if theirs else None) or ""
         clause_sheets = [t for t in out[1:] if t.get("index_clause") and not main.get("index_clause")]
         fallback = None
-        if clause_pattern and rel_opt:
+        if clause_pattern and rel_opt and getattr(self, "desk_band", True):
             step = (1.0, 1.5, 1.5)[min(n_sent, 2)] / 100
             band = math.ceil(rel_opt * (1 + step) * 100) / 100
             if abs(main.get("unit_price", 0) - band) > 0.005:
@@ -87,8 +87,19 @@ class LeverCapMixin:
                 if clause_sheets:
                     notes.append("clause sheets held back")
                 out = [main] + [t for t in out[1:] if not t.get("index_clause")]
-            elif clause_sheets:
-                fallback = min(clause_sheets, key=lambda t: total_cost(case, t, std, sup))
+            else:
+                if not clause_sheets:  # the planner names the clause only when the supplier's latest mail does: build it
+                    paths = b.get("index_paths") or {}
+                    opts = [c for c in levers.options(case, "index_clause") if c and paths.get(c["series"], 0) > 0]
+                    if opts:
+                        clause = max(opts, key=lambda c: c.get("deadband_pct") or 0)  # cheapest form for us
+                        t = complete_offer(case, {**main, "index_clause": clause})
+                        p = levers.relationship_optimal_price(case, t, std, sup, main["unit_price"] * 0.9, main["unit_price"], steps=400)
+                        if p and must_haves_ok(case, {**t, "unit_price": p}, std):
+                            clause_sheets = [{**t, "unit_price": math.ceil(p * 100) / 100}]
+                            out = out + clause_sheets
+                if clause_sheets:
+                    fallback = min(clause_sheets, key=lambda t: total_cost(case, t, std, sup))
         cap = total_cost(case, main, std, sup) + 0.01
         kept = [main]
         for t in out[1:]:
@@ -148,3 +159,9 @@ class AnnikaLeverCap(LeverCapMixin, PlanMesoLeverDossierClaims):
 
 class AnnikaRawLeverCap(LeverCapMixin, PlanMesoRawDossierClaims):
     """raw_material slot candidate: mert-plan-meso-raw-dc + the lever-sheet cap."""
+
+
+class AnnikaCapOnly(LeverCapMixin, PlanMesoLeverDossierClaims):
+    """price_increase slot candidate: the routed planner + only the cap (no anchor lift, no desk band)."""
+
+    desk_band = False
