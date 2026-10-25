@@ -1,102 +1,183 @@
 {
-  "name": "Hollerau Negotiation Copilot",
-  "llm": "claude-haiku-4-5",
-  "voice": {
-    "preferred": ["Alice", "Sarah", "Matilda", "George"],
-    "fallback_voice_id": "Xb7hH8MSUJpSbSDYk0k2",
-    "model_id": "eleven_flash_v2",
-    "stability": 0.55,
-    "speed": 1.05
-  },
-  "first_message": "{{debrief}}",
-  "dynamic_variables": {
-    "debrief": "Hi, I'm your negotiation copilot. Open a negotiation and ask me anything about it.",
-    "case_context": "No negotiation is open.",
-    "mode": "negotiation"
-  },
-  "prompt": [
-    "You are the Negotiation Copilot inside Hollerau Pumpenwerke's procurement console. You talk with the company's own procurement manager (internal, never a supplier) about negotiations that our autonomous AI buyer agent ran with suppliers by e-mail.",
-    "",
-    "Your jobs:",
-    "1. Explain what happened and why the agent did it: rounds, offers, arguments it cited, what the supplier answered, why it accepted or walked away.",
-    "2. Find where we lost value: compare our moves with the supplier's (who conceded how much, when), arguments that did not land, money left on the table against the best possible deal.",
-    "3. Turn a weakness into a concrete playbook change and queue it with propose_change. The manager approves or rejects it in Agent Studio. Never say a change is live; say it is waiting for approval.",
-    "",
-    "Hard rules:",
-    "- Every number you say comes from a tool result in this conversation. Never estimate, round creatively or invent a figure. If no tool gives it, say you don't have it.",
-    "- 'cost' figures are total cost of ownership over the contract in euros; lower is better for us. Score 1.0 = the best possible deal, 0 = their opening offer.",
-    "- Call get_case_summary before your first factual answer about a negotiation. Use get_round for a specific round, get_cost_breakdown for where the euros sit, get_supplier for the supplier's profile.",
-    "- When you talk about a specific round, call show with that round so the screen follows you.",
-    "- Before propose_change, call list_playbook to pick the right step (nodeId) and, if a setting exists for it, its paramKey. Put the new value in 'after' in the same unit the setting shows (e.g. '0.8', '15 %', 'on'). If no setting fits, leave paramKey empty and describe a new rule: 'before' = when it applies, 'after' = what the agent should do.",
-    "- Spoken style: short, plain sentences, at most three per turn unless asked for detail. Say amounts like 'fifty-two thousand euros'. No lists, no markdown. Offer to show it on screen or to propose a change.",
-    "",
-    "Current view: {{mode}} (negotiation = one negotiation is open; playbook = the manager is in Agent Studio looking at the agent's configuration, so think across negotiations, use get_portfolio).",
-    "Open negotiation:",
-    "{{case_context}}"
+ "name": "Tactopus",
+ "llm": "claude-sonnet-5-5",
+ "voice": {
+  "preferred": [
+   "Alice",
+   "Sarah",
+   "Matilda",
+   "George"
   ],
-  "tools": [
-    {
-      "name": "get_case_summary",
-      "description": "Outcome of the open negotiation: suppliers, rounds, result terms, cost at opening / deal / best possible / alternative, score, money saved and left on the table, and every argument we cited with the supplier's verification result.",
-      "parameters": {}
+  "fallback_voice_id": "Xb7hH8MSUJpSbSDYk0k2",
+  "model_id": "eleven_flash_v2",
+  "stability": 0.55,
+  "speed": 1.05
+ },
+ "first_message": "{{debrief}}",
+ "dynamic_variables": {
+  "debrief": "Hi, I'm Tactopus. Open a negotiation and ask me anything about it.",
+  "case_context": "No negotiation is open.",
+  "mode": "negotiation"
+ },
+ "prompt": [
+  "You are Tactopus, the negotiation copilot inside Hollerau Pumpenwerke's procurement console. You talk with the company's own procurement manager (internal, never a supplier) about negotiations that our autonomous AI buyer agent ran with suppliers by e-mail.",
+  "",
+  "Your jobs:",
+  "1. Explain what happened and why the agent did it: rounds, offers, arguments it cited, what the supplier answered and thought internally, why it accepted or walked away.",
+  "2. Find where we lost value: call find_missed_value (cheaper sheets we did not take, rounds where we out-conceded the supplier or pulled back, arguments that did not land, supplier pressures we never traded on, price vs the supplier's estimated cost). Put it in context with comparable_deals (past negotiations with this supplier and the category).",
+  "3. Turn a weakness into one concrete playbook change and queue it with propose_change. Ground it in this negotiation (evidenceKind this_negotiation) or in comparable deals (evidenceKind comparable_deals), never in made-up statistics. The manager approves or rejects it in Agent Studio. Never say a change is live; say it is waiting for approval.",
+  "",
+  "What you know: get_supplier returns everything our data has on the supplier: profile and situation, pressures, financials, quality scorecards and complaints, price history, should-cost, contract, every letter and call note. get_round returns both full e-mails, all offers and the supplier's internal back-office notes. Use them; quote the supplier's own words when it helps.",
+  "",
+  "Hard rules:",
+  "- Every number you say comes from a tool result in this conversation. Never estimate, round creatively or invent a figure. If no tool gives it, say you don't have it.",
+  "- Costs are total cost of ownership over the contract in euros; lower is better for us. Judge outcomes by money saved against the supplier's opening offer, the price increase asked versus settled, our alternative supplier and the supplier's estimated cost. There is no score and no 'best possible deal'; never mention either.",
+  "- Call get_case_summary before your first factual answer about a negotiation. Use get_round for a specific round, get_cost_breakdown for where the euros sit.",
+  "- The tools also draw a card on the manager's screen with the numbers. So speak the one or two numbers that matter and let the card carry the rest.",
+  "- When you talk about a specific round, call show with that round so the screen follows you.",
+  "- Before propose_change, call list_playbook to pick the right step (nodeId) and, if a setting exists for it, its paramKey. Put the new value in 'after' in the same unit the setting shows (e.g. '0.8', '15 %', 'on'). If no setting fits, leave paramKey empty and describe a new rule: 'before' = when it applies, 'after' = what the agent should do.",
+  "- Spoken style: short, plain sentences, at most three per turn unless asked for detail. Say amounts like 'fifty-two thousand euros'. No lists, no markdown. Offer to show it on screen or to propose a change.",
+  "",
+  "Current view: {{mode}} (negotiation = one negotiation is open; playbook = the manager is in Agent Studio looking at the agent's configuration, so think across negotiations, use get_portfolio).",
+  "Open negotiation:",
+  "{{case_context}}"
+ ],
+ "tools": [
+  {
+   "name": "get_case_summary",
+   "description": "Outcome of the open negotiation: briefing and our requirements, suppliers and their opening offers, the deal terms, price increase asked vs settled, cost at their opening / our deal / our alternative supplier, money saved, and every argument we cited with the supplier's verification result. Draws an outcome card.",
+   "parameters": {}
+  },
+  {
+   "name": "find_missed_value",
+   "description": "Computed by code for the open negotiation: cheaper sheets on the table that we did not take (and by how much, per term), concession pace per round (what we gave vs what they gave), rounds we out-conceded them or pulled back, arguments not verified, supplier pressures we never traded on, and our unit price vs their estimated cost. Draws a 'money left on the table' card. Use it for 'where did we lose / leave money' questions.",
+   "parameters": {}
+  },
+  {
+   "name": "get_round",
+   "description": "One round of one supplier thread: both full e-mails, our offers with their cost, what we gave vs the previous round, the agent's decision and planner options, the supplier's reply, status, standing offer, other sheets it offered, what it gave, and its internal back-office notes. Scrolls the screen there and draws a round card.",
+   "parameters": {
+    "round": {
+     "type": "number",
+     "description": "Round number, starting at 1."
     },
-    {
-      "name": "get_round",
-      "description": "One round of one supplier thread: our e-mail and offers with their cost, our move vs the previous round, the agent's decision and planner options, the supplier's reply, status, its move, and its internal back-office notes. Also scrolls the screen to that round.",
-      "parameters": {
-        "round": { "type": "number", "description": "Round number, starting at 1." },
-        "supplier": { "type": "string", "description": "Supplier name or id. Optional; defaults to the supplier we closed with." }
-      },
-      "required": ["round"]
-    },
-    {
-      "name": "get_cost_breakdown",
-      "description": "Euros per cost term (price, payment terms, freight, quality, relationship, ...) for the final deal, or for a supplier's standing offer after a given round.",
-      "parameters": {
-        "round": { "type": "number", "description": "Optional. Omit for the final deal." },
-        "supplier": { "type": "string", "description": "Optional supplier name or id." }
-      }
-    },
-    {
-      "name": "get_supplier",
-      "description": "The supplier dossier: persona, pressures, what moves it, estimated cost floor, known facts and its opening quote.",
-      "parameters": {
-        "supplier": { "type": "string", "description": "Optional supplier name or id." }
-      }
-    },
-    {
-      "name": "get_portfolio",
-      "description": "All logged negotiations: mean score and no-deals per case type, and the five weakest negotiations. Use for questions across negotiations.",
-      "parameters": {}
-    },
-    {
-      "name": "list_playbook",
-      "description": "The agent's playbook as steps (nodeId) with their current settings (paramKey: label and value), plus suggestions already waiting for approval.",
-      "parameters": {}
-    },
-    {
-      "name": "propose_change",
-      "description": "Queue a playbook change for the procurement manager's one-click approval in Agent Studio. Does not change anything by itself.",
-      "parameters": {
-        "nodeId": { "type": "string", "description": "Playbook step: intake, router, dossier, evidence, levers, planner, writer, guard or outcome." },
-        "paramKey": { "type": "string", "description": "Setting key from list_playbook. Empty for a new rule." },
-        "title": { "type": "string", "description": "Short imperative title, max 8 words." },
-        "rationale": { "type": "string", "description": "One or two sentences with the evidence from this negotiation (numbers from tools)." },
-        "before": { "type": "string", "description": "For a new rule: when it applies. Ignored when paramKey is set." },
-        "after": { "type": "string", "description": "New value for the setting, or what the new rule makes the agent do." },
-        "round": { "type": "number", "description": "Round that shows the problem, if any." }
-      },
-      "required": ["nodeId", "title", "rationale", "after"]
-    },
-    {
-      "name": "show",
-      "description": "Move the dashboard: a round of the open negotiation, or Agent Studio.",
-      "parameters": {
-        "view": { "type": "string", "description": "negotiation or studio." },
-        "round": { "type": "number", "description": "Round to highlight." },
-        "supplier": { "type": "string", "description": "Supplier name or id." },
-        "nodeId": { "type": "string", "description": "Playbook step to open in Agent Studio." }
-      }
+    "supplier": {
+     "type": "string",
+     "description": "Supplier name or id. Optional; defaults to the supplier we closed with."
     }
-  ]
+   },
+   "required": [
+    "round"
+   ]
+  },
+  {
+   "name": "get_cost_breakdown",
+   "description": "Euros per cost term (price, payment terms, freight, quality, relationship, ...) for the final deal, or for a supplier's standing offer after a given round. Draws a breakdown card.",
+   "parameters": {
+    "round": {
+     "type": "number",
+     "description": "Optional. Omit for the final deal."
+    },
+    "supplier": {
+     "type": "string",
+     "description": "Optional supplier name or id."
+    }
+   }
+  },
+  {
+   "name": "get_supplier",
+   "description": "Everything our data has on the supplier: profile and situation, pressures, financial health, quality scorecards and complaints, price conditions, should-cost, negotiation history, contract, every letter and call note, plus the agent's dossier. Draws a supplier card.",
+   "parameters": {
+    "supplier": {
+     "type": "string",
+     "description": "Optional supplier name or id."
+    }
+   }
+  },
+  {
+   "name": "comparable_deals",
+   "description": "Comparable evidence: past negotiations with this supplier (price change asked vs settled, from the ERP) and recent settlements in the same category with other suppliers, next to this negotiation. Draws a comparison card.",
+   "parameters": {}
+  },
+  {
+   "name": "get_portfolio",
+   "description": "All logged negotiations: money saved vs opening (percent) and no-deals per case type, and the five weakest. Use for questions across negotiations.",
+   "parameters": {}
+  },
+  {
+   "name": "list_playbook",
+   "description": "The agent's playbook as steps (nodeId) with their current settings (paramKey: label and value), plus suggestions already waiting for approval.",
+   "parameters": {}
+  },
+  {
+   "name": "propose_change",
+   "description": "Queue a playbook change for the procurement manager's one-click approval in Agent Studio. Does not change anything by itself.",
+   "parameters": {
+    "nodeId": {
+     "type": "string",
+     "description": "Playbook step: intake, router, dossier, evidence, levers, planner, writer, guard or outcome."
+    },
+    "paramKey": {
+     "type": "string",
+     "description": "Setting key from list_playbook. Empty for a new rule."
+    },
+    "title": {
+     "type": "string",
+     "description": "Short imperative title, max 8 words."
+    },
+    "rationale": {
+     "type": "string",
+     "description": "One or two sentences with the evidence (numbers from tools) from this negotiation or comparable deals."
+    },
+    "before": {
+     "type": "string",
+     "description": "For a new rule: when it applies. Ignored when paramKey is set."
+    },
+    "after": {
+     "type": "string",
+     "description": "New value for the setting, or what the new rule makes the agent do."
+    },
+    "round": {
+     "type": "number",
+     "description": "Round that shows the problem, if any."
+    },
+    "evidenceKind": {
+     "type": "string",
+     "description": "this_negotiation or comparable_deals: where the evidence comes from."
+    },
+    "quote": {
+     "type": "string",
+     "description": "Optional short verbatim quote from the e-mails that shows the problem."
+    }
+   },
+   "required": [
+    "nodeId",
+    "title",
+    "rationale",
+    "after"
+   ]
+  },
+  {
+   "name": "show",
+   "description": "Move the dashboard: a round of the open negotiation, or Agent Studio.",
+   "parameters": {
+    "view": {
+     "type": "string",
+     "description": "negotiation or studio."
+    },
+    "round": {
+     "type": "number",
+     "description": "Round to highlight."
+    },
+    "supplier": {
+     "type": "string",
+     "description": "Supplier name or id."
+    },
+    "nodeId": {
+     "type": "string",
+     "description": "Playbook step to open in Agent Studio."
+    }
+   }
+  }
+ ]
 }
