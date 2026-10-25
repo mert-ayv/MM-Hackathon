@@ -33,3 +33,25 @@ def test_challengers_registered():
     assert agents.get("emre-plan-deep").plan.anchor_rel == agents.get("mert-plan-dc").plan.anchor_rel
     assert variants.params("baseacr").close_room == 0.05
     assert variants.params("v7acr").close_room == 0.05
+
+
+def test_supplier_kind_from_signature_and_profile():
+    from csee.agents.emre_ehl import supplier_kind
+
+    assert supplier_kind({}, "Gruß\nSabine Rottaler\nOwner, Feinmechanik Rottaler GmbH") == "owner"
+    assert supplier_kind({}, "Best regards\nTomáš Veselý\nKey Account Manager, Vesmo a.s.") == "corporate"
+    assert supplier_kind({}, "Grace Chen\nExport Manager, Meridune Precision Castings") == "corporate"
+    assert supplier_kind({"owner_type": "group"}, "Regards") == "corporate"
+    assert supplier_kind({"owner_type": "family", "staff": 40}, "Regards") == "owner"
+    assert supplier_kind({"owner_type": "family", "staff": 900}, "Regards") is None
+    # the signature wins over the profile (a group shop whose owner still signs)
+    assert supplier_kind({"owner_type": "group"}, "Max Huber\nInhaber") == "owner"
+
+
+def test_typed_router_wraps_routed_agent():
+    from csee.agents.emre_ehl import SupplierTypeMixin
+
+    r = agents.get("emre-router-typed")()
+    inner = r._route({"case_id": "case:X", "type": "renewal"})
+    assert isinstance(inner, SupplierTypeMixin)
+    assert isinstance(inner, agents.get("mert-plan-dc"))
