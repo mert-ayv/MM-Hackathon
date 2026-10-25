@@ -303,3 +303,8 @@ necessary to establish performance; existing runs predate this implementation.
 **Sun 07:50, RFQ route promoted:** `mert-rfq-anchor-d/v7a` = the deeper RFQ opening (Astra session) plus the dossier claims hook.
 - **Fresh live recheck:** P05 **0.854** (new team best, no walk-away); sandbox D02 0.77 twice. Together with the earlier runs: P05 0.831 / 0.831 / 0.854 and D02 0.786 / 0.77 / 0.77, against 0.810 and 0.736 for the old route.
 - **Risk accepted:** the sweep's extra simulated walks rest on the engine's walk assumption. Practice has shown no walks without a push.
+
+**Sun 07:55, raw front-load (`mert-raw-frontload`, Astra's idea): rejected.**
+- **Test:** both index arguments in message 1 (instead of one per e-mail), with price, package and closing unchanged.
+- **Results:** P18 0.530 (best 0.618), P08 0.711 (best 0.754). Both arguments were verified, but P18's first counter was still 5.60.
+- **Reading:** the bots take one argument per round. One argument per e-mail stays.
