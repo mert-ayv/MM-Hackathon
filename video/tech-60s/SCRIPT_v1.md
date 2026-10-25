@@ -1,6 +1,6 @@
 # Technical video (60 s): script v1, "Code decides every number"
 
-**Status:** draft for review. Nothing recorded or rendered yet.
+**Status:** script approved (strategy session, Sun 10:30). A silent master is rendered from `build/index.html` (see `build/README.md`); narration still to record and mux.
 **Companion:** the demo video (`video/demo-60s/SCRIPT_v3.md`) tells the story of one negotiation. This one answers *how it works and how we know it works*. No overlap: the demo never shows the diagram, this never replays an e-mail thread.
 **Audience:** Hack & More judges who have not read Tacto's brief, and the Tacto jury as a second viewer. Assume they know what an LLM agent is and nothing about the arena.
 
