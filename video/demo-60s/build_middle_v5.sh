@@ -33,12 +33,9 @@ clip() { # src start end out [speed]
     -c:v libx264 -crf 16 -an "$4"
 }
 box() { echo "drawbox=x=$1:y=$2:w=$3:h=$4:color=$ORANGE@0.13:t=fill,drawbox=x=$1:y=$2:w=$3:h=$4:color=$ORANGE:t=6"; }
-hold() { # still dur cx cy Z boxes out  (zoom eases from 1 to Z in 0.8 s, then creeps 4 % more)
-  local n; n=$(python3 -c "print(round($2*$FPS))")
-  local z="1+($5-1)*(1-cos(PI*min(1,on/20)))/2+0.04*on/$n"
-  ffmpeg -y -loglevel error -loop 1 -framerate $FPS -t "$2" -i "$1" -vf \
-    "$6,scale=3840:2160,zoompan=z='$z':x='max(0,min(iw-iw/zoom,$3*2-iw/zoom/2))':y='max(0,min(ih-ih/zoom,$4*2-ih/zoom/2))':d=1:s=1920x1080:fps=$FPS,format=yuv420p" \
-    -frames:v "$n" -c:v libx264 -crf 16 "$7"
+hold() { # still dur cx cy Z boxes out  (boxes drawn on the still, then a smooth subpixel zoom: zoomhold.py)
+  ffmpeg -y -loglevel error -i "$1" -vf "$6" -frames:v 1 "$7.boxed.png"
+  uv run --no-project --with pillow python zoomhold.py "$7.boxed.png" "$2" "$3" "$4" "$5" ease "$7"
 }
 
 pan() { # still dur y Z out  (zoomed in at Z around height y, pans left to right)
