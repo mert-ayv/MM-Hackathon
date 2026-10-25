@@ -1554,6 +1554,19 @@ class MertFixedLadderAgent(MertFixedProbeAgent):
     fixed_prices = (364.0, 366.0, 368.0, 369.0)
 
 
+class MertRawFocusedAgent(MertConsistentAgent):
+    """Sunday raw-material ablation: send only the parent's main package.
+
+    Extra sheets can divert the supplier's concession to a more expensive payment
+    or index structure. Keep the existing price policy and clause-continuity guard;
+    still evaluate all of the supplier's replies and alternatives when closing.
+    """
+
+    def sheets(self, case, sid, ours, std, supplier):
+        out = super().sheets(case, sid, ours, std, supplier)
+        return out[:1] if case.get('type') == 'raw_material' else out
+
+
 class MertRawJointMenuAgent(MertSkipHedgeAgent):
     """Raw-material probe: intermediate payment and narrower deadband together.
 

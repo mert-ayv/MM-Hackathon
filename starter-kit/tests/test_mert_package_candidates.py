@@ -137,3 +137,15 @@ def test_fixed_ladder_is_bounded_and_resumes_from_sent_messages():
     b=MertFixedLadderAgent(params=variants.params('v14a'))
     b.prepare(c,threads)
     assert not b.fixed_probe(c,sid)
+
+
+@pytest.mark.parametrize('cid',['case:P08','case:P18'])
+def test_raw_focused_preserves_main_package(cid):
+    from csee.agents.mert import MertConsistentAgent,MertRawFocusedAgent
+    a,c,threads,sid=setup(MertRawFocusedAgent,cid)
+    b=MertConsistentAgent(params=variants.params('v14a'))
+    b.prepare(c,copy.deepcopy(threads))
+    actual=a.thread_move(c,threads,sid)['term_sheets']
+    expected=b.thread_move(c,threads,sid)['term_sheets']
+    assert actual==expected[:1]
+    assert must_haves_ok(c,actual[0]['terms'])
