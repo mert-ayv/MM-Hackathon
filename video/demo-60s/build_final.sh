@@ -94,5 +94,12 @@ ffmpeg -y -loglevel error $IN -i $MUSIC -filter_complex "${F}concat=n=$i:v=1:a=1
   [voice][m1]amix=inputs=2:normalize=0:duration=first,loudnorm=I=-14:TP=-1.5:LRA=8,
   afade=t=out:st=$FADE:d=1.2[a]" \
   -map "[v]" -map "[a]" -c:v libx264 -crf 18 -preset slow -pix_fmt yuv420p -r $FPS -c:a aac -b:a 192k -ar 48000 \
-  -movflags +faststart renders/csee-base-demo.mp4
+  -movflags +faststart renders/csee-base-demo-nosubs.mp4
+
+# 5. Burned-in captions (make_captions.py: one PNG per caption, timed overlays).
+uv run --no-project --with playwright python make_captions.py renders/captions
+CIN=""; while read -r f; do CIN="$CIN -i $f"; done < renders/captions/inputs.txt
+ffmpeg -y -loglevel error -i renders/csee-base-demo-nosubs.mp4 $CIN -/filter_complex renders/captions/filter.txt \
+  -map "[vout]" -map 0:a -c:v libx264 -crf 18 -preset slow -pix_fmt yuv420p -c:a copy -movflags +faststart \
+  renders/csee-base-demo.mp4
 ffprobe -v error -show_entries format=duration:stream=width,height,r_frame_rate -of compact renders/csee-base-demo.mp4
