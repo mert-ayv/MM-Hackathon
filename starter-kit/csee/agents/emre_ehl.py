@@ -18,6 +18,7 @@ from arena_kit.cost import RELATIONSHIP_GOALS
 
 from .mert import PlanParams
 from .mert_dossier import PlanMesoLeverDossierClaims, PlannerDossierClaims
+from ..writer import before_signature
 from .router import RouterAgent
 
 log = logging.getLogger("csee")
@@ -287,4 +288,57 @@ class GuardedRouterAgent(TypedRouterAgent):
         inner = RouterAgent._route(self, case)
         if fresh and not isinstance(inner, HoldGuardMixin):
             inner.__class__ = type(f"Guarded{type(inner).__name__}", (HoldGuardMixin, type(inner)), {})
+        return inner
+
+
+# ---------- department questions: let the supplier's back office tell us what it values ----------
+# Tacto deck (slide 05): each supplier is a team of agents - sales asks Finance (costs, payment terms) and Logistics
+# (capacity, delivery dates) before it answers. EHL H34, the winner asked "whether faster payment would buy any
+# additional reduction and how you would quantify it"; the supplier answered with its levers ("Faster payment is
+# welcome ... we are well loaded ... with overtime 35 days, at a premium"). A priced payment alternative also feeds the
+# planner's revealed money rate. First message only, only terms the case lets us negotiate.
+def department_questions(case):
+    neg = set(case.get("negotiable") or [])
+    out = []
+    if "payment_days" in neg:
+        out.append(
+            "Could your finance team tell us what payment within 14 days would be worth to you on the unit price?"
+        )
+    if "lead_time_days" in neg or "volume_per_year" in neg or "contract_months" in neg:
+        out.append(
+            "Could your logistics team tell us whether a longer lead time or firm call-offs over the term would "
+            "lower your price, and by how much?"
+        )
+    return "\n".join(out)
+
+
+class DeptQuestionsMixin:
+    def thread_move(self, case, threads, sid):
+        msg = super().thread_move(case, threads, sid)
+        if not msg or not msg.get("term_sheets"):
+            return msg
+        if any(m.get("from") == "buyer" for m in threads.get(sid) or []):
+            return msg  # first message only
+        addition = department_questions(case)
+        if not addition:
+            return msg
+
+        def ask(body):
+            return before_signature(body, addition)
+
+        msg["body"] = ask(msg["body"])
+        write = msg.get("_write")
+        if write:
+            msg["_write"] = lambda: ask(write())
+        return msg
+
+
+class DeptRouterAgent(RouterAgent):
+    """The final router unchanged + department questions in the first e-mail to each supplier."""
+
+    def _route(self, case):
+        fresh = self.case_id != case["case_id"]
+        inner = super()._route(case)
+        if fresh and not isinstance(inner, DeptQuestionsMixin):
+            inner.__class__ = type(f"Dept{type(inner).__name__}", (DeptQuestionsMixin, type(inner)), {})
         return inner

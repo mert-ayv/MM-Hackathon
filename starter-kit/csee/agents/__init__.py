@@ -119,7 +119,7 @@ from .mert_sunday import MertRfqLeadMenuAgent, MertRawLongAgent, MertRawCashFirs
 from .mert_sunday import MertQualityMeasuredAgent, MertMeasuredRouterAgent, MertQualityRouterAgent
 from .mert_sunday import MertRawFrontloadAgent
 from .unified import UnifiedAgent, UnifiedFastAgent, UnifiedReviewAgent, UnifiedSingleAgent
-from .emre_ehl import PlanMesoLeverDeepClaims, PlannerDeepClaims, AuthorityRouterAgent, GuardedRouterAgent, LeverPriceRouterAgent, OwnerRouterAgent, SlowRouterAgent, TypedRouterAgent
+from .emre_ehl import PlanMesoLeverDeepClaims, PlannerDeepClaims, AuthorityRouterAgent, DeptRouterAgent, GuardedRouterAgent, LeverPriceRouterAgent, OwnerRouterAgent, SlowRouterAgent, TypedRouterAgent
 
 AGENTS = {
     "ege-raw-final": EgeRawFinalAgent,  # rejected: P08 walked after 2% counter
@@ -214,6 +214,7 @@ AGENTS = {
     "emre-router-a2": SlowRouterAgent,  # owner 22 %/16 % rel, smaller steps for owner + corporate
     "emre-router-a3": LeverPriceRouterAgent,  # owner 22 % non-rel; corporate alt sheets 1.5 % cheaper
     "emre-router-guard": GuardedRouterAgent,  # router + hold guard (no second hold near agreement)
+    "emre-router-dept": DeptRouterAgent,  # router + Finance/Logistics questions in the first e-mail
     "router-c": RouterClaimsAgent,  # Sunday A/B candidate: ROUTES with every slot on its c-variant (claim_evidence)
 }
 
