@@ -10,6 +10,7 @@ Key and agent id come from the environment or `starter-kit/.env`: ELEVENLABS_API
 
 import json
 import os
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -49,8 +50,17 @@ def settings() -> tuple[str | None, str | None]:
 def call(method: str, path: str, key: str, body: dict | None = None, timeout: float = 15) -> dict:
     req = urllib.request.Request(API + path, method=method, headers={"xi-api-key": key, "Content-Type": "application/json"},
                                  data=json.dumps(body).encode() if body is not None else None)
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        return json.loads(r.read() or b"{}")
+    # flaky venue Wi-Fi: retry dropped connections (SSL EOF, resets) a few times before giving up
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                return json.loads(r.read() or b"{}")
+        except urllib.error.HTTPError:
+            raise
+        except (urllib.error.URLError, OSError):
+            if attempt == 2:
+                raise
+            time.sleep(0.4 * (attempt + 1))
 
 
 router = APIRouter(prefix="/api/voice")

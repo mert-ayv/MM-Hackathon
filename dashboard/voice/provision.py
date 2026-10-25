@@ -121,6 +121,8 @@ def agent_body(s: dict, voice_id: str, tool_ids: list[str] | None, model_id: str
         tts["expressive_mode"] = True
     if model_id:
         tts["model_id"] = model_id
+    if v.get("text_normalisation_type"):
+        tts["text_normalisation_type"] = v["text_normalisation_type"]
     return {
         "name": s["name"],
         "conversation_config": {
