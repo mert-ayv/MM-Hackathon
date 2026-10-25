@@ -48,6 +48,15 @@ from ..agent import CseeAgent
 from .annika import AnnikaAgent
 from .annika_capacity import AnnikaCapacity9Agent, AnnikaCapacity9J2Agent, AnnikaCapacity9JAgent, AnnikaCapacityAgent
 from .ege import EgeAgent
+from .ege_frontier import (
+    EgeRawDeadbandAgent,
+    EgeRawFinalAgent,
+    EgeRawForecastAgent,
+    EgeRawIndexMenuAgent,
+    EgeRawReciprocalAgent,
+    EgeRenewalStagedAgent,
+    EgeRfqDeepAgent,
+)
 from .emre import EmreAgent
 from .mert import (
     AnchorCapAgent,
@@ -112,6 +121,13 @@ from .mert_sunday import MertRawFrontloadAgent
 from .unified import UnifiedAgent, UnifiedFastAgent, UnifiedReviewAgent, UnifiedSingleAgent
 
 AGENTS = {
+    "ege-raw-final": EgeRawFinalAgent,  # rejected: P08 walked after 2% counter
+    "ege-raw-deadband": EgeRawDeadbandAgent,  # rejected: P08 .550 / P18 .606
+    "ege-rfq-deep": EgeRfqDeepAgent,  # rejected: D02 .449 vs router .765
+    "ege-raw-index-menu": EgeRawIndexMenuAgent,  # rejected: P08 .515 / P18 .521
+    "ege-renewal-staged": EgeRenewalStagedAgent,  # independent arguments, one per turn
+    "ege-raw-forecast": EgeRawForecastAgent,  # include modest positive current demand growth
+    "ege-raw-reciprocal": EgeRawReciprocalAgent,  # forecast with the earlier winning raw price policy
     "unified": UnifiedAgent,
     "unified-single": UnifiedSingleAgent,
     "unified-fast": UnifiedFastAgent,
