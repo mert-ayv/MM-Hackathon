@@ -1330,6 +1330,19 @@ class PlanMixin:
             p = round(max(before) + 0.01, 2)
         return round(p, 2)
 
+    def xc_sync_plan(self, case, sid, events, ours):
+        """Cross-check xc_pace changed the main price after plan_value: re-plan at that price, or sheets() below
+        would price the main sheet back at the old plan_v (restore_main_plan) and the pacing would never be sent."""
+        st = self.threads[sid]
+        if getattr(st, "plan_v", None) is None or not getattr(self, "planned", False):
+            return
+        try:
+            v = self.sval(case, self.sup_model(case, sid, standard_terms(events)), ours)
+        except Exception:
+            v = None
+        if v is not None:
+            st.plan_v = v
+
     def sheets(self, case, sid, ours, std, supplier):
         out = super().sheets(case, sid, ours, std, supplier)
         st = self.threads[sid]
