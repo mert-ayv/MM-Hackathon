@@ -110,7 +110,7 @@ from .mert_sunday import MertRfqLeadMenuAgent, MertRawLongAgent, MertRawCashFirs
 from .mert_sunday import MertQualityMeasuredAgent, MertMeasuredRouterAgent, MertQualityRouterAgent
 from .mert_sunday import MertRawFrontloadAgent
 from .unified import UnifiedAgent, UnifiedFastAgent, UnifiedReviewAgent, UnifiedSingleAgent
-from .emre_ehl import PlanMesoLeverDeepClaims, PlannerDeepClaims, AuthorityRouterAgent, OwnerRouterAgent, SlowRouterAgent, TypedRouterAgent
+from .emre_ehl import PlanMesoLeverDeepClaims, PlannerDeepClaims, AuthorityRouterAgent, LeverPriceRouterAgent, OwnerRouterAgent, SlowRouterAgent, TypedRouterAgent
 
 AGENTS = {
     "unified": UnifiedAgent,
@@ -196,6 +196,7 @@ AGENTS = {
     "emre-router-owner": OwnerRouterAgent,  # owner side only, capacity as routed
     "emre-router-a1": AuthorityRouterAgent,  # owner deep 22 %, corporate first ask capped at 12 %
     "emre-router-a2": SlowRouterAgent,  # owner 22 %/16 % rel, smaller steps for owner + corporate
+    "emre-router-a3": LeverPriceRouterAgent,  # owner 22 % non-rel; corporate alt sheets 1.5 % cheaper
     "router-c": RouterClaimsAgent,  # Sunday A/B candidate: ROUTES with every slot on its c-variant (claim_evidence)
 }
 
