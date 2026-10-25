@@ -243,7 +243,7 @@ export function StudioView({ nodeId }: { nodeId?: string }) {
         </div>
       </div>
 
-      <aside className="flex w-[400px] shrink-0 flex-col border-l border-line bg-white">
+      <aside className="flex w-[360px] shrink-0 flex-col border-l border-line bg-white">
         <div className="flex gap-1 border-b border-line p-2">
           {(
             [

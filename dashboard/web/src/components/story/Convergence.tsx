@@ -140,7 +140,7 @@ export function Convergence({
                   <circle cx={x(r)} cy={y(dealC)} r={11} fill="#FF5A1F" opacity={0.18} className="animate-pulsedot" />
                   <circle cx={x(r)} cy={y(dealC)} r={6.5} fill="#FF5A1F" stroke="white" strokeWidth={2} />
                   <text x={x(r) - 12} y={y(dealC) - 14} textAnchor="end" className="fill-accent-deep text-[11px] font-semibold">
-                    Deal {eurShort(dealC)}
+                    Deal {eurShort(isNum(model.result?.c_deal) ? model.result!.c_deal! : dealC)}
                   </text>
                 </>
               );
