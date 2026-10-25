@@ -62,6 +62,7 @@ from .mert import (
     MertClauseAgent,
     MertConsistentAgent,
     MertRawFocusedAgent,
+    MertRfqAnchorAgent,
     MertDialogueAgent,
     MertHedgeAgent,
     MertHedgeLateAgent,
@@ -104,6 +105,7 @@ from .mert_dossier import (
     SkipHedgeDossier,
 )
 from .router import RouterAgent, RouterClaimsAgent, RouterPlanAgent
+from .mert_sunday import MertRfqLeadMenuAgent, MertRawLongAgent
 from .unified import UnifiedAgent, UnifiedFastAgent, UnifiedReviewAgent, UnifiedSingleAgent
 
 AGENTS = {
@@ -128,6 +130,9 @@ AGENTS = {
     "mert-anchor": MertAnchorAgent,
     "mert-consistent": MertConsistentAgent,
     "mert-raw-focused": MertRawFocusedAgent,
+    "mert-rfq-anchor": MertRfqAnchorAgent,
+    "mert-rfq-lead-menu": MertRfqLeadMenuAgent,
+    "mert-raw-long": MertRawLongAgent,
     "mert-clause": MertClauseAgent,
     "mert-raw": MertRawAgent,
     "mert-hedge": MertHedgeAgent,

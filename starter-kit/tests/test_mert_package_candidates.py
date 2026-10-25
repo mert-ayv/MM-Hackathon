@@ -149,3 +149,48 @@ def test_raw_focused_preserves_main_package(cid):
     expected=b.thread_move(c,threads,sid)['term_sheets']
     assert actual==expected[:1]
     assert must_haves_ok(c,actual[0]['terms'])
+
+
+def test_rfq_anchor_lowers_first_ask_without_breaking_terms():
+    from csee.agents.mert import MertRfqAnchorAgent
+    a,c,threads,sid=setup(MertRfqAnchorAgent,'case:P05')
+    threads={s:[opening(c,s)] for s in c['suppliers']}
+    a.prepare(c,threads)
+    b=CseeAgent(params=variants.params('v14a'));b.prepare(c,copy.deepcopy(threads))
+    for s in c['suppliers']:
+        x=a.thread_move(c,threads,s)['term_sheets']
+        y=b.thread_move(c,threads,s)['term_sheets']
+        assert x[0]['terms']['unit_price'] < y[0]['terms']['unit_price']
+        assert all(must_haves_ok(c,t['terms']) for t in x)
+    assert a.p.final_push==0
+
+
+def test_rfq_delivery_menu_prices_delay_and_excludes_infeasible_56_days():
+    from csee.agents.mert_sunday import MertRfqLeadMenuAgent
+    a,c,threads,sid=setup(MertRfqLeadMenuAgent,'case:P05')
+    ours={'unit_price':28,'payment_days':90,'lead_time_days':35}
+    sheets=a.sheets(c,sid,ours,{},None)
+    assert len(sheets)==3
+    assert sheets[-1]['lead_time_days']==42
+    assert all(must_haves_ok(c,t) for t in sheets)
+    assert total_cost(c,sheets[-1]) <= total_cost(c,sheets[-2])*(1-a.p.trade_gain)+.01
+
+
+@pytest.mark.parametrize('cid',['case:P08','case:P18'])
+def test_raw_long_keeps_clause_and_coverage_without_extra_buyer_cost(cid,monkeypatch):
+    from csee.agents.mert_sunday import MertRawLongAgent
+    from csee.agents.mert_dossier import PlanMesoRawDossierClaims
+    a,c,threads,sid=setup(MertRawLongAgent,cid)
+    y={'unit_price':4.71,'payment_days':90,'contract_months':24,
+       'index_clause':c['term_options']['index_clause'][-1]}
+    monkeypatch.setattr(PlanMesoRawDossierClaims,'next_terms',lambda *args:copy.deepcopy(y))
+    x=a.next_terms(c,threads,sid,y,{},None,9)
+    assert x['contract_months']==36
+    assert x['index_clause']==y['index_clause']
+    assert x['unit_price']==y['unit_price']
+    assert must_haves_ok(c,x)
+    assert total_cost(c,x)<=total_cost(c,y)+.01
+    monkeypatch.setattr(PlanMesoRawDossierClaims,'sheets',lambda *args:[copy.deepcopy(y)])
+    actual=a.sheets(c,sid,y,{},None)[0]
+    assert actual['contract_months']==36
+    assert actual['index_clause']==y['index_clause']
