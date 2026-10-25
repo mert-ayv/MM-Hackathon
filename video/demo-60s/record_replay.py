@@ -36,8 +36,17 @@ with sync_playwright() as p:
         )
         return times[:2]
 
+    marks = []
+    probe = ("(() => { const t = document.body.innerText;"
+             " return [ (t.match(/Round \\d/) || [''])[0], (t.match(/Guten Tag/g) || []).length,"
+             " (t.match(/Good day/g) || []).length, (t.match(/VERIFIED|verified/g) || []).length,"
+             " /Accepted|Agreed/.test(t) ]; })()")
     while time.time() - t0 < 240:
-        page.wait_for_timeout(1000)
+        page.wait_for_timeout(250)
+        m = [round(time.time() - t0, 2)] + page.evaluate(probe)
+        if not marks or m[1:] != marks[-1][1:]:
+            marks.append(m)
+            print("mark", m, flush=True)
         c = clock()
         if len(c) == 2 and c[0] == c[1] and time.time() - t0 > 5:
             break
