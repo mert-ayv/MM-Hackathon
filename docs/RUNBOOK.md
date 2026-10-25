@@ -26,6 +26,8 @@ Built from a pre-mortem on Sat night ("it is 16:00 and we did not win - why?"). 
 9. A hidden case breaks a route.
 10. The pitch.
 
+> **Sleep kills cases.** Sat 01:30 a single-shot router run lost P11 (record-level final offer 45.00, worth 0.794): the MacBook slept 51 min mid-run, the arena's 60 s clock ran on, the session timed out. `csee final/run/play` now start `caffeinate -dimsu -w <pid>` themselves (macOS), but still do `pmset` + `caffeinate` below.
+
 - [ ] **07:45** Phones show CET. Final machine: power in, lid open, battery charging. `brew install tmux` (or use `screen`). `sudo pmset -a sleep 0 displaysleep 0 disablesleep 1`. Hotspot tested once.
 - [ ] **08:00** `curl -s https://arena.tacto.ai/v1/data` until `release-sunday` carries a `url`.
 - [ ] **08:05** `cd starter-kit && uv run arena data`, then the DataPackage one-liner (section 1.5): release path not None; facts > 10356, news > 39, docs > 208. Else `ARENA_RELEASE=/abs/path` in `.env`.

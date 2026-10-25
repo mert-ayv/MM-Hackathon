@@ -285,3 +285,8 @@ necessary to establish performance; existing runs predate this implementation.
 - **Extra sheets redirect the concession.** The bot mirrors on the sheet worth most to it. The LLM's 60-day sheet drew the supplier's steps onto the 60-day track (5.55 -> 5.43) while the 90-day price we wanted fell more slowly (5.53 -> 5.44).
 - **Answering its questions pays.** "Which volume can you commit to?" answered with the fixed 30,000 kits: "with this binding commitment, we are pleased to reduce".
 - **Writer fix:** an ID the model added and we dropped left "the washer award ()." (3 of 337 e-mails, all P07). Empty brackets are now stripped, because the jury reads replays.
+
+**Sun 01:30, single-shot router run (10 practice cases, AI writer):** P01 0.973, P02 0.733, P03 0.923, P04 0.86, P05 0.81, P07 0.715, P08 0.711, P10 0.679, P18 0.552, P11 **0**.
+- **What happened on P11:** our third offer left at 103 s; the supplier's final offer (45.00, worth 0.794) arrived at 3162 s, because the MacBook slept 51 minutes in the middle of the run. The agent decided to accept, but the arena had already ended the session on timeout.
+- **Fix:** `csee final/run/play` keep macOS awake themselves (`caffeinate -dimsu -w <pid>`). It has no inherited pipes and runs in its own session, so it cannot hold `| tee` open and stall the final's restart loop.
+- **The other 9 cases:** in line with earlier single-shot runs (P07 0.715 is at the low end of its 0.715-0.766 spread).
