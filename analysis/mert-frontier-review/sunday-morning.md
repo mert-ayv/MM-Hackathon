@@ -49,3 +49,32 @@ Supplier 70240 reduced its quote on the 42-day structure, but it remained uncomp
 97 targeted local checks passed before the structural screens; after the package-stage correction, all 36 focused candidate/agent checks and the two selected current-candidate smoke parametrizations passed. No shared numeric policy, final route, or curated profile was changed.
 
 Exact session IDs, source patch snapshots and results: `experiments/2026-10-25-mert-codex.jsonl`. Full sent messages and supplier replies: the corresponding `runs/20261025-*` directories.
+
+## Follow-up from 07:14 CET
+
+The board and data release were unchanged. Tested two new mechanisms rather than repeating rejected variants:
+
+- **Cash-first main sheet:** preserve the raw-material clause, place fastest payment first, and price the financing cost into the offer. Keep the original main as an alternative; do not retract previous prices. P18 finished .539481 (5.30 / 14 days / 24 months / 5% deadband), below .618181. Reject for raw materials. RFQ screen is logged separately as `mert-rfq-cash-first`.
+- **Quality reciprocity:** infer the smallest positive price concession from the last four distinct supplier asks, and offer up to twice that increment per round. Stay at least one increment below the supplier's ask for this additional step, retain the normal main proposal if already higher, check must-haves, and retain normal final-offer closing. Implemented as isolated `mert-quality-reciprocal/v14a`.
+
+40 focused tests passed, plus the selected RFQ, raw and quality candidate smoke parametrizations. No final-router changes.
+
+**Confirmed improvement:** `mert-quality-reciprocal/v14a` closed P11 at EUR 44.50 / 300 ppm / no chargeback, score **.877127**, versus previous best .793512. Standing quote path: 47 -> 46.50 -> 46 -> 45.50 -> 45 -> 44.50 final. The case closed normally after six messages. The leaderboard moved from sixth / 79.6 to **fifth / 80.4**, leader 83.0. Supplier-specific acceptance has been measured once; hidden-case generalization remains unverified. Candidate keeps the existing final-offer stop rule.
+
+RFQ cash-first closed .820453 (28 / 14-day payment), below the .830636 simpler anchor candidate. Reject; runner recovered from one stale-standing-offer 422 while closing. The raw cash-first and RFQ cash-first ideas are not recommended for promotion.
+
+Quality mechanism ablation: `mert-quality-reciprocal-single/v14a` kept the reciprocal price policy but sent only the main quality sheet. Result **.709896**, EUR 45.50, versus .877127 with the menu. This is one run per arm, not a definitive causal estimate, but it argues against removing the menu or assuming larger buyer steps alone explain the gain.
+
+Combined isolated candidate: `mert-sunday-router` inherits the current router and overrides only RFQ (`mert-rfq-anchor/v7a`) and quality (`mert-quality-reciprocal/v14a`). All other routes and fallback remain inherited. It is not selected by the final router. Broader offline paired evaluation: 19 local cases x five seeds x two routers = 190 simulated sessions; no practice quota. Targeted checks should not be represented as a live all-supplier sweep.
+
+### Transfer check and correction
+
+The full local sweep was slightly negative: current router mean .313349, combined candidate .308977. These simulator scores are not calibrated to hosted practice. P05 changed -.006063 on average; P11 -.038321; P12 -.038671. All other case means matched. Quality had no paired wins in either local case. **Do not promote the unconditional reciprocal rule as a general quality improvement based solely on its P11 live record.** Full paired summary: `sunday-router-simulation.json`.
+
+Added `mert-quality-measured`: activate the larger steps only after two similar positive concessions, each 0.5-2% of the supplier's current price. Otherwise use the established quality-menu behavior. No supplier IDs or fixed price targets. This guarded policy matched the existing router exactly in all ten paired quality simulations (P11/P12, five seeds each), avoiding the unconditional rule's regressions. That does not prove performance on unseen suppliers; a fresh live P11 check tests whether the benefit survives the gate. `mert-measured-router` combines the guarded quality slot with the RFQ anchor candidate, leaving other routes inherited. 44 focused checks and three combined-router smoke parametrizations passed.
+
+**Gate confirmed live:** `mert-quality-measured/v14a` scored **.877127** at EUR 44.50 / 300 ppm, retaining the earlier improvement. Its source uses observed increments rather than a fixed practice-case price. `mert-quality-router` is a conservative quality-only integration candidate; `mert-measured-router` includes both quality and RFQ improvements.
+
+**RFQ transfer check, hosted sandbox D02 (free):** current router .735850, combined candidate .786399. Both closed DEMO-J1 at 14-day payment / 35-day lead / DAP; price improved from 14.14 to 13.90. This is an improvement on a second hosted RFQ scenario, supporting transfer beyond P05, though still only one comparison on D02 and the local RFQ average was slightly negative. Sandbox sessions do not affect practice leaderboard or quota.
+
+End of follow-up: fifth, 80.4, versus leader 83.0. Five additional practice sessions (cash-first P18/P05, reciprocal quality, single-sheet quality ablation, guarded quality confirmation), two free hosted sandbox sessions, and 200 local simulated sessions. Practice quota expected 174 remaining, refreshed before final report. Final ROUTES remains unchanged. Recommended review candidate: `mert-measured-router`; use `mert-quality-router` if prioritizing the narrower change. Do not use the unconditional reciprocal router or rejected cash-first/long-contract candidates.

@@ -165,6 +165,17 @@ def test_rfq_anchor_lowers_first_ask_without_breaking_terms():
     assert a.p.final_push==0
 
 
+def test_sunday_router_changes_only_rfq_and_quality():
+    from csee.agents.mert_sunday import MertSundayRouterAgent
+    from csee.agents.router import RouterAgent
+    current=RouterAgent.routes()
+    candidate=MertSundayRouterAgent.routes()
+    assert {k for k in current if current[k]!=candidate[k]}=={'rfq','quality'}
+    assert MertSundayRouterAgent.fallback()==RouterAgent.fallback()
+    from csee.agents.mert_sunday import MertQualityRouterAgent
+    assert {k for k,v in current.items() if MertQualityRouterAgent.routes()[k]!=v}=={'quality'}
+
+
 def test_rfq_delivery_menu_prices_delay_and_excludes_infeasible_56_days():
     from csee.agents.mert_sunday import MertRfqLeadMenuAgent
     a,c,threads,sid=setup(MertRfqLeadMenuAgent,'case:P05')
@@ -194,3 +205,59 @@ def test_raw_long_keeps_clause_and_coverage_without_extra_buyer_cost(cid,monkeyp
     actual=a.sheets(c,sid,y,{},None)[0]
     assert actual['contract_months']==36
     assert actual['index_clause']==y['index_clause']
+
+
+@pytest.mark.parametrize('cid',['case:P18','case:P05'])
+def test_cash_first_preserves_clause_cost_and_recorded_main(cid):
+    from csee.agents.mert_sunday import MertRawCashFirstAgent,MertRfqCashFirstAgent
+    cls=MertRawCashFirstAgent if cid.endswith('18') else MertRfqCashFirstAgent
+    a,c,threads,sid=setup(cls,cid)
+    main={'unit_price':5.2,'payment_days':90,'contract_months':24,
+          'index_clause':c['term_options']['index_clause'][-1]} if cid.endswith('18') else {
+              'unit_price':28,'payment_days':90,'lead_time_days':35}
+    before=copy.deepcopy(main)
+    sheets=a.sheets(c,sid,main,{},None)
+    assert sheets[0]['payment_days']==14
+    assert sheets[0].get('index_clause')==before.get('index_clause')
+    assert total_cost(c,sheets[0])<=total_cost(c,before)+.01
+    assert all(must_haves_ok(c,t) for t in sheets)
+    assert main==sheets[0]
+
+
+def test_cash_first_does_not_retract_prior_quote():
+    from csee.agents.mert_sunday import MertRfqCashFirstAgent
+    a,c,threads,sid=setup(MertRfqCashFirstAgent,'case:P05')
+    prior={'unit_price':29,'payment_days':14,'lead_time_days':35}
+    a.threads[sid].events.append({'from':'buyer','term_sheets':[{'terms':prior}]})
+    sheets=a.sheets(c,sid,{'unit_price':28,'payment_days':90,'lead_time_days':35},{},None)
+    assert not any(t['payment_days']==14 and t['unit_price']<29 for t in sheets)
+
+
+def test_quality_reciprocity_uses_observed_steps_and_stays_below_ask(monkeypatch):
+    from csee.agents.mert_sunday import MertQualityReciprocalAgent
+    a,c,threads,sid=setup(MertQualityReciprocalAgent,'case:P11')
+    a.threads[sid].their_prices=[47,46,45.5]
+    a.threads[sid].our_prices=[39.24,40.34]
+    main={'unit_price':40.89,'ppm_commitment':300,'chargeback_eur_per_complaint':0}
+    monkeypatch.setattr(MertQualityMenuAgent,'next_terms',lambda *args:copy.deepcopy(main))
+    t=a.next_terms(c,threads,sid,{'unit_price':45.5},{},None,6)
+    assert t['unit_price']==41.34
+    assert t['unit_price']<45.5
+    assert must_haves_ok(c,t)
+    assert a.p.final_push==0
+
+
+@pytest.mark.parametrize('prices,expected',[
+    ([47,46.5,46],41.34),
+    ([47,46,45.5],40.89),
+    ([47,46.9,46.8],40.89),
+])
+def test_measured_quality_requires_repeated_coarse_steps(monkeypatch,prices,expected):
+    from csee.agents.mert_sunday import MertQualityMeasuredAgent
+    a,c,threads,sid=setup(MertQualityMeasuredAgent,'case:P11')
+    a.threads[sid].their_prices=prices
+    a.threads[sid].our_prices=[40.34]
+    main={'unit_price':40.89,'ppm_commitment':300,'chargeback_eur_per_complaint':0}
+    monkeypatch.setattr(MertQualityMenuAgent,'next_terms',lambda *args:copy.deepcopy(main))
+    result=a.next_terms(c,threads,sid,{'unit_price':prices[-1]},{},None,6)
+    assert result['unit_price']==expected
