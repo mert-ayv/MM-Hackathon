@@ -9,6 +9,7 @@ import { StudioView } from "./views/StudioView";
 import { NegotiationsView } from "./views/NegotiationsView";
 import { NegotiationView } from "./views/NegotiationView";
 import { VoiceDock } from "./components/voice/VoiceDock";
+import { Logo } from "./components/Logo";
 import { cx } from "./components/ui";
 
 function usePresentation(): [boolean, (v: boolean) => void] {
@@ -62,10 +63,8 @@ export function App() {
         <div className={cx("mx-auto flex h-14 items-center justify-between gap-6 px-8", !wide && "max-w-[1680px]")}>
           <div className="flex items-center gap-8">
             <a href="#/studio" className="flex items-center gap-3">
-              <span className="relative flex h-7 w-7 items-center justify-center rounded-lg bg-ink">
-                <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-accent" />
-              </span>
-              <span className="text-[0.95rem] font-semibold tracking-tight">Negotiation Copilot</span>
+              <Logo />
+              <span className="text-[0.95rem] font-semibold tracking-tight">Tactopus</span>
               <span className="hidden text-[0.8rem] text-ink-3 lg:inline">Hollerau Pumpenwerke</span>
             </a>
             <nav className="flex items-center gap-1 rounded-full border border-line bg-paper-2 p-1 text-[0.8rem]">

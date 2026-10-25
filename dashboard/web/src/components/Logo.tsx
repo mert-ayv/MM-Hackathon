@@ -1,0 +1,17 @@
+/** Tactopus mark: an orange octopus on the ink tile (same file as the favicon, public/tactopus.svg). */
+export function Logo({ size = 28 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 32 32" aria-hidden="true">
+      <rect width="32" height="32" rx="7" fill="#0B0B0C" />
+      <path d="M9.5 17.5a6.5 6.5 0 0 1 13 0z" fill="#FF5A1F" />
+      <circle cx="13.6" cy="15" r="1.05" fill="#0B0B0C" />
+      <circle cx="18.4" cy="15" r="1.05" fill="#0B0B0C" />
+      <g fill="none" stroke="#FF5A1F" strokeWidth="1.7" strokeLinecap="round">
+        <path d="M10.5 17.5c-.4 2.6-1.6 4-3.3 4.4" />
+        <path d="M14 17.5c0 3-.8 5-2.4 6" />
+        <path d="M18 17.5c0 3 .8 5 2.4 6" />
+        <path d="M21.5 17.5c.4 2.6 1.6 4 3.3 4.4" />
+      </g>
+    </svg>
+  );
+}
