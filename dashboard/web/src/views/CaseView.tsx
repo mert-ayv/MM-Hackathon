@@ -76,7 +76,7 @@ function CaseBody({ m, runId, caseId }: { m: CaseModel; runId: string; caseId: s
       {/* header */}
       <div>
         <div className="mb-3 flex items-center gap-2 text-[0.78rem] text-ink-3">
-          <a href="#/" className="hover:text-ink">Runs</a>
+          <a href="#/runs" className="hover:text-ink">Runs</a>
           <span>/</span>
           <Mono>{runId}</Mono>
           <span>/</span>
