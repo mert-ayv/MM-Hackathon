@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 
 from arena_kit.cost import RELATIONSHIP_GOALS, closing_terms, complete_offer, supplier_value, total_cost
 from arena_kit.cost import must_haves_ok as _kit_must_haves_ok
-from arena_kit.docs import standard_terms
+from arena_kit import docs as _kit_docs
 from arena_kit.play import ENDED, latest, moves_left, standing
 from arena_kit.play import live_threads as _kit_live_threads
 
@@ -26,6 +26,32 @@ from .writer import SIGN, TemplateWriter, describe
 log = logging.getLogger("csee")
 
 READY_STATUSES = {"agreed", "final_offer"}
+
+
+def standard_terms(events):
+    """The kit's standard terms from the latest quote PDF, except that a line it cannot read ("Tooling (EUR) none":
+    the kit raises on int("none")) is skipped instead of failing every cost check on that supplier. Another team saw
+    exactly that drop a supplier at the close and walk hidden-case variants (P10/P11 with six fields: 0.0)."""
+    try:
+        return _kit_docs.standard_terms(events)
+    except (ValueError, TypeError):
+        pass
+    for msg in reversed(events):
+        for att in msg.get("attachments") or []:
+            if att.get("name", "").startswith("quote") and att.get("text"):
+                out, section = {}, None
+                for line in att["text"].splitlines():
+                    line = line.strip()
+                    section = next((k for head, k in _kit_docs.SECTIONS.items() if line.startswith(head)), section)
+                    label = next((lab for lab in _kit_docs.LABELS if line.startswith(lab + " ")), None)
+                    if section == "standard" and label:
+                        try:
+                            key = _kit_docs.LABELS[label]
+                            out[key] = _kit_docs._value(key, line[len(label) :].strip())
+                        except (ValueError, TypeError):
+                            log.warning("unreadable quote line skipped: %r", line)
+                return out
+    return {}
 
 
 def must_haves_ok(case, terms, standard=None):

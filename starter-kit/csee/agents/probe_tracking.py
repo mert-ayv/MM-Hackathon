@@ -13,7 +13,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from arena_kit.docs import standard_terms
+from ..agent import standard_terms
 from arena_kit.play import ENDED
 
 MAX_PROBES = 12

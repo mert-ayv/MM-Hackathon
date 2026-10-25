@@ -15,7 +15,7 @@ from datetime import date
 from dataclasses import dataclass, replace
 
 from arena_kit.cost import RELATIONSHIP_GOALS, closing_terms, complete_offer, must_haves_ok, supplier_value, total_cost
-from arena_kit.docs import standard_terms
+from ..agent import standard_terms
 from arena_kit.play import latest
 
 from .. import intel, levers

@@ -13,7 +13,7 @@ from contextlib import closing
 from datetime import date
 
 from arena_kit.cost import closing_terms, complete_offer, cost_breakdown, must_haves_ok, total_cost
-from arena_kit.docs import standard_terms
+from ..agent import standard_terms
 from arena_kit.play import standing
 
 from .. import intel, levers

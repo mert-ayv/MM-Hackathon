@@ -22,7 +22,6 @@ from concurrent.futures import ThreadPoolExecutor
 
 from arena_kit.client import ArenaError
 from arena_kit.cost import must_haves_ok
-from arena_kit.docs import standard_terms
 from arena_kit.play import (
     CLOSE_BEFORE_CAP_S,
     MOVE_LIMIT_S,
@@ -35,7 +34,7 @@ from arena_kit.play import (
 )
 
 from . import levers, runlog
-from .agent import live_threads
+from .agent import live_threads, standard_terms
 
 log = logging.getLogger("csee")
 

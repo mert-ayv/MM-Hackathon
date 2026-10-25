@@ -22,7 +22,7 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, ValidationError, field_validator, model_validator
 
 from arena_kit.cost import closing_terms, must_haves_ok, total_cost
-from arena_kit.docs import standard_terms
+from ..agent import standard_terms
 from arena_kit.play import ENDED, latest, live_threads, moves_left, standing
 
 from .. import intel as intel_mod
