@@ -14,7 +14,9 @@ import {
   makeClientTools,
   mode as viewMode,
   onActivity,
+  onShow,
   SHOWCASE,
+  verdictCard,
   type Activity,
   type Card,
 } from "../../lib/voice";
@@ -95,7 +97,10 @@ function Dock() {
       onActivity((a) => {
         if (a.kind === "card") {
           const c = a.card;
-          setBubbles((b) => [...b.slice(-9), { id: ++bubbleSeq, role: "card", card: c }]);
+          setBubbles((b) =>
+            // the outcome card is shown at session start; the agent's own get_case_summary must not repeat it
+            c.kind === "verdict" && b.some((x) => x.role === "card" && x.card.kind === "verdict") ? b : [...b.slice(-9), { id: ++bubbleSeq, role: "card", card: c }],
+          );
         } else if (a.kind === "toast") {
           setToast(a);
           window.setTimeout(() => setToast((t) => (t?.id === a.id ? null : t)), 6000);
@@ -135,6 +140,7 @@ function Dock() {
       const ref = currentCase() ?? SHOWCASE;
       const m = await loadCase(ref);
       const pb = viewMode() === "playbook";
+      if (!pb) setBubbles([{ id: ++bubbleSeq, role: "card", card: verdictCard(m) }]);
       const debrief = pb
         ? "I'm looking at the playbook. Ask me where the agent loses money across negotiations, or what I'd change in a step."
         : buildDebrief(m);
@@ -176,6 +182,10 @@ function Dock() {
     if (!onShowcase && !window.location.hash.startsWith("#/studio"))
       window.location.hash = `#/n/${encodeURIComponent(demo.case.runId)}/${encodeURIComponent(demo.case.caseId)}`;
     const wait = (ms: number) => new Promise((res) => window.setTimeout(res, ms));
+    if (!window.location.hash.startsWith("#/studio"))
+      void loadCase(demo.case)
+        .then((m) => setBubbles((b) => (b.some((x) => x.role === "card") ? b : [{ id: ++bubbleSeq, role: "card", card: verdictCard(m) }, ...b])))
+        .catch(() => undefined);
     for (const line of demo.lines) {
       if (stopped) return;
       if (line.role === "user") {
@@ -288,16 +298,7 @@ function Dock() {
               b.role === "card" ? (
                 <CopilotCard key={b.id} card={b.card} />
               ) : (
-              <div key={b.id} className={cx("flex animate-rise", b.role === "user" ? "justify-end" : "justify-start")}>
-                <div
-                  className={cx(
-                    "max-w-[85%] rounded-2xl px-3.5 py-2 text-[0.82rem] leading-snug",
-                    b.role === "user" ? "rounded-br-sm bg-ink text-white" : "rounded-bl-sm bg-paper-3 text-ink",
-                  )}
-                >
-                  {b.text}
-                </div>
-              </div>
+              <TextBubble key={b.id} role={b.role} text={b.text} lines={bubbles.findIndex((x) => x.role === "agent") === bubbles.indexOf(b) ? 2 : 3} />
               ),
             )}
             {note && <div className="text-center text-[0.72rem] text-ink-3">{note}</div>}
@@ -344,6 +345,52 @@ function Dock() {
             <span className="block text-[0.68rem] leading-tight text-ink-3">{active ? "In conversation" : playbook ? "Voice · playbook" : "Voice debrief"}</span>
           </span>
         </button>
+      )}
+    </div>
+  );
+}
+
+const ROUND_WORDS: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 };
+
+/** Rounds the agent mentions ("round 3", "round three"), so the bubble can offer to show them. */
+function mentionedRounds(text: string): number[] {
+  const out = new Set<number>();
+  for (const m of text.matchAll(/\bround\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\b/gi)) {
+    const n = /\d/.test(m[1]) ? Number(m[1]) : ROUND_WORDS[m[1].toLowerCase()];
+    if (n) out.add(n);
+  }
+  return [...out].slice(0, 3);
+}
+
+/** A short caption, not a text wall: clamped (click to expand), with "Round N" chips that move the screen. */
+function TextBubble({ role, text, lines }: { role: "user" | "agent"; text: string; lines: 2 | 3 }) {
+  const [full, setFull] = useState(false);
+  const rounds = role === "agent" ? mentionedRounds(text) : [];
+  return (
+    <div className={cx("flex animate-rise flex-col gap-1", role === "user" ? "items-end" : "items-start")}>
+      <button
+        onClick={() => setFull(!full)}
+        title={full ? "Collapse" : "Show all"}
+        className={cx(
+          "max-w-[85%] rounded-2xl px-3.5 py-2 text-left text-[0.8rem] leading-snug",
+          role === "user" ? "rounded-br-sm bg-ink text-white" : "rounded-bl-sm bg-paper-3 text-ink-2",
+          !full && (lines === 2 ? "line-clamp-2" : "line-clamp-3"),
+        )}
+      >
+        {text}
+      </button>
+      {rounds.length > 0 && (
+        <div className="flex gap-1">
+          {rounds.map((r) => (
+            <button
+              key={r}
+              onClick={() => onShow(r)}
+              className="rounded-full border border-accent/40 bg-accent-soft px-2 py-0.5 text-[0.66rem] font-medium text-accent-deep hover:border-accent"
+            >
+              Round {r} → show
+            </button>
+          ))}
+        </div>
       )}
     </div>
   );

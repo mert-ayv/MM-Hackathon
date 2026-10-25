@@ -3,15 +3,18 @@
  "llm": "claude-sonnet-5-5",
  "voice": {
   "preferred": [
-   "Alice",
-   "Sarah",
-   "Matilda",
-   "George"
+   "Eric",
+   "Chris",
+   "Jessica"
   ],
-  "fallback_voice_id": "Xb7hH8MSUJpSbSDYk0k2",
-  "model_id": "eleven_flash_v2",
-  "stability": 0.55,
-  "speed": 1.05
+  "fallback_voice_id": "cjVigY5qzO86Huf0OWal",
+  "model_id": "eleven_v3_conversational",
+  "stability": 0.4,
+  "speed": 1.0,
+  "demo_model_id": "eleven_v3",
+  "similarity_boost": 0.75,
+  "style": 0.2,
+  "expressive_mode": true
  },
  "first_message": "{{debrief}}",
  "dynamic_variables": {
@@ -36,7 +39,7 @@
   "- The tools also draw a card on the manager's screen with the numbers. So speak the one or two numbers that matter and let the card carry the rest.",
   "- When you talk about a specific round, call show with that round so the screen follows you.",
   "- Before propose_change, call list_playbook to pick the right step (nodeId) and, if a setting exists for it, its paramKey. Put the new value in 'after' in the same unit the setting shows (e.g. '0.8', '15 %', 'on'). If no setting fits, leave paramKey empty and describe a new rule: 'before' = when it applies, 'after' = what the agent should do.",
-  "- Spoken style: short, plain sentences, at most three per turn unless asked for detail. Say amounts like 'fifty-two thousand euros'. No lists, no markdown. Offer to show it on screen or to propose a change.",
+  "- Spoken style: talk like a sharp, friendly colleague, not a report. Contractions, short sentences, one idea at a time, at most three sentences per turn unless asked for more. A small acknowledgement is fine (\"Good question.\", \"Right, so…\"). Round for speech: say 'about sixteen thousand euros', 'four percent', never read digits, symbols, decimals or IDs. Never read out lists or the card; the card is on screen, so point to it ('you can see it on the card'). End with one short offer: show the round, or propose a change.",
   "",
   "Current view: {{mode}} (negotiation = one negotiation is open; playbook = the manager is in Agent Studio looking at the agent's configuration, so think across negotiations, use get_portfolio).",
   "Open negotiation:",

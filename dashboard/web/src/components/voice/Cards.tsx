@@ -3,6 +3,7 @@
 import { cx } from "../ui";
 import { onShow, type Bar, type Card, type TermDelta } from "../../lib/voice";
 
+const isNum = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n);
 const eur = (n: number) => `€${Math.round(n).toLocaleString("en-US")}`;
 const eurK = (n: number) => (Math.abs(n) >= 100_000 ? `€${(n / 1_000_000).toFixed(2)}M` : Math.abs(n) >= 1000 ? `€${(n / 1000).toFixed(1)}k` : `€${Math.round(n)}`);
 const signed = (n: number) => `${n > 0 ? "+" : n < 0 ? "−" : ""}${eurK(Math.abs(n))}`;
@@ -77,6 +78,13 @@ export function CopilotCard({ card }: { card: Card }) {
           {card.askPct !== null && card.dealPct !== null && card.askPct > 0 && (
             <div className="mb-2.5 mt-0.5 text-[0.75rem] text-ink-2">
               asked <span className="text-ink-3 line-through">{pct(card.askPct)}</span> → settled <span className="font-semibold text-ink">{pct(card.dealPct)}</span>
+            </div>
+          )}
+          {isNum(card.vsAlt) && card.vsAlt > 0 && (
+            <div className="mb-2.5 flex flex-wrap gap-1">
+              <span className="rounded-full border border-line bg-paper-2 px-2 py-0.5 text-[0.68rem] text-ink-2">
+                <span className="font-semibold text-ink">{eurK(card.vsAlt)}</span> better than our alternative
+              </span>
             </div>
           )}
           <Bars bars={card.bars} />

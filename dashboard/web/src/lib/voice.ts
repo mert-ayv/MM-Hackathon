@@ -47,7 +47,7 @@ export interface TermDelta {
   eur: number; // + = costs us more
 }
 export type Card =
-  | { kind: "verdict"; title: string; supplier: string; saved: number | null; askPct: number | null; dealPct: number | null; bars: Bar[]; deal: boolean; rounds: number }
+  | { kind: "verdict"; title: string; supplier: string; saved: number | null; askPct: number | null; dealPct: number | null; vsAlt?: number | null; bars: Bar[]; deal: boolean; rounds: number }
   | { kind: "money"; headline: string; bars: Bar[]; terms: TermDelta[]; findings: string[] }
   | {
       kind: "round";
@@ -128,7 +128,6 @@ const historyData = (sid: string) => fetchJson(`/api/voice/history/${encodeURICo
 
 const r0 = (n: number | null | undefined) => (typeof n === "number" ? Math.round(n) : null);
 const isNum = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n);
-const speakEur = (n: number) => `€${Math.round(n).toLocaleString("en-US")}`;
 const last = <T,>(xs: T[]): T | undefined => xs[xs.length - 1];
 const shortCase = (id: string) => id.replace(/^case:/, "");
 const pct1 = (x: number | null) => (x === null ? null : Math.round(x * 1000) / 10);
@@ -161,12 +160,6 @@ function claimStats(m: CaseModel) {
 
 const claimTopic = (text: string) => text.split(":")[0].trim();
 
-function fmtDate(d: unknown) {
-  if (typeof d !== "string") return null;
-  const t = new Date(d);
-  return Number.isNaN(+t) ? d : t.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
-}
-
 /** The outcome in product terms (no arena score: a real buyer has no "best possible" reference). */
 export function metrics(m: CaseModel) {
   const r = m.result;
@@ -196,30 +189,80 @@ export function metrics(m: CaseModel) {
   };
 }
 
-/** The spoken opening: ~20 s, every figure from the log. */
+// ---------------------------------------------------------------------------------------------------
+// speech: amounts and percentages the way a colleague would say them (the TTS reads digits robotically)
+
+const ONES = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen"];
+const TENS = ["", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"];
+function words(n: number): string {
+  n = Math.round(Math.abs(n));
+  if (n < 20) return ONES[n];
+  if (n < 100) return TENS[Math.floor(n / 10)] + (n % 10 ? `-${ONES[n % 10]}` : "");
+  if (n < 1000) return `${ONES[Math.floor(n / 100)]} hundred${n % 100 ? ` ${words(n % 100)}` : ""}`;
+  if (n < 1_000_000) return `${words(Math.floor(n / 1000))} thousand${n % 1000 ? ` ${words(n % 1000)}` : ""}`;
+  return `${words(Math.floor(n / 1_000_000))} million${n % 1_000_000 ? ` ${words(n % 1_000_000)}` : ""}`;
+}
+
+/** "about seventy-five thousand euros": two significant figures, rounded the way people say it. */
+export function sayEur(n: number): string {
+  const a = Math.abs(n);
+  if (a >= 1_000_000) {
+    const m = Math.round(a / 100_000) / 10;
+    const whole = Math.floor(m);
+    return `about ${words(whole)}${m - whole >= 0.5 ? " and a half" : ""} million euros`;
+  }
+  if (a >= 1000) return `about ${words(Math.round(a / 1000))} thousand euros`;
+  return `about ${words(Math.round(a / 10) * 10)} euros`;
+}
+
+/** 0.095 -> "nine and a half percent", 0.041 -> "four percent" (to the nearest half point). */
+export function sayPct(x: number): string {
+  const h = Math.round(Math.abs(x) * 200) / 2;
+  const whole = Math.floor(h);
+  if (h === 0) return "less than half a percent";
+  if (whole === 0) return "half a percent";
+  return `${words(whole)}${h - whole ? " and a half" : ""} percent`;
+}
+
+/** The spoken opening: ~12 s, conversational, every figure from the log (rounded for speech). */
 export function buildDebrief(m: CaseModel): string {
   const x = metrics(m);
   const res = m.result;
+  const who = x.supplier;
   const parts: string[] = [];
   if (x.deal && x.saved !== null) {
-    const price = x.unitPrice !== null ? `€${x.unitPrice.toFixed(2)} per unit` : "the agreed terms";
-    const from = fmtDate(res?.terms?.effective_date);
-    parts.push(`${shortCase(m.caseId)}, ${x.supplier}: we closed in ${x.rounds} rounds at ${price}${from ? ` from ${from}` : ""}.`);
-    if (x.askPct !== null && x.dealPct !== null && x.askPct > 0)
-      parts.push(`They asked for ${pct1(x.askPct)} percent more, we settled at ${pct1(x.dealPct)} percent.`);
-    parts.push(`That is ${speakEur(x.saved)} below their opening offer${x.vsAlternative && x.vsAlternative > 0 ? ` and ${speakEur(x.vsAlternative)} below our alternative supplier` : ""}.`);
+    parts.push(`${who} is closed.`);
+    if (x.askPct !== null && x.dealPct !== null && x.askPct > 0) {
+      const settled =
+        Math.abs(x.dealPct) < 0.005
+          ? x.dealPct < 0
+            ? "we actually ended a little below today's price"
+            : "we ended right at today's price"
+          : x.dealPct < 0
+            ? `we actually ended ${sayPct(x.dealPct)} below today's price`
+            : `we settled at ${sayPct(x.dealPct)}`;
+      parts.push(`They wanted ${sayPct(x.askPct)} more, and ${settled}.`);
+    }
+    parts.push(
+      `That's ${sayEur(x.saved)} under their opening${x.vsAlternative && x.vsAlternative > 0 ? `, and ${sayEur(x.vsAlternative).replace(/^about /, "")} under our alternative supplier` : ""}.`,
+    );
+    parts.push("Want to know where we could have done better?");
   } else if (res) {
-    parts.push(`${shortCase(m.caseId)}, ${x.supplier}: no deal, the negotiation ended with ${String(res.end_reason ?? "no agreement").replace(/_/g, " ")}.`);
+    parts.push(`No deal with ${who}: ${String(res.end_reason ?? "no agreement").replace(/_/g, " ")}. Want to go through why?`);
   } else {
-    parts.push(`${shortCase(m.caseId)} with ${x.supplier} is still running, round ${m.maxRound} so far.`);
+    parts.push(`${who} is still running, round ${m.maxRound} so far. Ask me anything about it.`);
   }
-  const verified = claimStats(m).filter((c) => c.result === "verified");
-  if (verified.length) {
-    const topics = [...new Set(verified.map((c) => claimTopic(c.text)))].slice(0, 3);
-    parts.push(`${verified.length === 1 ? "One of our arguments was" : `${verified.length} of our arguments were`} verified by the supplier: ${topics.join(", ")}.`);
-  }
-  parts.push("Ask me why we did anything, where we left money, or what I would change.");
   return parts.join(" ");
+}
+
+/** The outcome card, also shown the moment a session starts (before the agent says a word). */
+export function verdictCard(m: CaseModel): Card {
+  const x = metrics(m);
+  const bars: Bar[] = [];
+  if (isNum(x.costOpen)) bars.push({ label: "Their opening", eur: x.costOpen, tone: "worse" });
+  if (isNum(x.costAlt)) bars.push({ label: "Alternative supplier", eur: x.costAlt, tone: "neutral" });
+  if (isNum(x.costDeal)) bars.push({ label: "Our deal", eur: x.costDeal, tone: "deal" });
+  return { kind: "verdict", title: m.title, supplier: x.supplier, saved: x.saved, askPct: x.askPct, dealPct: x.dealPct, vsAlt: x.vsAlternative, bars, deal: x.deal, rounds: x.rounds };
 }
 
 // the arena's briefing explains its scoring; the copilot talks money, not scores
@@ -322,11 +365,7 @@ export function makeClientTools(): Record<string, (p: P) => Promise<string>> {
       const [ref, m] = await needCase();
       const x = metrics(m);
       const r = m.result;
-      const bars: Bar[] = [];
-      if (isNum(x.costOpen)) bars.push({ label: "Their opening", eur: x.costOpen, tone: "worse" });
-      if (isNum(x.costAlt)) bars.push({ label: "Alternative supplier", eur: x.costAlt, tone: "neutral" });
-      if (isNum(x.costDeal)) bars.push({ label: "Our deal", eur: x.costDeal, tone: "deal" });
-      card({ kind: "verdict", title: m.title, supplier: x.supplier, saved: x.saved, askPct: x.askPct, dealPct: x.dealPct, bars, deal: x.deal, rounds: x.rounds });
+      card(verdictCard(m));
       return json({
         case: ref.caseId,
         title: m.title,
