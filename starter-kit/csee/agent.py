@@ -282,6 +282,12 @@ class ThreadState:
     ready: bool = False  # nothing more to gain by writing: wait for the coordinator
     why: str = ""  # which branch of next_terms decided the last move (for the run log only)
     xb: dict = field(default_factory=dict)  # cross-check stream B notes per thread (xc_push gate, xc_hold changes)
+    # xc_trade (term exchange rates): the price cut for sold terms embedded in our last sent main price, the one
+    # pending in the sheet being built, the plan behind it and the main sheet as base would have sent it
+    xc_cut: float = 0.0
+    xc_pending: float = 0.0
+    xc_plan: dict | None = None
+    xc_base: dict | None = None
 
 
 EVIDENCE_FLOOR = {"index": 1.8, "forecast": 1.5}  # moved a price 41/44 and 23/26 times; QN complaints 1.4 (9/12) come next
@@ -622,6 +628,8 @@ class CseeAgent:
             ours = self.xc_pace_price(case, sid, ev, ours, theirs)
         sheets = self.sheets(case, sid, ours, std, supplier)
         st.our_prices.append(ours["unit_price"])  # sheets carry no price when the price is fixed
+        if self.p.xc_trade:
+            st.xc_cut = st.xc_pending  # the cut is in the price we send: next round concedes on its scale
         claims = self.pick_claims(case, threads, sid)
         if self.p.xc_hold and "unit_price" in case["negotiable"]:
             sheets = self.xc_hold_sheets(case, sid, ev, sheets, claims, theirs, std, supplier)
@@ -995,7 +1003,9 @@ class CseeAgent:
             p = min(p, p_s * 0.995)
             st.why = f"anchor at {p:.2f} (their ask {p_s:.2f}, floor {floor and round(floor, 2)})"
         else:
-            p_b = st.our_prices[-1]
+            # xc_trade: our last price was cut for terms we sold (56 d, 14 d); concede on ITS scale (its terms), else
+            # the cut is taken twice and every step shrinks by it
+            p_b = st.our_prices[-1] + (st.xc_cut if self.p.xc_trade else 0.0)
             gap = p_s - p_b
             their_step = (st.their_prices[-2] - st.their_prices[-1]) if len(st.their_prices) >= 2 else gap
             late = self.rounds_left(sid, left) <= 3
@@ -1036,6 +1046,8 @@ class CseeAgent:
             supplier_ppm=real_ppm,
         )
         ours = {**base, "unit_price": round(p, 2)}
+        if self.p.xc_trade:
+            ours = self.xc_trade_terms(case, sid, ours, theirs, std, supplier, fixed)
         if self.p.rfq_beat_leader and len(case["suppliers"]) > 1:
             leader = self.leader_cost(case, threads, exclude=sid)
             if leader < math.inf:
@@ -1076,6 +1088,8 @@ class CseeAgent:
         values = " ".join(profile.get("what_it_values", [])).lower()
         tradeables = [t.get("lever") for t in profile.get("likely_tradeables", [])]
         trades = []
+        if self.p.xc_trade:
+            trades += self.xc_trade_alternatives(case, sid)
         if "payment_days" in case["negotiable"] and (
             self.p.cash_trade_always or "cash" in values or "payment" in values or "payment_days" in tradeables
         ):
@@ -1115,6 +1129,81 @@ class CseeAgent:
             if t not in out and price < out[0]["unit_price"] * 1.2:
                 out.append(t)
         return out
+
+    # ---------- xc_trade: term exchange rates (cross-check item 3; levers.trade_plan) ----------
+    def capacity_short(self, sid):
+        """It is short of capacity (profile pressure or its own words): a longer lead time has value to it."""
+        st = self.threads[sid]
+        pressures = {p.get("type") for p in st.intel.profile.get("pressures", [])}
+        return "capacity" in pressures or "capacity" in self.signals(sid, st.events)
+
+    def xc_trade_estimate(self, case, sid, std):
+        """What a term is worth to this supplier: its money rate (cash_rate when short of cash, else our own rate:
+        neutral), its real defect rate, its standard terms, and EUR per day of lead time (prior: a share of its price
+        when it is short of capacity, else 0)."""
+        st = self.threads[sid]
+        b = case["buyer"]
+        rate = self.p.cash_rate if self.cash_short(sid) else b.get("interest_rate", 0.08)
+        est = {
+            "interest_rate": rate,
+            "ppm": self.real_ppm(case, sid, std),
+            "standard": closing_terms(case, st.opening, std),
+        }
+        price = (standing(st.events)[1] or {}).get("unit_price") or st.opening.get("unit_price") or 1.0
+        lead_prior = levers.LEAD_VALUE_PRIOR * price if self.capacity_short(sid) else 0.0
+        return est, lead_prior
+
+    def xc_trade_terms(self, case, sid, ours, theirs, std, supplier, fixed):
+        """Our main sheet after the exchange-rate engine: every tradeable term at the option with the largest joint
+        surplus against ITS terms, and the price cut that splits the surplus of the terms we sell - applied only as
+        far as it lowers our full C (the relationship charge can outweigh a cut in stabilise / secure_supply)."""
+        st = self.threads[sid]
+        st.xc_plan, st.xc_base, st.xc_pending = None, dict(ours), 0.0
+        if "unit_price" not in case["negotiable"] or theirs.get("unit_price") is None:
+            return ours
+        try:
+            est, lead_prior = self.xc_trade_estimate(case, sid, std)
+            slopes = levers.revealed_slopes(st.events, case["negotiable"])
+            plan = levers.trade_plan(case, ours, theirs, std, est, slopes, lead_prior, tuple(fixed))
+        except Exception as e:  # the engine must never cost a case
+            log.warning("%s %s: xc_trade failed: %s", case["case_id"], sid, e)
+            return ours
+        if not plan:
+            return ours
+        st.xc_plan = plan
+        new = {**ours, **{f: r["choice"] for f, r in plan.items()}}
+        cut = sum(r["cut"] for r in plan.values())
+        notes = []
+        for f, r in plan.items():
+            if r["choice"] == r["base"] and not r["cut"]:
+                continue
+            mine, its = next((m, i) for v, m, i in r["rows"] if v == r["choice"])
+            notes.append(
+                f"{f} {r['base']}->{r['choice']} (its {r['ref']}: worth {its:+.3f}/u to it, costs us {mine:+.3f}/u, "
+                f"cut {r['cut']:.2f})"
+            )
+        if not notes:
+            return ours
+        at_p = {**new, "unit_price": ours["unit_price"]}
+        chosen, limited = at_p, cut > 0
+        if cut > 0:
+            c_at_p = total_cost(case, at_p, std, supplier)
+            for share in (1.0, 0.75, 0.5, 0.25):
+                cand = {**new, "unit_price": round(ours["unit_price"] - share * cut, 2)}
+                if cand["unit_price"] > 0 and total_cost(case, cand, std, supplier) <= c_at_p + 1e-6:
+                    chosen, limited = cand, share < 1.0
+                    break
+        st.xc_pending = round(ours["unit_price"] - chosen["unit_price"], 2)
+        st.why += "; trade: " + ", ".join(notes)
+        if limited:
+            st.why += f" (cut limited to {st.xc_pending:.2f}: relationship charge)"
+        return chosen
+
+    def xc_trade_alternatives(self, case, sid):
+        """Trade sheets that show the exchange: for every term the engine moved, the main sheet with that term back at
+        the value base would have asked (priced by the caller at the trade target C, so it is never dearer for us)."""
+        plan = self.threads[sid].xc_plan or {}
+        return [{f: r["base"]} for f, r in plan.items() if r["choice"] != r["base"]]
 
     def generic_trade_moves(self, case, sid, main, std, supplier, values, tradeables):
         """Every negotiable term one step toward what the supplier prefers (P10: lead time was worth EUR 1.90
