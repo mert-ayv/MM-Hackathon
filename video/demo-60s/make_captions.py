@@ -2,6 +2,7 @@
 Times are seconds in csee-base-demo.mp4 (from a Whisper word-timestamp pass over the final mix, text
 corrected against the script). Speaker labels only where no face is on screen (the AI voices)."""
 import json
+import os
 import sys
 from pathlib import Path
 from playwright.sync_api import sync_playwright
@@ -35,6 +36,17 @@ CAPS = [
     (55.12, 57.00, "", "Tacto's own agent gets only 70."),
     (57.16, 58.20, "", "We are csee-base."),
 ]
+
+# Fast variant (build_fast.sh): everything at SPEED, plus the studio segment (ST_LEN s, captions in
+# STUDIO_CAPS as JSON [[t0, t1, text], ...] relative to its start) inserted after the middle part.
+if os.environ.get("CAPS_FAST"):
+    sp, a_end, st = float(os.environ["SPEED"]), float(os.environ["A_END"]), float(os.environ["ST_LEN"])
+    ORIG_A_END = 46.35  # end of the middle part in csee-base-demo.mp4
+    move = lambda t: round(t / sp if t <= ORIG_A_END else a_end + st + (t - ORIG_A_END) / sp, 2)
+    studio = [(round(a_end + t0, 2), round(a_end + t1, 2), "HOW IT WINS", text)
+              for t0, t1, text in json.loads(os.environ["STUDIO_CAPS"])]
+    CAPS = [(move(t0), move(t1), who, text) for t0, t1, who, text in CAPS]
+    CAPS = sorted(CAPS + studio)
 
 CSS = """
 * { margin:0; box-sizing:border-box; }
