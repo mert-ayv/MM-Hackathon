@@ -5,7 +5,7 @@ confirmation. Match prices are buyer-cost arithmetic, never supplier reservation
 """
 
 from arena_kit.cost import closing_terms, must_haves_ok, total_cost
-from arena_kit.docs import standard_terms
+from ..agent import standard_terms
 from arena_kit.play import ENDED, latest, moves_left, standing
 
 from .. import levers

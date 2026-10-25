@@ -18,8 +18,14 @@ export default {
       keyframes: {
         rise: { "0%": { opacity: 0, transform: "translateY(8px)" }, "100%": { opacity: 1, transform: "none" } },
         pulsedot: { "0%,100%": { opacity: 1 }, "50%": { opacity: 0.25 } },
+        flash: {
+          "0%": { boxShadow: "0 0 0 0 rgba(255,90,31,0.7)" },
+          "40%": { boxShadow: "0 0 0 10px rgba(255,90,31,0.25)" },
+          "100%": { boxShadow: "0 0 0 0 rgba(255,90,31,0)" },
+        },
+        ping2: { "0%": { transform: "scale(1)", opacity: 0.6 }, "100%": { transform: "scale(2.2)", opacity: 0 } },
       },
-      animation: { rise: "rise .45s cubic-bezier(.2,.7,.2,1) both", pulsedot: "pulsedot 1.2s ease-in-out infinite" },
+      animation: { rise: "rise .45s cubic-bezier(.2,.7,.2,1) both", pulsedot: "pulsedot 1.2s ease-in-out infinite", flash: "flash 1.1s ease-out 3", ping2: "ping2 1.4s cubic-bezier(0,0,.2,1) infinite" },
     },
   },
   plugins: [],

@@ -16,6 +16,8 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from . import voice
+
 HERE = Path(__file__).resolve().parent
 DASHBOARD = HERE.parents[1]  # dashboard/
 REPO = DASHBOARD.parent
@@ -214,6 +216,7 @@ def create_app(config: Config | None = None) -> FastAPI:
     store = Store(config)
     app = FastAPI(title="Hollerau negotiation dashboard", docs_url="/api/docs", openapi_url="/api/openapi.json")
     app.state.store = store
+    app.include_router(voice.router)
 
     @app.get("/api/health")
     def health():

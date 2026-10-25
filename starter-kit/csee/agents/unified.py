@@ -12,7 +12,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 
 from arena_kit.cost import closing_terms
-from arena_kit.docs import standard_terms
+from ..agent import standard_terms
 from arena_kit.play import ENDED, latest
 
 from .. import intel, levers

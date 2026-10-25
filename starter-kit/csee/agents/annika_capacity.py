@@ -45,7 +45,7 @@ import re
 from dataclasses import dataclass
 
 from arena_kit.cost import RELATIONSHIP_GOALS, complete_offer, total_cost
-from arena_kit.docs import standard_terms
+from ..agent import standard_terms
 from arena_kit.play import latest
 
 from .. import intel as intel_mod

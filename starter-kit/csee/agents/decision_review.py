@@ -9,7 +9,7 @@ import json
 from copy import deepcopy
 
 from arena_kit.cost import RELATIONSHIP_GOALS, closing_terms, must_haves_ok, supplier_value
-from arena_kit.docs import standard_terms
+from ..agent import standard_terms
 from arena_kit.play import live_threads, standing
 
 from .. import levers

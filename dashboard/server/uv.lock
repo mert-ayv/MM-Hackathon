@@ -40,6 +40,7 @@ source = { editable = "../../starter-kit" }
 dependencies = [
     { name = "httpx" },
     { name = "openpyxl" },
+    { name = "pydantic" },
     { name = "pypdf" },
 ]
 
@@ -50,6 +51,7 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.27" },
     { name = "mcp", marker = "extra == 'mcp'", specifier = ">=2.3,<3" },
     { name = "openpyxl", specifier = ">=3.1" },
+    { name = "pydantic", specifier = ">=2,<3" },
     { name = "pypdf", specifier = ">=5" },
     { name = "uvicorn", marker = "extra == 'sim'", specifier = ">=0.30" },
 ]

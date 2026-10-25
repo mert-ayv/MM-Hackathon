@@ -1,0 +1,138 @@
+diff --git a/starter-kit/csee/agents/__init__.py b/starter-kit/csee/agents/__init__.py
+index c17327a..f44650c 100644
+--- a/starter-kit/csee/agents/__init__.py
++++ b/starter-kit/csee/agents/__init__.py
+@@ -110,7 +110,7 @@ from .mert_sunday import MertRfqLeadMenuAgent, MertRawLongAgent, MertRawCashFirs
+ from .mert_sunday import MertQualityMeasuredAgent, MertMeasuredRouterAgent, MertQualityRouterAgent
+ from .mert_sunday import MertRawFrontloadAgent
+ from .unified import UnifiedAgent, UnifiedFastAgent, UnifiedReviewAgent, UnifiedSingleAgent
+-from .emre_ehl import PlanMesoLeverDeepClaims, PlannerDeepClaims
++from .emre_ehl import PlanMesoLeverDeepClaims, PlannerDeepClaims, TypedRouterAgent
+ 
+ AGENTS = {
+     "unified": UnifiedAgent,
+@@ -192,6 +192,7 @@ AGENTS = {
+     "emre-plan-deep": PlannerDeepClaims,  # vs mert-plan-dc (renewal, capacity)
+     "emre-plan-meso-lever-deep": PlanMesoLeverDeepClaims,  # vs mert-plan-meso-lever-dc (price_increase)
+     "router-plan": RouterPlanAgent,  # A/B candidate: the planner on every non-RFQ type
++    "emre-router-typed": TypedRouterAgent,  # ROUTES paced by supplier type: owner-run vs corporate desk (emre_ehl.py)
+     "router-c": RouterClaimsAgent,  # Sunday A/B candidate: ROUTES with every slot on its c-variant (claim_evidence)
+ }
+ 
+diff --git a/starter-kit/csee/agents/emre_ehl.py b/starter-kit/csee/agents/emre_ehl.py
+index c0195c0..1c502d9 100644
+--- a/starter-kit/csee/agents/emre_ehl.py
++++ b/starter-kit/csee/agents/emre_ehl.py
+@@ -10,10 +10,15 @@ Only `anchor` changes (price_increase / renewal / capacity outside relationship
+     uv run python -m csee sim --agents mert-plan-dc emre-plan-deep --variants v14a   free, offline
+ """
+ 
++import logging
++import re
+ from dataclasses import replace
+ 
+ from .mert import PlanParams
+ from .mert_dossier import PlanMesoLeverDossierClaims, PlannerDossierClaims
++from .router import RouterAgent
++
++log = logging.getLogger("csee")
+ 
+ DEEP_ANCHOR = 0.18
+ 
+@@ -28,3 +33,96 @@ class PlanMesoLeverDeepClaims(PlanMesoLeverDossierClaims):
+     """price_increase route (mert-plan-meso-lever-dc) with an 18 % first ask."""
+ 
+     plan = replace(PlanParams(), anchor=DEEP_ANCHOR)
++
++
++# ---------- supplier type: owner-run shop vs corporate desk (EHL final, 411 single-supplier replays) ----------
++# Who signs the supplier's e-mails predicted how its bot moved:
++#   owner (206 sessions): price fell 7 % (median) from its opening, final offer at reply 3, agreed to OUR number in
++#     24 % - it gives big steps early, so a deeper first ask and smaller steps of ours keep more of that room;
++#   key account / export manager (110): price fell ~1 %, final at reply 5 - price barely moves, the value is in the
++#     other terms (H04 Vesmo KAM: copper index clause 0.79 vs fixed price 0.46-0.69): offer trade sheets from reply 1.
++# The signature works for suppliers we have never met (final wave 4 "New faces"); the profile's owner type is the
++# fallback. Untested on practice suppliers.
++OWNER_SIG = re.compile(r"\b(owner|inhaber(in)?|founder|gründer(in)?|jednatel|majitel)\b", re.I)
++CORPORATE_SIG = re.compile(
++    r"\b(key account|account manager|export manager|sales director|head of sales|vertriebsleiter(in)?|area sales)\b", re.I
++)
++OWNER_TYPES = {"family", "founder", "private"}
++SMALL_STAFF = 150
++OWNER_ANCHOR = 0.18  # planner and base: first ask at least this far below the opening (outside relationship goals)
++OWNER_STEP = 0.67  # planner: our probe step x this; base: follow at most this share of its step
++CORPORATE_TERMS = {"generic_trades": True, "cash_trade_always": True}
++
++
++def first_body(events):
++    return next((m.get("body") or "" for m in events or [] if m.get("from") != "buyer"), "")
++
++
++def supplier_kind(profile, opening_body):
++    """'owner', 'corporate' or None, from the signature of its first e-mail, else its profile."""
++    sig = (opening_body or "")[-300:]
++    if CORPORATE_SIG.search(sig):
++        return "corporate"
++    if OWNER_SIG.search(sig):
++        return "owner"
++    profile = profile or {}
++    owner_type = (profile.get("owner_type") or "").lower()
++    try:
++        staff = int(profile.get("staff") or 0)
++    except (TypeError, ValueError):
++        staff = 0
++    if owner_type == "group":
++        return "corporate"
++    if owner_type in OWNER_TYPES and 0 < staff <= SMALL_STAFF:
++        return "owner"
++    return None
++
++
++class SupplierTypeMixin:
++    """Put first: class X(SupplierTypeMixin, Parent). Paces each case by its suppliers' type (see above)."""
++
++    kinds: dict = {}
++
++    def prepare(self, case, threads):
++        super().prepare(case, threads)
++        self.kinds = {}
++        for sid in case["suppliers"]:
++            st = self.threads.get(sid)
++            profile = getattr(getattr(st, "intel", None), "profile", None)
++            self.kinds[sid] = supplier_kind(profile, first_body(threads.get(sid)))
++        kinds = set(self.kinds.values())
++        if kinds == {"owner"}:  # base's Params are per case: change them only when every supplier is that type
++            self.p = replace(
++                self.p,
++                anchor_below_open=max(self.p.anchor_below_open, OWNER_ANCHOR),
++                follow_share=min(self.p.follow_share, OWNER_STEP),
++            )
++        elif kinds == {"corporate"}:
++            self.p = replace(self.p, **CORPORATE_TERMS)
++        log.info("%s supplier types: %s", case["case_id"], self.kinds)
++
++    def plan_for(self, sid):  # the planner's per-supplier parameters (PlanMixin); unused by other agents
++        P = super().plan_for(sid)
++        if self.kinds.get(sid) == "owner":
++            return replace(P, anchor=max(P.anchor, OWNER_ANCHOR), probe=P.probe * OWNER_STEP)
++        return P
++
++
++_TYPED = {}
++
++
++def typed(cls):
++    if cls not in _TYPED:
++        _TYPED[cls] = type(f"Typed{cls.__name__}", (SupplierTypeMixin, cls), {})
++    return _TYPED[cls]
++
++
++class TypedRouterAgent(RouterAgent):
++    """The final router (same ROUTES), every routed agent paced by supplier type."""
++
++    def _route(self, case):
++        fresh = self.case_id != case["case_id"]
++        inner = super()._route(case)
++        if fresh and not isinstance(inner, SupplierTypeMixin):
++            inner.__class__ = typed(type(inner))
++        return inner

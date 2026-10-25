@@ -21,3 +21,29 @@ body {
   background: #ff5a1f;
   color: white;
 }
+
+/* Agent Studio sliders: thin track, ink thumb */
+input[type="range"].studio-range {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(to right, #ff5a1f var(--fill, 50%), #e7e7e4 var(--fill, 50%));
+}
+input[type="range"].studio-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: #ffffff;
+  border: 2px solid #0b0b0c;
+  box-shadow: 0 1px 2px rgba(11, 11, 12, 0.2);
+  cursor: pointer;
+}
+input[type="range"].studio-range::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: #ffffff;
+  border: 2px solid #0b0b0c;
+}
