@@ -61,7 +61,7 @@ with sync_playwright() as p:
         nxt = "[vout]" if i == len(CAPS) - 1 else f"[c{i + 1}]"
         filters.append(f"{prev}[{i + 1}:v]overlay=enable='between(t,{t0},{t1})'{nxt}")
     b.close()
-(OUT / "inputs.txt").write_text("\n".join(inputs))
+(OUT / "inputs.txt").write_text("\n".join(inputs) + "\n")
 (OUT / "filter.txt").write_text(";\n".join(filters))
 (OUT / "captions.json").write_text(json.dumps(CAPS, ensure_ascii=False, indent=1))
 print(len(CAPS), "captions")
