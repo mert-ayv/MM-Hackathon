@@ -1,0 +1,116 @@
+diff --git a/starter-kit/csee/agents/__init__.py b/starter-kit/csee/agents/__init__.py
+index 58a9b9d..7eaefb3 100644
+--- a/starter-kit/csee/agents/__init__.py
++++ b/starter-kit/csee/agents/__init__.py
+@@ -110,7 +110,7 @@ from .mert_sunday import MertRfqLeadMenuAgent, MertRawLongAgent, MertRawCashFirs
+ from .mert_sunday import MertQualityMeasuredAgent, MertMeasuredRouterAgent, MertQualityRouterAgent
+ from .mert_sunday import MertRawFrontloadAgent
+ from .unified import UnifiedAgent, UnifiedFastAgent, UnifiedReviewAgent, UnifiedSingleAgent
+-from .emre_ehl import PlanMesoLeverDeepClaims, PlannerDeepClaims, OwnerRouterAgent, TypedRouterAgent
++from .emre_ehl import PlanMesoLeverDeepClaims, PlannerDeepClaims, AuthorityRouterAgent, OwnerRouterAgent, TypedRouterAgent
+ 
+ AGENTS = {
+     "unified": UnifiedAgent,
+@@ -194,6 +194,7 @@ AGENTS = {
+     "router-plan": RouterPlanAgent,  # A/B candidate: the planner on every non-RFQ type
+     "emre-router-typed": TypedRouterAgent,  # ROUTES paced by supplier type: owner-run vs corporate desk (emre_ehl.py)
+     "emre-router-owner": OwnerRouterAgent,  # owner side only, capacity as routed
++    "emre-router-a1": AuthorityRouterAgent,  # owner deep 22 %, corporate first ask capped at 12 %
+     "router-c": RouterClaimsAgent,  # Sunday A/B candidate: ROUTES with every slot on its c-variant (claim_evidence)
+ }
+ 
+diff --git a/starter-kit/csee/agents/emre_ehl.py b/starter-kit/csee/agents/emre_ehl.py
+index b8a2d3b..a81e8d6 100644
+--- a/starter-kit/csee/agents/emre_ehl.py
++++ b/starter-kit/csee/agents/emre_ehl.py
+@@ -82,10 +82,14 @@ class SupplierTypeMixin:
+     """Put first: class X(SupplierTypeMixin, Parent). Paces each case by its suppliers' type (see above)."""
+ 
+     kinds: dict = {}
+-    owner_anchor = OWNER_ANCHOR
+-    owner_step = OWNER_STEP
+-    corporate = True  # practice P11 (Export Manager): 0.710 vs the router's 0.877 with the corporate terms on
+-    skip_types = frozenset()  # case types left exactly as routed (e.g. capacity: its soft anchor is deliberate)
++    owner_anchor = OWNER_ANCHOR  # owner: first ask at least this far below its opening (outside relationship goals)
++    owner_anchor_rel = None  # owner, relationship goals: at least this (None: as routed)
++    owner_step = OWNER_STEP  # owner: our steps x this (planner probe; base follow_share cap)
++    owner_skip_types = frozenset()  # case types where owners stay as routed (capacity: its soft anchor is deliberate)
++    corporate = True  # corporate: trade sheets + faster-payment sheet (practice P11: 0.710 vs 0.877 with it on)
++    corporate_anchor_cap = None  # corporate: first ask at most this far below its opening (desk authority is small)
++    corporate_step = 1.0  # corporate: our steps x this
++    skip_types = frozenset()  # case types left exactly as routed, every supplier type
+ 
+     def prepare(self, case, threads):
+         super().prepare(case, threads)
+@@ -95,22 +99,45 @@ class SupplierTypeMixin:
+         for sid in case["suppliers"]:
+             st = self.threads.get(sid)
+             profile = getattr(getattr(st, "intel", None), "profile", None)
+-            self.kinds[sid] = supplier_kind(profile, first_body(threads.get(sid)))
++            kind = supplier_kind(profile, first_body(threads.get(sid)))
++            if kind == "owner" and case.get("type") in self.owner_skip_types:
++                kind = None
++            self.kinds[sid] = kind
+         kinds = set(self.kinds.values())
++        p = self.p
+         if kinds == {"owner"}:  # base's Params are per case: change them only when every supplier is that type
+-            self.p = replace(
+-                self.p,
+-                anchor_below_open=max(self.p.anchor_below_open, self.owner_anchor),
+-                follow_share=min(self.p.follow_share, self.owner_step),
++            p = replace(
++                p,
++                anchor_below_open=max(p.anchor_below_open, self.owner_anchor),
++                anchor_leverage=max(p.anchor_leverage, self.owner_anchor) if p.anchor_leverage else 0.0,
++                follow_share=p.follow_share * self.owner_step,
+             )
+-        elif kinds == {"corporate"} and self.corporate:
+-            self.p = replace(self.p, **CORPORATE_TERMS)
++        elif kinds == {"corporate"}:
++            if self.corporate:
++                p = replace(p, **CORPORATE_TERMS)
++            cap = self.corporate_anchor_cap
++            if cap is not None:
++                p = replace(
++                    p,
++                    anchor_below_open=min(p.anchor_below_open, cap),
++                    anchor_leverage=min(p.anchor_leverage, cap) if p.anchor_leverage else 0.0,
++                )
++            p = replace(p, follow_share=p.follow_share * self.corporate_step)
++        self.p = p
+         log.info("%s supplier types: %s", case["case_id"], self.kinds)
+ 
+     def plan_for(self, sid):  # the planner's per-supplier parameters (PlanMixin); unused by other agents
+         P = super().plan_for(sid)
+-        if self.kinds.get(sid) == "owner":
+-            return replace(P, anchor=max(P.anchor, self.owner_anchor), probe=P.probe * self.owner_step)
++        kind = self.kinds.get(sid)
++        if kind == "owner":
++            P = replace(P, anchor=max(P.anchor, self.owner_anchor), probe=P.probe * self.owner_step)
++            if self.owner_anchor_rel is not None:
++                P = replace(P, anchor_rel=max(P.anchor_rel, self.owner_anchor_rel))
++        elif kind == "corporate":
++            cap = self.corporate_anchor_cap
++            if cap is not None:
++                P = replace(P, anchor=min(P.anchor, cap), anchor_raw=min(P.anchor_raw, cap))
++            P = replace(P, probe=P.probe * self.corporate_step)
+         return P
+ 
+ 
+@@ -150,3 +177,16 @@ class OwnerRouterAgent(TypedRouterAgent):
+         ("corporate", False),
+         ("skip_types", frozenset({"capacity"})),
+     )
++
++
++class AuthorityRouterAgent(TypedRouterAgent):
++    """A1 "authority": owners decide alone and move big (deep 22 % first ask); a corporate desk moves within a small
++    band (EHL KAM ~1 %, practice P10 segment manager final at reply 1 after a 12 % ask): never ask deeper than 12 %."""
++
++    settings = (
++        ("owner_anchor", 0.22),
++        ("owner_step", 1.0),
++        ("owner_skip_types", frozenset({"capacity"})),
++        ("corporate", False),
++        ("corporate_anchor_cap", 0.12),
++    )

@@ -1,0 +1,44 @@
+diff --git a/starter-kit/csee/agents/__init__.py b/starter-kit/csee/agents/__init__.py
+index 7eaefb3..d63e0c8 100644
+--- a/starter-kit/csee/agents/__init__.py
++++ b/starter-kit/csee/agents/__init__.py
+@@ -110,7 +110,7 @@ from .mert_sunday import MertRfqLeadMenuAgent, MertRawLongAgent, MertRawCashFirs
+ from .mert_sunday import MertQualityMeasuredAgent, MertMeasuredRouterAgent, MertQualityRouterAgent
+ from .mert_sunday import MertRawFrontloadAgent
+ from .unified import UnifiedAgent, UnifiedFastAgent, UnifiedReviewAgent, UnifiedSingleAgent
+-from .emre_ehl import PlanMesoLeverDeepClaims, PlannerDeepClaims, AuthorityRouterAgent, OwnerRouterAgent, TypedRouterAgent
++from .emre_ehl import PlanMesoLeverDeepClaims, PlannerDeepClaims, AuthorityRouterAgent, OwnerRouterAgent, SlowRouterAgent, TypedRouterAgent
+ 
+ AGENTS = {
+     "unified": UnifiedAgent,
+@@ -195,6 +195,7 @@ AGENTS = {
+     "emre-router-typed": TypedRouterAgent,  # ROUTES paced by supplier type: owner-run vs corporate desk (emre_ehl.py)
+     "emre-router-owner": OwnerRouterAgent,  # owner side only, capacity as routed
+     "emre-router-a1": AuthorityRouterAgent,  # owner deep 22 %, corporate first ask capped at 12 %
++    "emre-router-a2": SlowRouterAgent,  # owner 22 %/16 % rel, smaller steps for owner + corporate
+     "router-c": RouterClaimsAgent,  # Sunday A/B candidate: ROUTES with every slot on its c-variant (claim_evidence)
+ }
+ 
+diff --git a/starter-kit/csee/agents/emre_ehl.py b/starter-kit/csee/agents/emre_ehl.py
+index a81e8d6..d62c816 100644
+--- a/starter-kit/csee/agents/emre_ehl.py
++++ b/starter-kit/csee/agents/emre_ehl.py
+@@ -190,3 +190,18 @@ class AuthorityRouterAgent(TypedRouterAgent):
+         ("corporate", False),
+         ("corporate_anchor_cap", 0.12),
+     )
++
++
++class SlowRouterAgent(TypedRouterAgent):
++    """A2 "slow down": openings as routed (A1: a 12 % corporate cap made P08 walk and cost P11 0.08), owners 22 % also
++    with relationship goals (16 %); our steps x 0.67 for both types - owners give big early steps, corporate desks
++    decide late (EHL KAM final at reply 5). Capacity as routed."""
++
++    settings = (
++        ("owner_anchor", 0.22),
++        ("owner_anchor_rel", 0.16),
++        ("owner_step", 0.67),
++        ("corporate", False),
++        ("corporate_step", 0.67),
++        ("skip_types", frozenset({"capacity"})),
++    )
