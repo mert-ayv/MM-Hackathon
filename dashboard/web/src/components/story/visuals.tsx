@@ -26,7 +26,19 @@ export function useWidth<T extends HTMLElement>(initial = 600) {
 }
 
 /** Score 0..1 as a ring; the arc animates in. */
-export function ScoreRing({ score, size = 120, stroke, label = "score" }: { score: number | null; size?: number; stroke?: number; label?: string }) {
+export function ScoreRing({
+  score,
+  size = 120,
+  stroke,
+  label = "score",
+  fmt = (v) => v.toFixed(2),
+}: {
+  score: number | null;
+  size?: number;
+  stroke?: number;
+  label?: string;
+  fmt?: (v: number) => string;
+}) {
   const [shown, setShown] = useState(0);
   useEffect(() => {
     const id = requestAnimationFrame(() => setShown(score ?? 0));
@@ -57,7 +69,7 @@ export function ScoreRing({ score, size = 120, stroke, label = "score" }: { scor
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
         <span className={cx("font-semibold tabular-nums tracking-tight text-ink", small ? "text-[0.8rem]" : "")} style={small ? undefined : { fontSize: size * 0.26 }}>
-          {isNum(score) ? v.toFixed(2) : "–"}
+          {isNum(score) ? fmt(v) : "–"}
         </span>
         {!small && <span className="text-[0.62rem] uppercase tracking-[0.14em] text-ink-3">{label}</span>}
       </div>
@@ -172,5 +184,61 @@ export function IconChip({ icon, label, detail, tone = "muted", title }: { icon?
       <span className="truncate">{label}</span>
       {detail && <span className="truncate font-mono text-[0.7rem] opacity-75">{detail}</span>}
     </span>
+  );
+}
+
+/**
+ * Where the deal sits on one cost axis (C per year, cheaper to the left): their opening, our deal,
+ * the walk-away alternative. Markers alternate above / below so close values never collide.
+ */
+export function CostScale({ cOpen, cDeal, cAlt }: { cOpen: number | null; cDeal: number | null; cAlt: number | null }) {
+  const pts = [
+    { k: "open", label: "Their opening", c: cOpen, cls: "bg-ink-3", text: "text-ink-2" },
+    { k: "alt", label: "Walk away", c: cAlt, cls: "bg-ink-4", text: "text-ink-3" },
+    { k: "deal", label: "Our deal", c: cDeal, cls: "bg-accent", text: "text-accent-deep" },
+  ].filter((p): p is typeof p & { c: number } => isNum(p.c));
+  const [on, setOn] = useState(false);
+  useEffect(() => {
+    const id = requestAnimationFrame(() => setOn(true));
+    return () => cancelAnimationFrame(id);
+  }, []);
+  if (pts.length < 2) return null;
+  const lo = Math.min(...pts.map((p) => p.c));
+  const hi = Math.max(...pts.map((p) => p.c));
+  const span = Math.max(1, hi - lo);
+  const x = (c: number) => 6 + ((c - lo) / span) * 88; // % of width, 6 % margin each side
+  const sorted = [...pts].sort((a, b) => a.c - b.c);
+  const deal = pts.find((p) => p.k === "deal");
+  return (
+    <div className="w-full">
+      <div className="relative h-[92px]">
+        <div className="absolute left-0 right-0 top-[44px] h-[3px] rounded-full bg-paper-3" />
+        {deal && (
+          <div
+            className="absolute top-[44px] h-[3px] rounded-full bg-accent transition-all duration-1000"
+            style={{ left: `${x(deal.c)}%`, width: on ? `${Math.max(0, x(Math.max(...pts.map((p) => p.c))) - x(deal.c))}%` : "0%" }}
+          />
+        )}
+        {sorted.map((p, i) => {
+          const up = i % 2 === 0;
+          const isDeal = p.k === "deal";
+          return (
+            <div key={p.k} className="absolute -translate-x-1/2" style={{ left: `${x(p.c)}%`, top: 0 }}>
+              <div className={cx("absolute left-1/2 -translate-x-1/2 whitespace-nowrap text-center leading-tight", up ? "top-0" : "top-[58px]")}>
+                <div className={cx("text-[0.68rem]", isDeal ? "font-semibold" : "", p.text)}>{p.label}</div>
+                <div className={cx("font-mono text-[0.74rem] tabular-nums", isDeal ? "font-semibold text-ink" : "text-ink-2")}>{eurShort(p.c)}</div>
+              </div>
+              <span
+                className={cx("absolute left-1/2 top-[45.5px] -translate-x-1/2 -translate-y-1/2 rounded-full ring-2 ring-white", p.cls, isDeal ? "h-4 w-4" : "h-2.5 w-2.5")}
+              />
+            </div>
+          );
+        })}
+      </div>
+      <div className="flex justify-between text-[0.62rem] uppercase tracking-[0.12em] text-ink-4">
+        <span>← cheaper for us</span>
+        <span>total cost per year</span>
+      </div>
+    </div>
   );
 }

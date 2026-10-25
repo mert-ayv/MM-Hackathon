@@ -2,7 +2,8 @@ import { useState } from "react";
 import type { CaseModel, Thread } from "../../lib/model";
 import type { RoundStory } from "../../lib/story";
 import { MOVE_ICON } from "../../lib/story";
-import { eur, eurShort } from "../../lib/format";
+import { eur, eurDelta, eurShort, termLabel, termValue } from "../../lib/format";
+import type { Priced } from "../../lib/types";
 import { useWidth } from "./visuals";
 
 const isNum = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n);
@@ -38,7 +39,7 @@ export function Convergence({
     t.standing.forEach((s) => isNum(s.c) && vals.push(s.c));
     t.asks.forEach((a) => isNum(a.c) && vals.push(a.c));
   }
-  [model.cOpen, model.cBest, model.cAlt].forEach((v) => isNum(v) && vals.push(v));
+  [model.cOpen, model.cAlt].forEach((v) => isNum(v) && vals.push(v));
   if (vals.length < 2) vals.push(0, 1);
   let lo = Math.min(...vals);
   let hi = Math.max(...vals);
@@ -67,7 +68,6 @@ export function Convergence({
   const refs: { c: number | null; label: string; cls: string; dash?: string }[] = [
     { c: model.cOpen, label: "Their opening", cls: "#6E6E73", dash: "4 4" },
     { c: model.cAlt, label: "Walk-away alt.", cls: "#A1A1A6", dash: "2 4" },
-    { c: model.cBest, label: "Best possible", cls: "#0B0B0C", dash: "6 3" },
   ];
   // label rows on the right edge, pushed apart so close lines (deal next to best possible) never overlap
   const refLabelY = new Map<string, number>();
@@ -147,6 +147,7 @@ export function Convergence({
             })()}
           </g>
         )}
+        {hover !== null && <line x1={x(hover)} x2={x(hover)} y1={m.t - 6} y2={nodeY - 15} stroke="#FF5A1F" strokeWidth={1} strokeDasharray="2 3" />}
         {/* round nodes: the agent's move each round */}
         <line x1={m.l} x2={m.l + iw} y1={nodeY} y2={nodeY} stroke="#E7E7E4" strokeWidth={2} />
         <g>
@@ -179,28 +180,26 @@ export function Convergence({
             </g>
           );
         })}
+        {/* one wide hit area over the whole plot: nearest round follows the mouse */}
+        <rect
+          x={m.l - 24}
+          y={m.t - 8}
+          width={iw + 48}
+          height={height - m.t + 8}
+          fill="transparent"
+          className="cursor-pointer"
+          onMouseMove={(e) => {
+            const box = (e.currentTarget.ownerSVGElement as SVGSVGElement).getBoundingClientRect();
+            const r = Math.round(((e.clientX - box.left - m.l) / iw) * xmax);
+            setHover(Math.max(0, Math.min(xmax, r)));
+          }}
+          onMouseLeave={() => setHover(null)}
+          onClick={() => {
+            if (hover !== null && stories.some((s) => s.round === hover)) onSelect(hover);
+          }}
+        />
       </svg>
-      {hover !== null &&
-        (() => {
-          const s = stories.find((z) => z.round === hover);
-          if (!s) return null;
-          return (
-            <div
-              className="pointer-events-none absolute z-10 rounded-lg border border-line bg-white px-3 py-2 text-[0.72rem] shadow-card"
-              style={{ left: Math.min(w - 220, x(hover) + 14), top: m.t }}
-            >
-              <div className="font-semibold text-ink">
-                Round {s.round} · {s.moveLabel}
-              </div>
-              <div className="mt-0.5 text-ink-3">
-                Our ask <span className="font-mono text-ink">{eur(s.ourBest)}</span>
-              </div>
-              <div className="text-ink-3">
-                Their offer <span className="font-mono text-ink">{eur(s.supplierAfter)}</span>
-              </div>
-            </div>
-          );
-        })()}
+      {hover !== null && <HoverCard model={model} focus={focus} stories={stories} round={hover} left={x(hover)} w={w} top={m.t} />}
       <div className="mt-1 flex flex-wrap items-center gap-4 pl-16 text-[0.72rem] text-ink-3">
         <span className="inline-flex items-center gap-1.5">
           <svg width="22" height="6"><line x1="0" x2="22" y1="3" y2="3" stroke="#FF5A1F" strokeWidth="3" /></svg>
@@ -217,4 +216,107 @@ export function Convergence({
       </div>
     </div>
   );
+}
+
+// cost_breakdown keys (arena_kit.cost) as plain lever names
+const LEVER: Record<string, string> = {
+  price: "Unit price",
+  payment_terms: "Payment terms",
+  freight: "Freight / Incoterm",
+  late_delivery: "Lead time",
+  quality: "Quality (ppm)",
+  relationship: "Relationship",
+  uncovered_need: "Uncovered volume",
+  fallback_risk: "Fallback risk",
+  tooling: "Tooling",
+  index_clause: "Index clause",
+  index_risk: "Index risk",
+};
+
+function HoverCard({
+  model,
+  focus,
+  stories,
+  round,
+  left,
+  w,
+  top,
+}: {
+  model: CaseModel;
+  focus: Thread;
+  stories: RoundStory[];
+  round: number;
+  left: number;
+  w: number;
+  top: number;
+}) {
+  void model;
+  const upTo = focus.standing.filter((p) => p.round <= round);
+  const theirs: Priced | undefined = upTo[upTo.length - 1]?.priced;
+  const prev: Priced | undefined = focus.standing.filter((p) => p.round < (upTo[upTo.length - 1]?.round ?? 0)).pop()?.priced;
+  const story = stories.find((s) => s.round === round);
+  const ours = story?.sheets.filter((p) => isNum(p.c)).sort((a, b) => a.c! - b.c!)[0];
+  const keys = [...new Set([...Object.keys(theirs?.breakdown ?? {}), ...Object.keys(ours?.breakdown ?? {})])].filter(
+    (k) => Math.abs(theirs?.breakdown?.[k] ?? 0) > 0.5 || Math.abs(ours?.breakdown?.[k] ?? 0) > 0.5,
+  );
+  const termKeys = Object.keys(theirs?.terms ?? {}).filter((k) => ["unit_price", "payment_days", "effective_date", "lead_time_days", "incoterm", "ppm_commitment"].includes(k));
+  const cardW = 340;
+  const x = left + 18 + cardW > w ? left - 18 - cardW : left + 18;
+  const dC = isNum(theirs?.c) && isNum(prev?.c) ? theirs!.c! - prev!.c! : null;
+  return (
+    <div className="pointer-events-none absolute z-20 rounded-xl border border-line bg-white p-3.5 text-[0.72rem] shadow-lg" style={{ left: Math.max(0, x), top, width: cardW }}>
+      <div className="flex items-baseline justify-between">
+        <span className="font-semibold text-ink">{round === 0 ? "Opening quote" : `Round ${round}${story ? ` · ${story.moveLabel}` : ""}`}</span>
+        <span className="text-[0.62rem] uppercase tracking-[0.12em] text-ink-4">{focus.short}</span>
+      </div>
+      <div className="mt-2 grid grid-cols-[1fr_auto_auto_auto] items-baseline gap-x-3 gap-y-1 tabular-nums">
+        <span className="text-[0.62rem] uppercase tracking-[0.1em] text-ink-4">€ per year</span>
+        <span className="text-right text-[0.62rem] uppercase tracking-[0.1em] text-ink-4">Their offer</span>
+        <span className="text-right text-[0.62rem] uppercase tracking-[0.1em] text-ink-4">Δ</span>
+        <span className="text-right text-[0.62rem] uppercase tracking-[0.1em] text-accent-deep">Our ask</span>
+        <span className="font-semibold text-ink">Total cost</span>
+        <span className="text-right font-mono font-semibold text-ink">{eur(theirs?.c)}</span>
+        <span className={cx("text-right font-mono", isNum(dC) && dC < 0 ? "text-accent-deep" : "text-ink-3")}>{isNum(dC) && Math.abs(dC) >= 0.5 ? eurDelta(dC) : ""}</span>
+        <span className="text-right font-mono font-semibold text-accent-deep">{ours ? eur(ours.c) : ""}</span>
+        <span className="col-span-4 my-0.5 border-t border-line" />
+        {keys.map((k) => {
+          const t = theirs?.breakdown?.[k];
+          const p = prev?.breakdown?.[k];
+          const d = isNum(t) && isNum(p) ? t - p : null;
+          const o = ours?.breakdown?.[k];
+          return (
+            <Row key={k} label={LEVER[k] ?? k.replace(/_/g, " ")} t={t} d={d} o={ours ? o : undefined} />
+          );
+        })}
+      </div>
+      {termKeys.length > 0 && (
+        <div className="mt-2.5 flex flex-wrap gap-1 border-t border-line pt-2">
+          {termKeys.map((k) => (
+            <span key={k} className="rounded-md bg-paper-2 px-1.5 py-0.5 text-[0.66rem] text-ink-2">
+              {termLabel(k)} <span className="font-medium text-ink">{termValue(k, theirs?.terms?.[k])}</span>
+              {ours && ours.terms?.[k] !== undefined && JSON.stringify(ours.terms[k]) !== JSON.stringify(theirs?.terms?.[k]) && (
+                <span className="text-accent-deep"> · we {termValue(k, ours.terms[k])}</span>
+              )}
+            </span>
+          ))}
+        </div>
+      )}
+      {stories.some((s) => s.round === round) && <div className="mt-2 text-[0.64rem] text-ink-4">Click to open this round</div>}
+    </div>
+  );
+}
+
+function Row({ label, t, d, o }: { label: string; t?: number; d: number | null; o?: number }) {
+  return (
+    <>
+      <span className="truncate text-ink-2">{label}</span>
+      <span className="text-right font-mono text-ink">{isNum(t) ? eurShort(t) : "–"}</span>
+      <span className={cx("text-right font-mono", isNum(d) && d < 0 ? "text-accent-deep" : "text-ink-3")}>{isNum(d) && Math.abs(d) >= 0.5 ? eurDelta(d) : ""}</span>
+      <span className="text-right font-mono text-accent-deep">{isNum(o) ? eurShort(o) : ""}</span>
+    </>
+  );
+}
+
+function cx(...xs: (string | false | null | undefined)[]) {
+  return xs.filter(Boolean).join(" ");
 }

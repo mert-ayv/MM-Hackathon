@@ -338,10 +338,89 @@ export function priceLine(p?: Priced): string {
   return p?.terms?.unit_price !== undefined ? eur2(p.terms.unit_price) : "–";
 }
 
+export interface Outcome {
+  deal: boolean;
+  cOpen: number | null;
+  cDeal: number | null;
+  cAlt: number | null;
+  saved: number | null; // vs their opening (C), positive = we pay less
+  savedPct: number | null; // saved / C_open
+  increaseAvertedPct: number | null; // price-increase cases: share of the asked unit-price increase we averted
+  vsAlternative: number | null; // C_alt - C_deal, positive = better than walking away
+  floor: number | null; // supplier's estimated cost floor, €/unit (dossier), when logged
+  floorSource?: string;
+  dealUnit: number | null;
+  vsFloorEstimate: number | null; // deal unit price - est. floor, €/unit
+}
+
+/** The product's view of a result: money against their opening, our walk-away and their cost floor (no arena score). */
+export function outcome(model: CaseModel): Outcome {
+  const r = model.result;
+  const v = verdict(model);
+  const deal = !!r?.deal;
+  const cDeal = deal ? (isNum(r?.c_deal) ? r!.c_deal! : model.current.c) : null;
+  const cOpen = model.cOpen;
+  const saved = isNum(cOpen) && isNum(cDeal) ? cOpen - cDeal : null;
+  const dealT = model.threads.find((t) => t.sid === r?.supplier_id);
+  const floor = dealT?.dossier?.floor_estimate ?? null;
+  const dealUnit = deal && isNum(r?.terms?.unit_price) ? (r!.terms!.unit_price as number) : null;
+  return {
+    deal,
+    cOpen,
+    cDeal,
+    cAlt: model.cAlt,
+    saved,
+    savedPct: isNum(saved) && isNum(cOpen) && cOpen ? saved / cOpen : null,
+    // only where the supplier asked for an increase; a deal below today's price counts as 100 %
+    increaseAvertedPct:
+      model.type === "price_increase" && isNum(v.askPct) && isNum(v.dealPct) && v.askPct > 0 ? Math.min(1, Math.max(0, (v.askPct - v.dealPct) / v.askPct)) : null,
+    vsAlternative: isNum(model.cAlt) && isNum(cDeal) ? model.cAlt - cDeal : null,
+    floor: isNum(floor) ? floor : null,
+    floorSource: dealT?.dossier?.floor_source,
+    dealUnit,
+    vsFloorEstimate: isNum(floor) && isNum(dealUnit) ? dealUnit - floor : null,
+  };
+}
+
+export interface ReviewReason {
+  icon: string;
+  label: string;
+}
+
+/** Why a manager should look at this negotiation (empty = closed cleanly). By code from the log only. */
+export function reviewReasons(model: CaseModel, stories?: Map<string, RoundStory[]>): ReviewReason[] {
+  const o = outcome(model);
+  const out: ReviewReason[] = [];
+  if (model.result && !o.deal) {
+    const why = (model.result.end_reason ?? "").replace(/_/g, " ");
+    out.push({ icon: "✕", label: !why || /no deal|walked away/i.test(why) ? "No deal" : `No deal · ${why}` });
+  }
+  if (o.deal && isNum(o.vsAlternative) && o.vsAlternative < 0) out.push({ icon: "↗", label: `${eurK(-o.vsAlternative)} worse than walk-away` });
+  const left = leftOnTable(model);
+  if (left.length) out.push({ icon: "€", label: `${eurK(left[0].diff)} cheaper offer not taken` });
+  if (o.deal && isNum(o.vsFloorEstimate) && isNum(o.floor) && o.floor > 0 && o.vsFloorEstimate / o.floor > 0.05)
+    out.push({ icon: "▲", label: `${((o.vsFloorEstimate / o.floor) * 100).toFixed(0)} % above est. floor` });
+  const st = stories ?? new Map(model.threads.map((t) => [t.sid, roundStories(t)]));
+  const contradicted = [...st.values()].flat().reduce((n, s) => n + s.claims.filter((c) => c.result === "contradicted").length, 0);
+  if (contradicted) out.push({ icon: "✕", label: `${contradicted} argument${contradicted > 1 ? "s" : ""} contradicted` });
+  return out;
+}
+
+function eurK(n: number): string {
+  const a = Math.abs(n);
+  return a >= 1e6 ? `€${(a / 1e6).toFixed(2)}M` : a >= 1e3 ? `€${(a / 1e3).toFixed(a >= 1e4 ? 0 : 1)}k` : `€${Math.round(a)}`;
+}
+
 /** Plain summary for the voice copilot (window.__copilotCase). */
 export function copilotSummary(model: CaseModel, stories: Map<string, RoundStory[]>) {
   const v = verdict(model);
+  const o = outcome(model);
   return {
+    saved_vs_opening: o.saved,
+    increase_averted_pct: o.increaseAvertedPct,
+    vs_alternative: o.vsAlternative,
+    vs_floor_estimate: o.vsFloorEstimate,
+    review_reasons: reviewReasons(model, stories).map((r) => r.label),
     title: model.title,
     type: model.type,
     score: v.score,
