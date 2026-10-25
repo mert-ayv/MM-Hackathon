@@ -12,14 +12,19 @@ FPS=25
 ORANGE=0xF2552C
 
 # 1. Blurred copy of the replay (score panel hidden) and stills for the zoom holds.
-ffmpeg -y -loglevel error -i "$SRC" -filter_complex \
-  "[0:v]fps=$FPS,split[a][b];[b]crop=755:300:1130:188,boxblur=25:2[bl];[a][bl]overlay=1130:188" \
+# The replay was recorded before the rename to Tactopus: paste the new header and voice pill (static
+# elements, same layout) from a fresh recording (replay_router3) so every shot shows the current app.
+NEW=$(ls -t renders/replay_router3/*.webm | head -1)
+ffmpeg -y -loglevel error -ss 10 -i "$NEW" -frames:v 1 -vf crop=1920:67:0:0 $W/header.png
+ffmpeg -y -loglevel error -ss 10 -i "$NEW" -frames:v 1 -vf crop=270:95:1650:985 $W/pill.png
+ffmpeg -y -loglevel error -i "$SRC" -i $W/header.png -i $W/pill.png -filter_complex \
+  "[0:v]fps=$FPS,split[a][b];[b]crop=755:300:1130:188,boxblur=25:2[bl];[a][bl]overlay=1130:188[x];[x][1:v]overlay=0:0[y];[y][2:v]overlay=1650:985" \
   -c:v libx264 -crf 14 -an $W/blurred.mp4
 still() { ffmpeg -y -loglevel error -ss "$2" -i "$1" -frames:v 1 "$3"; }
 still $W/blurred.mp4 4.95 $W/k0.png
 still $W/blurred.mp4 8.80 $W/k1.png
 still $W/blurred.mp4 12.25 $W/k2.png
-ffmpeg -y -loglevel error -i "$SRC" -vf fps=$FPS -c:v libx264 -crf 14 -an $W/clean.mp4
+ffmpeg -y -loglevel error -i "$SRC" -i $W/header.png -i $W/pill.png -filter_complex "[0:v]fps=$FPS[x];[x][1:v]overlay=0:0[y];[y][2:v]overlay=1650:985" -c:v libx264 -crf 14 -an $W/clean.mp4
 still $W/clean.mp4 31.75 $W/k3.png
 
 clip() { # src start end out [speed]
