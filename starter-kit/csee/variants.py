@@ -162,12 +162,18 @@ VARIANTS["basec"] = {**VARIANTS["basea"], "claim_evidence": True}
 VARIANTS["v14r"] = {**VARIANTS["v14a"], "rel_full": 0.965}
 VARIANTS["v14s"] = {**VARIANTS["v14a"], "anchor_below_open": 0.04}
 VARIANTS["v14sc"] = {**VARIANTS["v14s"], "claim_evidence": True}
+VARIANTS["v14t"] = {**VARIANTS["v14a"], "close_gap": 0.001, "close_room": 0.05}
+VARIANTS["v16s"] = {**VARIANTS["v16a"], "follow_share": 0.7, "concede_early": 0.15}
+VARIANTS["basea-s"] = {**VARIANTS["basea"], "follow_share": 0.7, "concede_early": 0.15}
 VARIANTS["v17"] = {**VARIANTS["v16"], "rel_anchor": False, "close_gap": 0.001, "close_room": 0.05}
 
 
 
 # What each variant tests, in words - stored with every ledger row (keep it one or two sentences).
 DESCRIPTIONS = {
+    "v14t": "v14a + close only within 0.1 % of C or 5 % of the room (P04: the 0.4 % tolerance is a third of a 1.2 % range; one cent short of C_best).",
+    "v16s": "v16a + slower convergence (our step <= 0.7 x its step, 15 % of the gap early): bots mirror our steps and go final at reply 2-4 well above their floor (P08 5.29 vs ~5.10, P18 5.30 vs ~4.7).",
+    "basea-s": "basea + the v16s slower convergence (P07: Leitner 5.42 final at reply 4, floor ~5.02).",
     "base": "Champion on main (v1 + fix): lever engine, verified claims, parallel threads; anchors 12% below "
     "the opening, concedes 25%/50% of the gap; weighs every offered sheet, cheapest clause when insisted, "
     "should-cost x0.95.",
