@@ -82,10 +82,16 @@ class SupplierTypeMixin:
     """Put first: class X(SupplierTypeMixin, Parent). Paces each case by its suppliers' type (see above)."""
 
     kinds: dict = {}
+    owner_anchor = OWNER_ANCHOR
+    owner_step = OWNER_STEP
+    corporate = True  # practice P11 (Export Manager): 0.710 vs the router's 0.877 with the corporate terms on
+    skip_types = frozenset()  # case types left exactly as routed (e.g. capacity: its soft anchor is deliberate)
 
     def prepare(self, case, threads):
         super().prepare(case, threads)
         self.kinds = {}
+        if case.get("type") in self.skip_types:
+            return
         for sid in case["suppliers"]:
             st = self.threads.get(sid)
             profile = getattr(getattr(st, "intel", None), "profile", None)
@@ -94,35 +100,53 @@ class SupplierTypeMixin:
         if kinds == {"owner"}:  # base's Params are per case: change them only when every supplier is that type
             self.p = replace(
                 self.p,
-                anchor_below_open=max(self.p.anchor_below_open, OWNER_ANCHOR),
-                follow_share=min(self.p.follow_share, OWNER_STEP),
+                anchor_below_open=max(self.p.anchor_below_open, self.owner_anchor),
+                follow_share=min(self.p.follow_share, self.owner_step),
             )
-        elif kinds == {"corporate"}:
+        elif kinds == {"corporate"} and self.corporate:
             self.p = replace(self.p, **CORPORATE_TERMS)
         log.info("%s supplier types: %s", case["case_id"], self.kinds)
 
     def plan_for(self, sid):  # the planner's per-supplier parameters (PlanMixin); unused by other agents
         P = super().plan_for(sid)
         if self.kinds.get(sid) == "owner":
-            return replace(P, anchor=max(P.anchor, OWNER_ANCHOR), probe=P.probe * OWNER_STEP)
+            return replace(P, anchor=max(P.anchor, self.owner_anchor), probe=P.probe * self.owner_step)
         return P
 
 
 _TYPED = {}
 
 
-def typed(cls):
-    if cls not in _TYPED:
-        _TYPED[cls] = type(f"Typed{cls.__name__}", (SupplierTypeMixin, cls), {})
-    return _TYPED[cls]
+def typed(cls, settings=()):
+    key = (cls, tuple(settings))
+    if key not in _TYPED:
+        _TYPED[key] = type(f"Typed{cls.__name__}", (SupplierTypeMixin, cls), dict(settings))
+    return _TYPED[key]
 
 
 class TypedRouterAgent(RouterAgent):
     """The final router (same ROUTES), every routed agent paced by supplier type."""
 
+    settings = ()  # SupplierTypeMixin attributes to override: (("owner_anchor", 0.15), ...)
+
     def _route(self, case):
         fresh = self.case_id != case["case_id"]
         inner = super()._route(case)
         if fresh and not isinstance(inner, SupplierTypeMixin):
-            inner.__class__ = typed(type(inner))
+            inner.__class__ = typed(type(inner), self.settings)
         return inner
+
+
+class OwnerRouterAgent(TypedRouterAgent):
+    """Owner side only: the corporate terms off (P11), capacity left as routed (its soft anchor is deliberate).
+
+    Sim sweep (owner cases, 12 seeds, anchor 0.12-0.26 x step 0.5-1.0): smaller steps of ours only cost (P05 -0.03),
+    a deeper first ask helps P13/P15 up to ~22 % (+0.03/+0.05), flat beyond; P09's +0.13 is its 4 % capacity anchor
+    going deep at any depth - skipped here."""
+
+    settings = (
+        ("owner_anchor", 0.22),
+        ("owner_step", 1.0),
+        ("corporate", False),
+        ("skip_types", frozenset({"capacity"})),
+    )
