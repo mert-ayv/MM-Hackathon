@@ -72,9 +72,9 @@ take $T/IMG_7972.MOV 14.52 15.55 0.51 0.37 1.35 $W/a5.mp4
 cp renders/middle_v5.mp4 $W/b1.mp4
 
 # 3. Outro (Ege). "Code sets every number…" on camera (the Agent Studio stays for the technical video and the pitch).
-take $T/IMG_7969.MOV 28.95 33.85 0.52 0.44 1.2 $W/c1.mp4
+take $T/IMG_7969.MOV 28.95 33.85 0.52 0.44 1.2 $W/c1.mp4 "$(pop 6 0);[v][o6]overlay=enable='lt(t,2.8)'[vo]"
 take $T/IMG_7970.MOV 4.45 8.62 0.53 0.40 1.2 $W/c3.mp4 \
-  "$(pop 2 0.1);$(pop 3 1.8);$(pop 6 0);[v][o6]overlay=enable='lt(t,2.6)'[v1];[v1][o2]overlay=enable='gte(t,0.1)'[v2];[v2][o3]overlay=enable='gte(t,1.8)'[vo]"
+  "$(pop 2 0.1);$(pop 3 1.8);[v][o2]overlay=enable='gte(t,0.1)'[v2];[v2][o3]overlay=enable='gte(t,1.8)'[vo]"
 take $T/IMG_7971.MOV 15.0 16.62 0.56 0.28 1.35 $W/c4.mp4 "$(pop 4 0.05);[v][o4]overlay[vo]"
 take $T/IMG_7970.MOV 11.35 12.5 0.53 0.40 1.3 $W/c5.mp4
 ffmpeg -y -loglevel error -loop 1 -framerate $FPS -t 1.0 -i $O/endcard.png -f lavfi -t 1.0 -i anullsrc=r=48000:cl=stereo \

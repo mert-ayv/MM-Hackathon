@@ -1,7 +1,9 @@
 # Design decisions, and why
 
 Each section names what we chose, what we tried or considered instead, and what our own sessions showed.
-Sources: `README.md` "Our approach", `docs/ARCHITECTURE.md` (changelog and experiment log), `docs/pitch/qa.md`,
+Every number below was checked against the repo on Sun 25 Oct, 12:35. Three results come from offline analyses
+whose code is not in the repo, only their write-up: the 260-session bot model, the 531-model comparison, and the
+cost engine matching the arena on 40 deals. Sources: `README.md` "Our approach", `docs/ARCHITECTURE.md` (changelog and experiment log), `docs/pitch/qa.md`,
 `docs/pitch/replays.md`, `starter-kit/csee/agents/router.py`, the ledger `experiments/*.jsonl`.
 
 ## 1. Code decides every number; the language model only reads and writes
@@ -10,8 +12,9 @@ Sources: `README.md` "Our approach", `docs/ARCHITECTURE.md` (changelog and exper
 supplier's e-mail and writes our reply around those fixed numbers.
 
 **Alternative we tried.** We let the model choose the moves, twice. First, Claude with our pricing functions as
-tools: wherever it changed a move, the result was worse. On P07 it scored 0.728 against 0.766, because an extra
-60-day payment option it added pulled the supplier's concessions onto the wrong track. Each move also took 10 to
+tools: where it changed a move, it never did better. It was worse on P07 and on sandbox D02, and equal on P10. On
+P07 it scored 0.728, against 0.747 and 0.766 for our rule-based router that evening, because an extra 60-day
+payment option it added pulled the supplier's concessions onto the wrong track. Each move also took 10 to
 20 seconds of a 60-second clock. Second, a full LLM strategist: P05 scored 0.52 and 0.72, against 0.81 for the
 rule policy.
 
@@ -26,15 +29,15 @@ commit to?" brought a concession.
 **Choice.** We fitted a model of the supplier bots from 260 of our own sessions. Each round's back-office note
 reveals the bot's decision, which made this possible. The model predicts the next supplier price within about 0.6 %.
 
-**What it showed.** The bots behave like a classic tit-for-tat negotiator. They mirror our concession up to a
+**What it showed.** The bots behave like a classic tit-for-tat negotiator (Faratin, Sierra & Jennings 1998). They mirror our concession up to a
 cap that shrinks every round. They hold when we don't move. They send a final offer after a fixed patience, a
 median of 4 replies over 1,132 replies. An opening ask more than about 8 to 10 % below their floor cuts that
-patience by 1 to 2 replies: D01 went from 6 to 3, P07 from 4 to 2.
+patience by 1 to 3 replies: D01 went from 6 to 3, P07 from 4 to 2.
 
 **What we built from it.** A move planner that estimates each supplier's cap from its first replies, then concedes
 exactly what the supplier will mirror while keeping the gap small enough to avoid an early final offer. On 531
-perturbed supplier models it scored 0.658 against 0.615 for our earlier rule policy, with 3 walk-aways instead
-of 36.
+perturbed versions of the fitted bot model it scored 0.658 against 0.615 for our earlier rule policy, with 3
+walk-aways instead of 36.
 
 ## 3. Never push after a final offer
 
@@ -52,9 +55,11 @@ needs the fitted model and a real session behind it.
 **Choice.** Where it pays, we send packages that cost us the same, such as a lower price with 14-day payment next
 to a higher price with 30-day payment. The one the supplier picks reveals how much it values cash.
 
-**Evidence.** On P01 the owner picked 14-day payment, which moved the case from 0.926 to 0.988. The same menu did
-nothing on P03 and P04: those suppliers value cash below our 8 % (P03 about 4.1 %), so they ignored it. We therefore
-route the menu only to price-increase cases with cash-hungry suppliers, instead of using it everywhere.
+**Evidence.** On P01 the owner picked 14-day payment. The menu alone took the case from 0.926 to 0.938, and
+together with the move planner from section 2 it reached 0.975, and 0.988 in the final router. The same menu did
+nothing on P03 and P04: those suppliers value cash below our 8 % (P03 about 4.1 %), so they ignored it. We
+therefore keep the menu off the renewal route, where it was ignored, and use it on the price-increase and
+raw-material routes.
 
 ## 5. Only true, sourced arguments, chosen by what actually moved prices
 
@@ -63,8 +68,9 @@ for word. The bots fact-check each one. In 91 logged practice sessions, 230 of 2
 other 14 duplicate, and none contradicted.
 
 **What we dropped, and why.** We kept only argument types that moved a price. Order-history arguments moved a price
-0 times in 26, so they are gone. Rising indices "confirm their case", so we cite only falling ones. Citing an index
-the supplier has hedged does not help: skipping it on P08 took us from 0.711 to 0.754. We rejected persuasion
+0 times in 26, so they are gone. Rising indices "confirm their case", so we cite only falling ones. Leading with an index
+the supplier has hedged does not help: moving that argument last on P08 reached 0.754 against 0.711 without the
+change, in one of two sessions. We rejected persuasion
 tricks and prompt injection outright; the bots decide by rules, and the jury reads every replay.
 
 ## 6. Answer the supplier's lever with a priced clause
@@ -77,19 +83,21 @@ session. A fixed-price ladder on the same case scored 0.499, because the bot sta
 ## 7. A router per case type, not one agent
 
 **Choice.** Different case types reward different policies, so the final agent routes each type to the version
-that won it in measured A/B runs. Example: the deep opening that wins RFQs (P05 0.831, 0.831, 0.854) is wrong for
-bundling, where the same deep anchor drew a final offer at reply 2.
+that won it in measured A/B runs. Example: a deeper opening ask
+won the RFQ case (P05 0.831, 0.831, 0.854). On a bundling case, an earlier deep-anchor version drew the supplier's
+final offer at reply 2. So the opening depth is set per case type, not once for all.
 
 ## 8. Measure before shipping
 
-Practice sessions were scarce (400 per 24 hours, shared by four people), so every change climbed one ladder: the
-free sandbox, then the fitted bot model, then one logged practice session only if the model predicted a gain. Every
-session is logged with author, agent, commit and score. For robustness we ran a 966-case sweep over all 46 final
+Practice sessions were scarce (a limited daily quota, shared by four people), so every change climbed one
+ladder: the free sandbox, then the fitted bot model, then one logged practice session only if the model predicted
+a gain. Practice sessions are logged in a shared ledger with author, agent, commit and score. For robustness we ran a 966-case sweep over all 46 final
 suppliers and a 322-case run on the Live-Final clock. It found no crash and no broken must-have, and surfaced three
 loss mechanisms, which we fixed.
 
 ## Result
 
-From our first agent at 0.481 to the final router at 0.77 on the same 10 practice cases. Our best-per-case practice
-mean is 0.81, against 0.70 for Tacto's house agent, with the largest gains on the hardest cases: RFQ 0.81 vs 0.56,
-quality 0.79 vs 0.31, raw material 0.59 vs 0.39.
+From our first agent at 0.481 (it crashed on two cases) to the final router at about 0.77 in single full runs on
+the same 10 practice cases. Our best-per-case practice mean is 0.81, against 0.70 for Tacto's house agent. The
+largest gains are on the hardest cases, best score per case: RFQ (P05) 0.85 vs 0.56, quality (P11) 0.88 vs 0.31,
+raw material (P18) 0.62 vs 0.39.
