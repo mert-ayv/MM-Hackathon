@@ -22,6 +22,7 @@ from arena_kit.play import live_threads as _kit_live_threads
 
 from . import intel as intel_mod
 from . import levers, runlog
+from . import xdecide  # cross-check stream B (xc_push / xc_hold / xc_pace)
 from .writer import SIGN, TemplateWriter, describe
 
 log = logging.getLogger("csee")
@@ -251,13 +252,16 @@ class Params:
     contract_at_horizon: bool = False  # no contract beyond the horizon when an index clause is in play and rising  # infer cash/capacity/volume pressure from the supplier's e-mails, not only profiles
     # cross-check plan (feat/xcheck-plan, Sun 25 Oct; vault "Case Audits/00 Cross-check"): all off = today's behaviour
     xc_claims: bool = False  # 1 claim selection: supplier-own evidence first, largest forecast, drop dead claim kinds
-    xc_push: bool = False  # 2 one guarded push after a final offer (only if its last step > 0)
+    xc_push: bool = False  # 2 one guarded push after a final offer (only if its last step >= 0.2 %; sized to its documented
+    #                        desk authority else 0.8 %; csee/xdecide.py). Overrides the routed agents' final_push=0.
     xc_trade: bool = False  # 3 term exchange rates: sell terms it values more than they cost us, buy the cheap ones
     xc_answer: bool = False  # 4 answer the supplier's direct questions with the fixed fact; never dangle fixed terms
     xc_relfloor: bool = False  # 5 relationship floor (no sheet below its C-minimal price) + fixed track before a clause
-    xc_hold: bool = False  # 6 hold/repeat discipline: never resend a sheet; after a hold change a term or the evidence
+    xc_hold: bool = False  # 6 hold/repeat discipline: price per structure monotone, never resend a sheet set; after a hold change
+    #                        something real (evidence, a term it values, a tick step); after a second hold close on its sheet
     xc_rfq: bool = False  # 7 RFQ ratchet: re-cite the lowest agreed offer, close only when bidders stop moving
-    xc_pace: bool = False  # 8 patience-aware pacing (within ~1 % of its standing price by round 3, steps >= its tick)
+    xc_pace: bool = False  # 8 patience-aware pacing: steps >= its price tick; a committee desk (meeting note) gets within 1 %
+    #                        of its standing price from our 3rd mail on, once the gap is inside two of its bands
 
 
 @dataclass
@@ -277,6 +281,7 @@ class ThreadState:
     asked_breakdown: bool = False
     ready: bool = False  # nothing more to gain by writing: wait for the coordinator
     why: str = ""  # which branch of next_terms decided the last move (for the run log only)
+    xb: dict = field(default_factory=dict)  # cross-check stream B notes per thread (xc_push gate, xc_hold changes)
 
 
 EVIDENCE_FLOOR = {"index": 1.8, "forecast": 1.5}  # moved a price 41/44 and 23/26 times; QN complaints 1.4 (9/12) come next
@@ -555,6 +560,12 @@ class CseeAgent:
                     "refs": [],
                 }
         push = self.final_push_size(case, ev) if status == "final_offer" else 0.0
+        xc_ask = None
+        if self.p.xc_push and status == "final_offer" and st.pushed < 1 and theirs.get("unit_price"):
+            # item 2: the guarded push replaces every agent's own final_push (the routed planners and the quality
+            # menu set final_push=0 in prepare; the gate below is what makes a push safe, not the agent)
+            xc_ask = self.xc_push_ask(case, sid, ev, theirs, std)
+            push = (1 - xc_ask / theirs["unit_price"]) if xc_ask else 0.0
         if (
             status == "final_offer"
             and push
@@ -566,11 +577,11 @@ class CseeAgent:
         ):
             st.pushed += 1
             ask = complete_offer(
-                case, {**theirs, "unit_price": round(theirs["unit_price"] * (1 - push), 2)}
+                case, {**theirs, "unit_price": xc_ask or round(theirs["unit_price"] * (1 - push), 2)}
             )
             st.our_prices.append(ask["unit_price"])
             self.note_decision(
-                ev, sid, "send", f"final offer: one small push ({push:.1%}), leader only", t0
+                ev, sid, "send", st.xb.get("push") or f"final offer: one small push ({push:.1%}), leader only", t0
             )
             return {
                 "subject": f"Re: {case['title']}"[:300],
@@ -591,7 +602,14 @@ class CseeAgent:
                 if left <= self.p.reserve_moves
                 else "no term sheet offered"
             )
+            if self.p.xc_push and status == "final_offer" and st.xb.get("push", "").startswith("xc_push blocked"):
+                why += f"; {st.xb['push']}"
             self.note_decision(ev, sid, "wait", why, t0)
+            return None
+        if self.p.xc_hold and sheet_id and xdecide.consecutive_holds(case, ev) >= 2:
+            # item 6: it held twice while we moved - a third ask gets the same answer: close on its standing sheet
+            st.ready = True
+            self.note_decision(ev, sid, "wait", "xc_hold: it held its sheet twice while we moved: close on it", t0)
             return None
         supplier = self.supplier_estimate(case, sid, std)
         st.why = ""
@@ -600,9 +618,18 @@ class CseeAgent:
             st.ready = True
             self.note_decision(ev, sid, "wait", st.why or "next_terms: nothing to win by writing", t0)
             return None
+        if self.p.xc_pace and "unit_price" in case["negotiable"] and st.our_prices:
+            ours = self.xc_pace_price(case, sid, ev, ours, theirs)
         sheets = self.sheets(case, sid, ours, std, supplier)
         st.our_prices.append(ours["unit_price"])  # sheets carry no price when the price is fixed
         claims = self.pick_claims(case, threads, sid)
+        if self.p.xc_hold and "unit_price" in case["negotiable"]:
+            sheets = self.xc_hold_sheets(case, sid, ev, sheets, claims, theirs, std, supplier)
+            if sheets is None:
+                st.ready = True
+                self.note_decision(ev, sid, "wait", st.xb.get("hold") or "xc_hold: nothing real left to change", t0)
+                return None
+            st.our_prices[-1] = sheets[0]["unit_price"]
         if self.p.xc_answer:  # its direct questions answered in this e-mail, with the fixed fact (item 4)
             claims = claims + self.answer_claims(case, threads, sid, sheets, claims)
         ask_breakdown = not st.asked_breakdown and not st.breakdown
@@ -627,6 +654,159 @@ class CseeAgent:
         """How far below its final offer to push once (0: accept). A hook so a subclass can size it per thread
         without changing self.p, which threads share while deciding outside the runner's lock."""
         return self.p.final_push
+
+    # ---------- cross-check stream B (csee/xdecide.py): guarded push, hold discipline, pacing ----------
+    def xc_push_ask(self, case, sid, events, theirs, std):
+        """Item 2. The one price to ask after its final offer, or None (accept it). Fires only when its last step
+        was a real one (>= 0.2 % of its price: both logged walks followed a hold or a 0.08 % micro-step), sized to
+        its documented desk authority (meeting note "price changes above 2 % need the pricing committee": the
+        smallest tick price inside that band) else 0.8 %, never below its estimated full cost in a relationship
+        goal, never smaller than one of its price ticks. The reason is kept in st.xb['push'] for the run log."""
+        st = self.threads[sid]
+        price = theirs.get("unit_price")
+        step = xdecide.supplier_step(case, events, std)
+        if step is None:
+            st.xb["push"] = "xc_push blocked: no earlier priced message to measure its step"
+            return None
+        if step < xdecide.MIN_STEP * price:
+            st.xb["push"] = f"xc_push blocked: its last step {step / price:+.2%} < {xdecide.MIN_STEP:.1%} (hold)"
+            return None
+        band = xdecide.desk_authority(self.pkg, sid)
+        limit = max(band - xdecide.BAND_MARGIN, 0.0) if band else xdecide.DEFAULT_PUSH
+        tick = xdecide.tick_of(xdecide.their_prices(events))
+        ask = xdecide.push_ask(price, limit, tick)
+        if ask is None:
+            st.xb["push"] = f"xc_push blocked: {limit:.1%} below {price} is less than one tick ({tick})"
+            return None
+        if case["buyer"].get("category_goal") in RELATIONSHIP_GOALS:
+            full = (st.breakdown or {}).get("full_cost") or (
+                st.intel.full_cost * self.p.rel_full if st.intel.full_cost else None
+            )
+            if full and ask < full:
+                ask = xdecide.ceil_tick(full, tick)
+                if ask >= round(price, 2) - 1e-9:
+                    st.xb["push"] = f"xc_push blocked: its final {price} is at our full-cost estimate {full:.2f}"
+                    return None
+        st.xb["push"] = (
+            f"xc_push: its last step {step / price:+.2%}, "
+            + (f"desk authority {band:.0%} (meeting note)" if band else f"default {limit:.1%}")
+            + f" -> ask {ask} ({1 - ask / price:.2%} below its final {price}), tick {tick}"
+        )
+        return ask
+
+    def xc_liked_fields(self, case, sid):
+        """Non-price terms this supplier values: its profile (what_it_values, likely_tradeables) and its own words."""
+        st = self.threads[sid]
+        profile = st.intel.profile
+        values = " ".join(profile.get("what_it_values", [])).lower()
+        sig = self.signals(sid, st.events)
+        wants = {
+            "payment_days": "cash" in sig or "cash" in values or "payment" in values,
+            "lead_time_days": "capacity" in sig or "capacity" in values or "lead" in values,
+            "volume_per_year": "volume" in sig or "volume" in values,
+            "contract_months": "volume" in sig or "contract" in values or "long" in values,
+            "index_clause": "index" in sig or "index" in values,
+        }
+        liked = {f for f, w in wants.items() if w}
+        liked |= {t.get("lever") for t in profile.get("likely_tradeables", []) if t.get("lever")}
+        return liked & set(case["negotiable"])
+
+    def xc_hold_sheets(self, case, sid, events, sheets, claims, theirs, std, supplier):
+        """Item 6. (a) Never ask less for a structure than we asked before (P04: 4.63 -> 4.39 drew a hold + final).
+        (b) Never resend an identical sheet set; (c) after a hold the mail must change something real: new verified
+        evidence (claims), else one trade sheet on a term it values that we have not offered yet, else a step of at
+        least its price tick on the main sheet. None = nothing real is left below its price: close on its sheet."""
+        st = self.threads[sid]
+        hist = xdecide.our_history(case, events)
+        out = []
+        for s in sheets:
+            k = xdecide.sheet_key(case, s)
+            if s.get("unit_price") is not None and k in hist and s["unit_price"] < hist[k] - 1e-9:
+                s = {**s, "unit_price": hist[k]}
+            if xdecide.normalized(case, [s]) not in [xdecide.normalized(case, [o]) for o in out]:
+                out.append(s)
+        sent = xdecide.our_messages(events)
+        identical = bool(sent) and xdecide.normalized(case, out) == xdecide.normalized(case, sent[-1])
+        hold = bool(sent) and xdecide.consecutive_holds(case, events) >= 1
+        if not identical and not (hold and not claims):
+            if out != sheets:
+                st.xb["hold"] = "xc_hold: price per structure kept monotone"
+            return out
+        main = out[0]
+        tick = xdecide.tick_of(xdecide.their_prices(events))
+        prev = hist.get(xdecide.sheet_key(case, main))
+        if not identical and prev is not None and main["unit_price"] - prev >= tick - 1e-9:
+            return out  # after its hold we already step by at least one of its ticks: a real move
+        # a term it values, not offered yet, at the C of the main sheet less trade_gain: a trade, not a gift
+        if len(out) < 3:
+            liked = self.xc_liked_fields(case, sid)
+            values = " ".join(st.intel.profile.get("what_it_values", [])).lower()
+            tradeables = [t.get("lever") for t in st.intel.profile.get("likely_tradeables", [])]
+            target = total_cost(case, main, std, supplier) * (1 - self.p.trade_gain)
+            for change in self.generic_trade_moves(case, sid, main, std, supplier, values, tradeables):
+                f = next(iter(change))
+                if f not in liked:
+                    continue
+                t = complete_offer(case, {**main, **change})
+                k = xdecide.sheet_key(case, t)
+                if k in hist or any(xdecide.sheet_key(case, o) == k for o in out) or not must_haves_ok(case, t, std):
+                    continue
+                price = levers.price_for(case, t, target, std, supplier)
+                if price is None or price <= 0 or price >= main["unit_price"] * 1.2:
+                    continue
+                t["unit_price"] = price
+                st.xb["hold"] = f"xc_hold: {'identical sheets' if identical else 'after its hold'}: added a {f} trade sheet"
+                return out[:1] + [t] + out[1:3]
+        # else one tick above our last ask for the main structure, if that is still below its price
+        p_new = round(max(prev if prev is not None else main["unit_price"], main["unit_price"]) + tick, 2)
+        same = xdecide.sheet_key(case, theirs) == xdecide.sheet_key(case, main)
+        if same and theirs.get("unit_price") is not None and p_new >= theirs["unit_price"] - 1e-9:
+            st.xb["hold"] = f"xc_hold: one tick ({tick}) above our last ask meets its price {theirs['unit_price']}: take it"
+            return None
+        if not same and theirs.get("unit_price") is not None:
+            if total_cost(case, {**main, "unit_price": p_new}, std, supplier) >= total_cost(case, theirs, std, supplier):
+                st.xb["hold"] = "xc_hold: one tick above our last ask costs us more than its sheet: take it"
+                return None
+        st.xb["hold"] = (
+            f"xc_hold: {'identical sheets' if identical else 'after its hold, no new evidence'}: main "
+            f"{main['unit_price']} -> {p_new} (one tick {tick} above our last ask on this structure)"
+        )
+        return [{**main, "unit_price": p_new}] + out[1:]
+
+    def xc_pace_price(self, case, sid, events, ours, theirs):
+        """Item 8. Our step is at least one of its price ticks (a 0.50-tick desk rounds a 0.02 step to nothing);
+        a desk with a documented ~2 % authority gets within 1 % of its standing price by our 3rd mail (it gives
+        ~2 % a round and goes final early: P10 reply 1-2, P04 reply 2). Never crosses its price."""
+        st = self.threads[sid]
+        p_s, p_b, p = theirs.get("unit_price"), st.our_prices[-1], ours["unit_price"]
+        if p_s is None or p_b is None:
+            return ours
+        tick = xdecide.tick_of(xdecide.their_prices(events))
+        why = []
+        if 0 < p - p_b < tick - 1e-9:
+            p = round(p_b + tick, 2)
+            why.append(f"step raised to one tick ({tick})")
+        sent = len(xdecide.our_messages(events))
+        band = xdecide.desk_authority(self.pkg, sid)
+        if (
+            sent >= 2
+            and band
+            and p < p_s * (1 - xdecide.WITHIN_BY_THIRD)
+            and p_s - p_b <= 2 * band * p_s  # only from inside two bands: never a jump from far away (P03 kept
+        ):  # conceding until its 6th reply - rounds, not jumps, are what a committee desk rewards)
+            p = xdecide.ceil_tick(p_s * (1 - xdecide.WITHIN_BY_THIRD), tick)
+            why.append(f"3rd mail to a committee desk: within {xdecide.WITHIN_BY_THIRD:.0%} of its {p_s}")
+        if p >= p_s - 1e-9:
+            p = max(p_b, round(p_s - tick, 2))
+        if why and p != ours["unit_price"]:
+            st.why += f"; xc_pace: {', '.join(why)} -> {p:.2f}"
+            ours = {**ours, "unit_price": round(p, 2)}
+            self.xc_sync_plan(case, sid, events, ours)
+        return ours
+
+    def xc_sync_plan(self, case, sid, events, ours):
+        """A main price changed after next_terms: an agent that re-prices its sheets from a plan (PlanMixin) takes
+        the new price as its plan. Nothing to do here."""
 
     def is_leader(self, case, threads, sid):
         """This thread holds our cheapest standing deal (always true with one supplier)."""
