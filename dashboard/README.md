@@ -59,6 +59,30 @@ up on their own: the app polls `/api/version` every 2.5 s, and an open case foll
 Missing `dossier` / `specialists` / `plan` events (baseline agents) just leave those panels
 empty, and unknown event types are ignored.
 
+## Voice copilot ("Ask the negotiator", ElevenLabs)
+
+An internal voice assistant for the procurement manager, docked bottom-right on every view (`V` opens it). It opens
+with a ~20 s spoken debrief of the open negotiation (text built by code from the run log), then answers questions
+like *"why did we accept in round 5?"* or *"where did we leave money?"*. Every figure comes from a client tool over
+the run log (`src/lib/voice.ts`): `get_case_summary`, `get_round`, `get_cost_breakdown`, `get_supplier`,
+`get_portfolio`, `list_playbook`, `show` (moves the screen to a round) and `propose_change`, which queues a diff card
+in Agent Studio for one-click accept / reject. It never changes the agent by itself.
+
+Setup (once, online):
+
+```bash
+echo 'ELEVENLABS_API_KEY=...' >> starter-kit/.env       # never commit it
+python3 dashboard/voice/provision.py                     # creates/updates the agent from dashboard/voice/agent.json
+python3 dashboard/voice/provision.py check               # signed-URL round trip
+python3 dashboard/voice/provision.py tts                 # voices the offline demo (web/public/voice/*.mp3)
+```
+
+The agent id lands in `dashboard/voice/.agent_id` (git-ignored; or set `ELEVENLABS_AGENT_ID`). The server hands the
+browser a signed URL (`/api/voice/session`), so the key never leaves it. Without a key, or when the venue Wi-Fi
+fails, the dock plays the **demo**: a scripted conversation over the showcase P01 (`web/public/voice/demo.json`),
+with the pre-generated ElevenLabs clips (browser speech if they're missing). Its tool calls are real: it scrolls the
+negotiation and drops the suggestion into Agent Studio.
+
 ## The team's real games
 
 ```bash
