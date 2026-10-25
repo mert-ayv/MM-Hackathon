@@ -71,3 +71,27 @@ big ones are index-clause cases.
 
 One 0 in 198 rows from a 3163 s session (laptop sleep, fixed with caffeinate). No run over 390 s otherwise
 (p90 257 s, P05 three threads up to 353 s). 7 zero/no-deal rows total, all on retired agents.
+
+## Sun 10:20 - what the experiments said (Annika, 3 practice sessions + realsim)
+
+Screen: `csee.realsim` (feat/xplan-realsim, calibrated on 198 sessions: median error 0.017, correlation 0.745;
+router baseline 0.777 = live). Live only to confirm. Candidates live on branch `feat/tune` (`annika-lever-cap`,
+`annika-cap-only`, `annika-raw-lever-cap`, variants `v14t`, `v16s`, `basea-s`, `v7s`, `v7r`). **Nothing promoted.**
+
+| idea | screen | live | verdict |
+|---|---|---|---|
+| P02: no clause first, inside the 2 % desk band (365.68 / 366.69), clause 362 as round-3 fallback | realsim fitted 0.733 (= router); perturbed personas 0.751 vs router 0.826, one walk | P02 0.733: Nordmark answered 373.61 -> 372.85 -> hold ("we require a step"), took the clause fallback | **reject**: without a clause it moves ~0.2 % a reply; the record's ~367.8 is not reachable by price steps, and the band overpays when the hidden supplier's cost is lower than our estimate |
+| Cap: no alternative sheet dearer for us than the main sheet (gift-sheet guard) | realsim = router on P01/P02/P13, -0.025 on P17 | P01 0.975 (= router) | **no change**: the planner's low anchor already makes the hedge sheet the cheapest; the cap only costs where a dearer lever sheet would have closed well |
+| P04: `close_gap` 0.001 / `close_room` 0.05 (`v14t`) | realsim 0.869 both | P04 0.860, still 4.94 | **reject**: the cent is the bot's grid, not our tolerance |
+| P07/P08/P18: slower convergence (`v16s`, `basea-s`) | raw planner ignores the pacing params (0.741/0.552 unchanged); P07 0.747 vs 0.766 | - | **reject** |
+| P05/P06: slower RFQ convergence (`v7s`, `v7r`) | 0.830 = 0.830 (fitted and perturbed) | - | **reject** |
+
+Perturbed router sweep over all 19 case files (5 seeds): mean 0.70, no walks, no worker failures, 1 zero in 95
+(P13). Weak unhosted types on the sim: P09 capacity 0.11 (desk finals 0.5 % under its opening within 2 replies;
+type-prior persona, no ground truth), P06 rfq 0.49, P16 raw 0.58, P12 quality 0.33-1.0. P04 perturbed 0.38 only
+because its range is 1.2 % of C.
+
+Reading: the router is at the ceiling the bots' mechanics allow for price steps. The record holders' extra on P02 /
+P08 / P18 / P05 must come from arguments (verified claims each cut an ask once per kind), not from pacing or
+sheet structure. A hidden relationship penalty makes paying a stabilise supplier a few euro more nearly free, so a
+no-clause close in the 362-368 band would still be the P02 jackpot if an argument gets Nordmark there.
