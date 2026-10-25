@@ -1,0 +1,10 @@
+tempo 1.25
+n01 start 0.50
+n02 start 6.30
+n03 start 10.61
+n04 start 16.29
+n05 start 20.50
+n06 start 27.50
+n07 start 36.50
+n08 start 47.30
+n09 start 58.66

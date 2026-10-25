@@ -31,7 +31,15 @@ place each clip at its cue with `adelay` (see Route B).
 
 ## Route B: ElevenLabs text-to-speech
 
-Use the web app (the ElevenLabs connector in this Claude Code session is not authorised). Generate **one clip
+One command, once `ELEVENLABS_API_KEY=` is added to `starter-kit/.env` (key from elevenlabs.io → profile → API keys):
+
+```bash
+cd starter-kit
+uv run --with requests python ../video/tech-60s/build/narrate.py --list-voices          # pick a calm neutral English voice
+uv run --with requests python ../video/tech-60s/build/narrate.py --voice Daniel         # 9 clips → narration/, muxed → tech-60s_v1_elevenlabs.mp4
+```
+
+It warns if a clip would run into the next cue (then `--speed 1.1`). Manual alternative via the web app: Generate **one clip
 per row** of the table, same voice, speed 1.0, and save them as `n01.mp3` … `n09.mp3` in a folder `narration/`.
 Pick a calm, neutral English voice; not the German owner voice from the demo, that one belongs to the supplier.
 Then place each clip at its cue (milliseconds) and mux:
