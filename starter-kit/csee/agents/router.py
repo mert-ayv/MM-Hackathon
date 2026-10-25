@@ -29,7 +29,7 @@ ROUTES = {
     "capacity": "base-d/v14s",  # soft-anchor study Sat 21:30: Ravensteiner (desk authority 2 %) answers a 4 % anchor "open" (12 %: final at
     # reply 1); it charges ~2.00/unit for 42 vs 56 days lead, 14 late days cost us 0.71. base/v14s switched to 56 d itself -> 31.50 = 0.679;
     # the planner kept 42 d and took a final 33.20 = 0.601 (4 % and 6 %), 0.671 only when the bot volunteered its 54-d alternative
-    "quality": "mert-quality-menu/v14a",  # P11: menu 0.794 / 0.71 (only agent to reach 45.00: keeps +0.55 steps >= its 0.50 tick to the end); base-d 0.71 (~8 runs), planner 0.71 / 0.672 (tiny last steps round up)
+    "quality": "mert-quality-measured/v14a",  # Sun 07:40: menu + bigger reciprocal steps only after two similar supplier steps (P11 0.877 twice; sweep 138 quality cases: 2 better, 0 worse, same zeros/walks)
     "bundling": "base-d/basea",  # A/B: P07 0.766 (best) vs planner 0.734
 }
 FALLBACK = "base-d/v14a"  # a type the final brings that ROUTES does not list

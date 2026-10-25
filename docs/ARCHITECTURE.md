@@ -290,3 +290,12 @@ necessary to establish performance; existing runs predate this implementation.
 - **What happened on P11:** our third offer left at 103 s; the supplier's final offer (45.00, worth 0.794) arrived at 3162 s, because the MacBook slept 51 minutes in the middle of the run. The agent decided to accept, but the arena had already ended the session on timeout.
 - **Fix:** `csee final/run/play` keep macOS awake themselves (`caffeinate -dimsu -w <pid>`). It has no inherited pipes and runs in its own session, so it cannot hold `| tee` open and stall the final's restart loop.
 - **The other 9 cases:** in line with earlier single-shot runs (P07 0.715 is at the low end of its 0.715-0.766 spread).
+
+**Sun 07:40, quality route promoted:** `mert-quality-measured/v14a`, built in the Astra session. It is the quality menu plus bigger reciprocal steps that switch on only after the supplier makes two similar positive steps.
+- **Live:** P11 0.877 twice (EUR 44.50 / 300 ppm).
+- **Robustness sweep (138 quality cases x 46 suppliers):** 2 better, 0 worse, same zeros and walks.
+
+**RFQ deeper anchor (mert-rfq-anchor/v7a, 28 % / 15 % instead of 22 % / 8 %): held back.**
+- **Live:** P05 0.831 (repeat possibly cached); sandbox D02 0.786 vs 0.736.
+- **Sweep, 138 RFQ cases:** 13 better, 3 worse, mean -0.003; supplier walks 39 -> 45, zeros 5 -> 6.
+- **Next:** a fresh live recheck.
