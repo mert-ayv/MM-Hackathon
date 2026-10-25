@@ -170,10 +170,11 @@ def test_sunday_router_changes_only_rfq_and_quality():
     from csee.agents.router import RouterAgent
     current=RouterAgent.routes()
     candidate=MertSundayRouterAgent.routes()
-    assert {k for k in current if current[k]!=candidate[k]}=={'rfq','quality'}
+    # Sun 07:40/07:50 the final router adopted both slots (quality-measured, rfq-anchor + dossier claims): the
+    # candidate may now differ from it only in those two slots, and only in the dossier-claims wrapper for rfq
+    assert {k for k in current if current[k]!=candidate[k]} <= {'rfq','quality'}
+    assert current['quality'].startswith('mert-quality-measured') and current['rfq'].startswith('mert-rfq-anchor')
     assert MertSundayRouterAgent.fallback()==RouterAgent.fallback()
-    from csee.agents.mert_sunday import MertQualityRouterAgent
-    assert {k for k,v in current.items() if MertQualityRouterAgent.routes()[k]!=v}=={'quality'}
 
 
 def test_rfq_delivery_menu_prices_delay_and_excludes_infeasible_56_days():
@@ -261,3 +262,22 @@ def test_measured_quality_requires_repeated_coarse_steps(monkeypatch,prices,expe
     monkeypatch.setattr(MertQualityMenuAgent,'next_terms',lambda *args:copy.deepcopy(main))
     result=a.next_terms(c,threads,sid,{'unit_price':prices[-1]},{},None,6)
     assert result['unit_price']==expected
+
+
+def test_raw_frontload_sends_both_index_claims_without_changing_terms():
+    from csee.agents.mert_sunday import MertRawFrontloadAgent
+    from csee.agents.mert_dossier import PlanMesoRawDossierClaims
+    from arena_kit.data import DataPackage
+    from test_csee_smoke import DATA
+    c=next(c for c in json.loads(CASES.read_text()) if c['case_id']=='case:P18')
+    sid=c['suppliers'][0];threads={sid:[opening(c,sid)]}
+    a=MertRawFrontloadAgent(DataPackage(DATA),params=variants.params('v16a'))
+    b=PlanMesoRawDossierClaims(DataPackage(DATA),params=variants.params('v16a'))
+    a.prepare(c,threads);b.prepare(c,copy.deepcopy(threads))
+    actual=a.thread_move(c,threads,sid)
+    expected=b.thread_move(c,copy.deepcopy(threads),sid)
+    assert actual['term_sheets']==expected['term_sheets']
+    assert any(r.startswith('idx:AS-14404') for r in actual['refs'])
+    assert any(r.startswith('idx:PPI-C2431') for r in actual['refs'])
+    assert len(actual['refs'])==4
+    assert a.p.max_claims==b.p.max_claims

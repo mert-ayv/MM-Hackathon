@@ -108,6 +108,7 @@ from .mert_dossier import (
 from .router import RouterAgent, RouterClaimsAgent, RouterPlanAgent
 from .mert_sunday import MertRfqLeadMenuAgent, MertRawLongAgent, MertRawCashFirstAgent, MertRfqCashFirstAgent, MertQualityReciprocalAgent, MertQualityReciprocalSingleAgent, MertSundayRouterAgent
 from .mert_sunday import MertQualityMeasuredAgent, MertMeasuredRouterAgent, MertQualityRouterAgent
+from .mert_sunday import MertRawFrontloadAgent
 from .unified import UnifiedAgent, UnifiedFastAgent, UnifiedReviewAgent, UnifiedSingleAgent
 
 AGENTS = {
@@ -143,6 +144,7 @@ AGENTS = {
     "mert-quality-measured": MertQualityMeasuredAgent,
     "mert-measured-router": MertMeasuredRouterAgent,
     "mert-quality-router": MertQualityRouterAgent,
+    "mert-raw-frontload": MertRawFrontloadAgent,
     "mert-clause": MertClauseAgent,
     "mert-raw": MertRawAgent,
     "mert-hedge": MertHedgeAgent,

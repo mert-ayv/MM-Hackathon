@@ -3,9 +3,34 @@ import math
 
 from arena_kit.cost import complete_offer, must_haves_ok, total_cost
 from csee import levers
+from csee.agent import CseeAgent
 from .mert import MertRfqAnchorAgent, MertQualityMenuAgent
 from .mert_dossier import PlanMesoRawDossierClaims
 from .router import RouterAgent
+
+
+class MertRawFrontloadAgent(PlanMesoRawDossierClaims):
+    """Test two evidence arguments before early-final raw suppliers set a path.
+
+    Front-load existing index evidence, preserving its relative order and the
+    parent's deduplication, terms and closing. Opening increases to two claims.
+    """
+
+    def pick_claims(self, case, threads, sid):
+        first = not any(m.get('from') == 'buyer' for m in threads[sid])
+        if case.get('type') != 'raw_material' or not first:
+            return super().pick_claims(case, threads, sid)
+        with self.shared_lock:
+            keep = self.p.max_claims
+            st = self.threads[sid]
+            original = st.intel.claims
+            try:
+                self.p.max_claims = 1  # CseeAgent adds one on the opening message.
+                st.intel.claims = [c for c in original if c.kind == 'index'] + [c for c in original if c.kind != 'index']
+                return CseeAgent.pick_claims(self,case,threads,sid)
+            finally:
+                self.p.max_claims = keep
+                st.intel.claims = original
 
 
 class MertSundayRouterAgent(RouterAgent):
