@@ -1,4 +1,4 @@
-"""Isolated frontier experiments; never selected by the final router implicitly."""
+"""Frontier experiments and the validated modest-growth raw evidence route."""
 
 import math
 from dataclasses import replace
@@ -7,9 +7,10 @@ from arena_kit.cost import must_haves_ok, total_cost
 from arena_kit.play import latest
 
 from .. import levers
-from ..agent import standard_terms
-from ..intel import Claim
-from .mert import MertSkipHedgeAgent, PlanMixin
+from ..agent import CseeAgent, standard_terms
+from ..intel import Claim, supplier_facts
+from ..writer import before_signature
+from .mert import MertSkipHedgeAgent, PlanMixin, scoped_writer
 from .mert_dossier import (
     DossierClaimsMixin,
     PlanMesoRawDossierClaims,
@@ -155,9 +156,10 @@ class RawForecastMixin:
                     continue
                 claim = Claim(f"Our demand forecast for this part grows {growth:+.1f}% ({ref}).",
                               [ref], "forecast", strength=1.2)
-                # Dossier order already puts hedged indices at the end. Preserve
-                # the leading unhedged indices and all remaining relative order.
-                at = next((i for i, c in enumerate(st.intel.claims) if c.kind != "index"),
+                # Keep strong cost/notice/quote evidence ahead of a modest
+                # forecast too. Dossier order leaves hedged indices at the end.
+                strong = {"index", "should_cost", "notice", "rival"}
+                at = next((i for i, c in enumerate(st.intel.claims) if c.kind not in strong),
                           len(st.intel.claims))
                 st.intel.claims.insert(at, claim)
                 break
@@ -169,3 +171,85 @@ class EgeRawForecastAgent(RawForecastMixin, PlanMesoRawDossierClaims):
 
 class EgeRawReciprocalAgent(RawForecastMixin, DossierClaimsMixin, MertSkipHedgeAgent):
     """Forecast evidence with the earlier winning raw reciprocal price policy."""
+
+
+class EgeRawDualEvidenceAgent(EgeRawReciprocalAgent):
+    """Test independent index and demand evidence together in the opening."""
+
+    def pick_claims(self, case, threads, sid):
+        first = not any(e.get("from") == "buyer" for e in threads[sid])
+        st = self.threads[sid]
+        forecasts = [c for c in st.intel.claims if c.kind == "forecast"]
+        if case.get("type") != "raw_material" or not first or not forecasts:
+            return super().pick_claims(case, threads, sid)
+        original = st.intel.claims
+        if not original or original[0].kind != "index":
+            return super().pick_claims(case, threads, sid)
+        with self.shared_lock:
+            budget = self.p.max_claims
+            try:
+                chosen = [original[0], forecasts[0]]
+                st.intel.claims = chosen + [c for c in original if c not in chosen]
+                self.p.max_claims = 1  # Base adds one on the opening only.
+                return CseeAgent.pick_claims(self, case, threads, sid)
+            finally:
+                st.intel.claims = original
+                self.p.max_claims = budget
+
+
+class EgeRawPaceAgent(EgeRawReciprocalAgent):
+    """Test larger early reciprocal steps without changing the opening anchor."""
+
+    def prepare(self, case, threads):
+        super().prepare(case, threads)
+        if case.get("type") == "raw_material":
+            self.p = replace(self.p, concede_early=.45)
+
+
+class EgeRawScopedAgent(EgeRawReciprocalAgent):
+    """Give the writer the enquiry's actual fixed quantity and trade limits."""
+
+    def prepare(self, case, threads):
+        super().prepare(case, threads)
+        if case.get("type") == "raw_material":
+            self.writer = scoped_writer(self.writer)
+
+
+def owner_calculation_note(case, pkg, sid):
+    """Find a documented invitation; do not invent an approval process."""
+    if pkg is None:
+        return None
+    rows = supplier_facts(case, pkg, sid, "doc:")
+    for ref in sorted(rows, reverse=True):
+        try:
+            body = pkg.document(ref).lower()
+        except (FileNotFoundError, KeyError, TypeError):
+            continue
+        if all(s in body for s in ("owner", "offered to walk us through", "calculation")):
+            return ref
+    return None
+
+
+class EgeRawOwnerReviewAgent(EgeRawReciprocalAgent):
+    """Request the owner's documented cost review on the opening packages."""
+
+    def prepare(self, case, threads):
+        super().prepare(case, threads)
+        self.owner_notes = ({sid: owner_calculation_note(case, self.pkg, sid) for sid in threads}
+                            if case.get("type") == "raw_material" else {})
+
+    def thread_move(self, case, threads, sid):
+        msg = super().thread_move(case, threads, sid)
+        ref = self.owner_notes.get(sid)
+        if not msg or not msg.get("term_sheets") or not ref or any(e.get("from") == "buyer" for e in threads[sid]):
+            return msg
+        addition = (f"Your owner offered to walk us through the calculation ({ref}). "
+                    "Please take up that offer: ask the owner to review these packages and the base-price "
+                    "calculation, and confirm the best price they can approve before issuing a final offer. "
+                    "Which package can the owner support?")
+        msg["refs"] = list(dict.fromkeys([*msg.get("refs", []), ref]))[:20]
+        msg["body"] = before_signature(msg["body"], addition)
+        write = msg.get("_write")
+        if write:
+            msg["_write"] = lambda: before_signature(write(), addition)
+        return msg

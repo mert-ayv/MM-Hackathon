@@ -50,10 +50,14 @@ from .annika_capacity import AnnikaCapacity9Agent, AnnikaCapacity9J2Agent, Annik
 from .ege import EgeAgent
 from .ege_frontier import (
     EgeRawDeadbandAgent,
+    EgeRawDualEvidenceAgent,
     EgeRawFinalAgent,
     EgeRawForecastAgent,
     EgeRawIndexMenuAgent,
+    EgeRawOwnerReviewAgent,
+    EgeRawPaceAgent,
     EgeRawReciprocalAgent,
+    EgeRawScopedAgent,
     EgeRenewalStagedAgent,
     EgeRfqDeepAgent,
 )
@@ -128,6 +132,10 @@ AGENTS = {
     "ege-renewal-staged": EgeRenewalStagedAgent,  # independent arguments, one per turn
     "ege-raw-forecast": EgeRawForecastAgent,  # include modest positive current demand growth
     "ege-raw-reciprocal": EgeRawReciprocalAgent,  # forecast with the earlier winning raw price policy
+    "ege-raw-dual-evidence": EgeRawDualEvidenceAgent,  # independent index and forecast at opening
+    "ege-raw-pace": EgeRawPaceAgent,  # larger early steps, unchanged opening
+    "ege-raw-scoped": EgeRawScopedAgent,  # fixed quantity and scope visible to writer
+    "ege-raw-owner-review": EgeRawOwnerReviewAgent,  # documented owner invitation, one opening request
     "unified": UnifiedAgent,
     "unified-single": UnifiedSingleAgent,
     "unified-fast": UnifiedFastAgent,

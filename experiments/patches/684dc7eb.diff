@@ -1,0 +1,648 @@
+diff --git a/starter-kit/csee/agents/__init__.py b/starter-kit/csee/agents/__init__.py
+index fcd084b..1f73dc7 100644
+--- a/starter-kit/csee/agents/__init__.py
++++ b/starter-kit/csee/agents/__init__.py
+@@ -50,13 +50,17 @@ from .annika_capacity import AnnikaCapacity9Agent, AnnikaCapacity9J2Agent, Annik
+ from .ege import EgeAgent
+ from .ege_frontier import (
+     EgeRawDeadbandAgent,
++    EgeRawDualEvidenceAgent,
+     EgeRawFinalAgent,
+     EgeRawForecastAgent,
+     EgeRawIndexMenuAgent,
++    EgeRawPaceAgent,
+     EgeRawReciprocalAgent,
++    EgeRawScopedAgent,
+     EgeRenewalStagedAgent,
+     EgeRfqDeepAgent,
+ )
++from .ege_raw import EgeRawEvidenceAgent, EgeRawMemoryAgent, EgeRawPlanAgent, EgeRawStructureAgent
+ from .emre import EmreAgent
+ from .mert import (
+     AnchorCapAgent,
+@@ -128,6 +132,13 @@ AGENTS = {
+     "ege-renewal-staged": EgeRenewalStagedAgent,  # independent arguments, one per turn
+     "ege-raw-forecast": EgeRawForecastAgent,  # include modest positive current demand growth
+     "ege-raw-reciprocal": EgeRawReciprocalAgent,  # forecast with the earlier winning raw price policy
++    "ege-raw-dual-evidence": EgeRawDualEvidenceAgent,  # independent index and forecast at opening
++    "ege-raw-pace": EgeRawPaceAgent,  # larger early steps, unchanged opening
++    "ege-raw-scoped": EgeRawScopedAgent,  # fixed quantity and scope visible to writer
++    "ege-raw-plan": EgeRawPlanAgent,  # isolated package-plan repair; not a final route
++    "ege-raw-memory": EgeRawMemoryAgent,  # reply-driven structure and evidence memory; not promoted
++    "ege-raw-structure": EgeRawStructureAgent,  # package-memory ablation only
++    "ege-raw-evidence": EgeRawEvidenceAgent,  # argument-memory ablation only
+     "unified": UnifiedAgent,
+     "unified-single": UnifiedSingleAgent,
+     "unified-fast": UnifiedFastAgent,
+diff --git a/starter-kit/csee/agents/ege_frontier.py b/starter-kit/csee/agents/ege_frontier.py
+index 7b5fa76..6ff0244 100644
+--- a/starter-kit/csee/agents/ege_frontier.py
++++ b/starter-kit/csee/agents/ege_frontier.py
+@@ -7,9 +7,9 @@ from arena_kit.cost import must_haves_ok, total_cost
+ from arena_kit.play import latest
+ 
+ from .. import levers
+-from ..agent import standard_terms
++from ..agent import CseeAgent, standard_terms
+ from ..intel import Claim
+-from .mert import MertSkipHedgeAgent, PlanMixin
++from .mert import MertSkipHedgeAgent, PlanMixin, scoped_writer
+ from .mert_dossier import (
+     DossierClaimsMixin,
+     PlanMesoRawDossierClaims,
+@@ -169,3 +169,45 @@ class EgeRawForecastAgent(RawForecastMixin, PlanMesoRawDossierClaims):
+ 
+ class EgeRawReciprocalAgent(RawForecastMixin, DossierClaimsMixin, MertSkipHedgeAgent):
+     """Forecast evidence with the earlier winning raw reciprocal price policy."""
++
++
++class EgeRawDualEvidenceAgent(EgeRawReciprocalAgent):
++    """Test independent index and demand evidence together in the opening."""
++
++    def pick_claims(self, case, threads, sid):
++        first = not any(e.get("from") == "buyer" for e in threads[sid])
++        st = self.threads[sid]
++        forecasts = [c for c in st.intel.claims if c.kind == "forecast"]
++        if case.get("type") != "raw_material" or not first or not forecasts:
++            return super().pick_claims(case, threads, sid)
++        original = st.intel.claims
++        if not original or original[0].kind != "index":
++            return super().pick_claims(case, threads, sid)
++        with self.shared_lock:
++            budget = self.p.max_claims
++            try:
++                chosen = [original[0], forecasts[0]]
++                st.intel.claims = chosen + [c for c in original if c not in chosen]
++                self.p.max_claims = 1  # Base adds one on the opening only.
++                return CseeAgent.pick_claims(self, case, threads, sid)
++            finally:
++                st.intel.claims = original
++                self.p.max_claims = budget
++
++
++class EgeRawPaceAgent(EgeRawReciprocalAgent):
++    """Test larger early reciprocal steps without changing the opening anchor."""
++
++    def prepare(self, case, threads):
++        super().prepare(case, threads)
++        if case.get("type") == "raw_material":
++            self.p = replace(self.p, concede_early=.45)
++
++
++class EgeRawScopedAgent(EgeRawReciprocalAgent):
++    """Give the writer the enquiry's actual fixed quantity and trade limits."""
++
++    def prepare(self, case, threads):
++        super().prepare(case, threads)
++        if case.get("type") == "raw_material":
++            self.writer = scoped_writer(self.writer)
+diff --git a/starter-kit/csee/agents/ege_raw.py b/starter-kit/csee/agents/ege_raw.py
+new file mode 100644
+index 0000000..4e103ab
+--- /dev/null
++++ b/starter-kit/csee/agents/ege_raw.py
+@@ -0,0 +1,131 @@
++"""Isolated raw-material ablation of the current router's package construction.
++
++Only restore the existing planner's target after parent builders replace sheet
++zero. No new anchor, contract preference, index valuation or closing rule. This
++often raises our price; a correct plan is not evidence of a better live score.
++"""
++
++import math
++
++from arena_kit.cost import closing_terms, must_haves_ok, total_cost
++
++from .. import levers
++from . import raw_feedback
++from .mert_dossier import PlanMesoRawDossierClaims
++
++
++class EgeRawPlanAgent(PlanMesoRawDossierClaims):
++    def prepare(self, case, threads):
++        self.restore_main_plan = case.get("type") == "raw_material"
++        super().prepare(case, threads)
++
++    def sheets(self, case, sid, ours, std, supplier):
++        out = super().sheets(case, sid, ours, std, supplier)
++        if self.restore_main_plan and self.log.enabled:
++            model = self.sup_model(case, sid, std)
++            self.log.event(
++                "raw_plan_audit",
++                supplier_id=sid,
++                planned_supplier_value=getattr(self.threads[sid], "plan_v", None),
++                draft_supplier_value=self.sval(case, model, ours),
++                outgoing_supplier_values=[self.sval(case, model, terms) for terms in out],
++                draft_terms=ours,
++                outgoing_terms=out,
++            )
++        return out
++
++
++class EgeRawMemoryAgent(PlanMesoRawDossierClaims):
++    """Reply-driven package/evidence memory on the unchanged current raw route.
++
++    Primary prices and stopping rules remain the parent's. An explicitly rejected
++    fixed-price alternative is repriced with the mutually quoted main clause, or
++    omitted if it cannot meet the original cost/value budgets and prior offers.
++    """
++
++    structure_memory = True
++    evidence_memory = True
++
++    def sheets(self, case, sid, ours, std, supplier):
++        out = super().sheets(case, sid, ours, std, supplier)
++        if not self.raw or not self.structure_memory or not out:
++            return out
++        events = self.threads[sid].events
++        main = out[0]
++        clause = main.get("index_clause")
++        model = self.sup_model(case, sid, std)
++        main_value = self.sval(case, model, main)
++        quoted_clauses = [s.get("terms", {}).get("index_clause") for e in reversed(events)
++                          if e.get("from") != "buyer" for s in e.get("term_sheets", [])]
++        result = [main]
++        changes = []
++        for sheet in out[1:]:
++            rule = (raw_feedback.index_requirement(closing_terms(case, sheet, std)["contract_months"], events)
++                    if not sheet.get("index_clause") else None)
++            if not rule:
++                result.append(sheet)
++                continue
++            replacement = None
++            if (clause and clause in quoted_clauses and clause in levers.options(case, "index_clause")
++                    and (not rule["series"] or clause.get("series") in rule["series"])
++                    and "index_clause" in case["negotiable"] and "unit_price" in case["negotiable"]
++                    and main_value is not None):
++                replacement = self.indexed_alternative(case, sid, sheet, main, clause, std, supplier, model, main_value)
++                if replacement and any(self.same_terms(replacement, s) for s in result):
++                    replacement = None
++            if replacement:
++                result.append(replacement)
++            changes.append({"evidence": rule, "before": sheet, "after": replacement})
++        if changes and self.log.enabled:
++            self.log.event("raw_feedback", supplier_id=sid, package_changes=changes)
++        return result
++
++    def indexed_alternative(self, case, sid, sheet, main, clause, std, supplier, model, main_value):
++        candidate = {**sheet, "index_clause": clause}
++        target = min(total_cost(case, sheet, std, supplier), total_cost(case, main, std, supplier))
++        price = levers.price_for(case, candidate, target, std, supplier)
++        ceiling = self.price_at_value(case, model, candidate, main_value)
++        if price is None or ceiling is None:
++            return None
++        candidate["unit_price"] = math.floor(min(price, ceiling) * 100 + 1e-7) / 100
++        if total_cost(case, candidate, std, supplier) > target + .001:
++            candidate["unit_price"] = round(candidate["unit_price"] - .01, 2)
++        # Do not retract any previous binding offer on this exact structure.
++        previous = [s.get("terms", {}) for e in self.threads[sid].events if e.get("from") == "buyer"
++                    for s in e.get("term_sheets", [])]
++        prior_prices = [s["unit_price"] for s in previous if s.get("unit_price") is not None
++                        and self.same_terms(closing_terms(case, s, std), closing_terms(case, candidate, std))]
++        candidate["unit_price"] = max([candidate["unit_price"], *prior_prices])
++        value = self.sval(case, model, candidate)
++        if (candidate["unit_price"] <= 0 or not must_haves_ok(case, candidate, std)
++                or total_cost(case, candidate, std, supplier) > target + .001
++                or value is None or value > main_value + 1e-7):
++            return None
++        return candidate
++
++    def pick_claims(self, case, threads, sid):
++        if not self.raw or not self.evidence_memory:
++            return super().pick_claims(case, threads, sid)
++        rejected = raw_feedback.dismissed_order_history(threads[sid])
++        if not rejected:
++            return super().pick_claims(case, threads, sid)
++        info = self.threads[sid].intel
++        original = info.claims
++        # Filter before the parent consumes citation IDs; skipped claims aren't sent.
++        info.claims = [c for c in original if not (c.tag == "po" or any(i.startswith("po:") for i in c.ids))]
++        try:
++            chosen = super().pick_claims(case, threads, sid)
++        finally:
++            info.claims = original
++        if self.log.enabled:
++            self.log.event("raw_feedback", supplier_id=sid, dismissed_argument=rejected,
++                           selected_claim_kinds=[c.kind for c in chosen])
++        return chosen
++
++
++class EgeRawStructureAgent(EgeRawMemoryAgent):
++    evidence_memory = False
++
++
++class EgeRawEvidenceAgent(EgeRawMemoryAgent):
++    structure_memory = False
+diff --git a/starter-kit/csee/agents/raw_feedback.py b/starter-kit/csee/agents/raw_feedback.py
+new file mode 100644
+index 0000000..2404f18
+--- /dev/null
++++ b/starter-kit/csee/agents/raw_feedback.py
+@@ -0,0 +1,74 @@
++"""Conservative, quote-backed feedback rules. No supplier IDs or target prices.
++
++Unknown wording yields no rule. A quoted duration limits the rule to that exact
++duration; only explicit multi-year wording applies to all terms over 12 months.
++Supplier sheets can supersede an earlier refusal. This is a small deterministic
++interpreter, not a general language-understanding model.
++"""
++
++import re
++
++
++def sentences(body):
++    return re.split(r"(?<=[.!?])\s+|\n+", body or "")
++
++
++def index_requirement(months, events):
++    """Evidence against a fixed-price package of this duration, or None."""
++    if not isinstance(months, (int, float)):
++        return None
++    for event in reversed(events):
++        if event.get("from") == "buyer":
++            continue
++        # An actual later fixed quote overrides earlier prose, only on its duration.
++        if any(s.get("terms", {}).get("contract_months") == months
++               and "index_clause" in s.get("terms", {})
++               and s["terms"]["index_clause"] is None
++               for s in event.get("term_sheets", [])):
++            return None
++        for sentence in sentences(event.get("body")):
++            text = sentence.lower()
++            refuses_fixed = re.search(
++                r"\b(?:cannot|can't|can not|unable to) (?:offer|provide|accept|agree to) (?:a )?fixed[- ]prices?", text
++            )
++            requires_index = (
++                re.search(r"\b(?:must|require|requires|insist on|provided (?:we|you) include)\b", text)
++                and re.search(
++                    r"\b(?:index clause|price adjustment clause|alloy surcharge clause|preisgleitklausel)\b", text
++                )
++            )
++            if not (refuses_fixed or requires_index):
++                continue
++            if re.search(r"\b(?:not|never) (?:require|insist)|\b(?:do not|don't) (?:need|require)|\bmust not\b", text):
++                continue
++            durations = {int(n) for n in re.findall(r"\b(\d+)\s*[- ]months?\b", text)}
++            multi_year = bool(re.search(r"\bmulti[- ]year\b", text))
++            if months in durations or (multi_year and months > 12):
++                return {"quote": sentence.strip(), "duration_months": sorted(durations),
++                        "multi_year": multi_year,
++                        "series": re.findall(r"\b[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+\b", sentence)}
++    return None
++
++
++def dismissed_order_history(events):
++    """Latest explicit response to a cited order-history argument; silence is not rejection."""
++    verdict = None
++    cited_orders = False
++    for event in events:
++        if event.get("from") == "buyer":
++            cited_orders = any(str(ref).startswith("po:") for ref in event.get("refs", []))
++            cited_orders |= bool(re.search(r"\bpo:[\w:-]+", event.get("body") or ""))
++            continue
++        if not cited_orders:
++            continue
++        for sentence in sentences(event.get("body")):
++            text = sentence.lower()
++            if not re.search(
++                r"\b(?:price history|historical (?:purchase orders|prices)|past prices|purchase orders)\b", text
++            ):
++                continue
++            if re.search(r"(?:does|do) not (?:change|alter|affect|impact) .{0,35}(?:calculation|cost|pricing)", text):
++                verdict = {"quote": sentence.strip(), "kind": "order_history"}
++            elif re.search(r"(?:took|taken) (?:it|them|this|these) into account|adjusted .{0,25}calculation", text):
++                verdict = None
++    return verdict
+diff --git a/starter-kit/csee/negotiation/constraints.py b/starter-kit/csee/negotiation/constraints.py
+new file mode 100644
+index 0000000..3ad5594
+--- /dev/null
++++ b/starter-kit/csee/negotiation/constraints.py
+@@ -0,0 +1,59 @@
++"""Grounded supplier constraints are persistent interpretations, never legal must-haves."""
++
++import re
++
++from arena_kit.cost import closing_terms
++
++from . import strategy
++
++
++def read(raw, sources, case):
++    result = []
++    for row in raw if isinstance(raw, list) else []:
++        if not isinstance(row, dict) or not strategy.grounded([row], sources):
++            continue
++        field, relation, value = row.get("field"), row.get("relation"), row.get("value")
++        if field not in case["negotiable"] or field == "unit_price" or relation not in ("min", "max", "eq"):
++            continue
++        # Bounds need numeric evidence in the actual quote. The model interprets which
++        # field it applies to; downstream code treats that interpretation as revisable.
++        if not isinstance(value, (float, int)) or isinstance(value, bool):
++            continue
++        numbers = [float(n) for n in re.findall(r"\d+(?:\.\d+)?", row["quote"])]
++        if value not in numbers or field not in (
++            "lead_time_days",
++            "payment_days",
++            "contract_months",
++            "volume_per_year",
++        ):
++            continue
++        result.append(row)
++    return result[:4]
++
++
++def matches(terms, row):
++    value = terms.get(row["field"])
++    if value is None:
++        return True
++    return {"eq": value == row["value"], "min": value >= row["value"], "max": value <= row["value"]}[row["relation"]]
++
++
++def refresh(records, events, case, std):
++    """A newer actual supplier sheet can supersede an earlier interpretation."""
++    result = []
++    for row in records:
++        later = events[row.get("observed_at", len(events)) + 1 :]
++        superseded = any(
++            not matches(closing_terms(case, sheet["terms"], std), row)
++            for event in later
++            if event.get("from") != "buyer"
++            for sheet in event.get("term_sheets", [])
++        )
++        if not superseded:
++            result.append(row)
++    return result
++
++
++def violations(case, terms, std, records):
++    full = closing_terms(case, terms, std)
++    return [r for r in records if not matches(full, r)]
+diff --git a/starter-kit/csee/negotiation/economics.py b/starter-kit/csee/negotiation/economics.py
+new file mode 100644
+index 0000000..7d08df4
+--- /dev/null
++++ b/starter-kit/csee/negotiation/economics.py
+@@ -0,0 +1,135 @@
++"""Sensitivity checks, not fitted supplier costs or statistical confidence intervals."""
++
++import json
++import math
++from functools import lru_cache
++
++from arena_kit.cost import RELATIONSHIP_GOALS, closing_terms, supplier_value, total_cost
++
++
++def scenarios(case, supplier):
++    if not supplier or case["buyer"].get("category_goal") not in RELATIONSHIP_GOALS:
++        return {"estimate": supplier}
++    # Public should-cost is an estimate. These stress assumptions are intentionally
++    # independent of supplier IDs and previous arena scores.
++    return {
++        "estimate": supplier,
++        "lower_cost": {**supplier, "full_cost": supplier.get("cost_low", supplier["full_cost"] * 0.95)},
++        "higher_cost": {**supplier, "full_cost": supplier.get("cost_high", supplier["full_cost"] * 1.05)},
++    }
++
++
++def costs(case, terms, std, supplier):
++    result = {}
++    for name, estimate in scenarios(case, supplier).items():
++        try:
++            value = total_cost(case, terms, std, estimate)
++            if math.isfinite(value):
++                result[name] = value
++        except (ValueError, KeyError, ZeroDivisionError, OverflowError):
++            continue
++    return result
++
++
++def decision_cost(case, terms, std=None, supplier=None):
++    """One conservative objective for proposing, comparing and accepting complete packages."""
++    values = costs(case, terms, std, supplier)
++    return max(values.values(), default=math.inf)
++
++
++@lru_cache(maxsize=2048)
++def _optimum(encoded):
++    case, terms, std, supplier = json.loads(encoded)
++    # The search bounds depend on opening economics, never the latest supplier counter.
++    reference = max(
++        supplier.get("standard", {}).get("unit_price") or 0,
++        supplier.get("cost_high", supplier["full_cost"]),
++        case["buyer"].get("current_unit_price") or 0,
++        1,
++    )
++    lo, hi = reference * 0.25, reference * 2
++    for _ in range(65):
++        a, b = lo + (hi - lo) / 3, hi - (hi - lo) / 3
++        if decision_cost(case, {**terms, "unit_price": a}, std, supplier) <= decision_cost(
++            case, {**terms, "unit_price": b}, std, supplier
++        ):
++            hi = b
++        else:
++            lo = a
++    p = (lo + hi) / 2
++    return min(
++        (round(p - 0.01, 2), round(p, 2), round(p + 0.01, 2)),
++        key=lambda price: decision_cost(case, {**terms, "unit_price": price}, std, supplier),
++    )
++
++
++def optimal_price(case, terms, std, supplier):
++    if not supplier or case["buyer"].get("category_goal") not in RELATIONSHIP_GOALS:
++        return 0.01
++    compact = {k: case[k] for k in ("buyer", "fixed_terms", "negotiable", "term_options") if k in case}
++    package = {k: v for k, v in closing_terms(case, terms, std).items() if k != "unit_price"}
++    return _optimum(json.dumps([compact, package, std, supplier], sort_keys=True))
++
++
++def price_for(case, terms, target, std, supplier):
++    lo = optimal_price(case, terms, std, supplier)
++    if decision_cost(case, {**terms, "unit_price": lo}, std, supplier) > target + 0.01:
++        return None
++    hi = max(lo * 2, (terms.get("unit_price") or 1) * 3)
++    for _ in range(60):
++        mid = (lo + hi) / 2
++        if decision_cost(case, {**terms, "unit_price": mid}, std, supplier) <= target:
++            lo = mid
++        else:
++            hi = mid
++    return round(lo, 2)
++
++
++def value(case, terms, supplier):
++    """Supplier-value hypothesis: cash, documented index exposure and capacity cost.
++
++    Index continuation is uncertain. Credit cannot exceed the public opening increase;
++    no willingness-to-pay is inferred from an unaccepted buyer proposal.
++    """
++    result = supplier_value(case, terms, supplier)
++    clause = terms.get("index_clause")
++    if clause and not supplier.get("hedged"):
++        move = supplier.get("index_moves", {}).get(clause["series"], 0)
++        exposure = clause["material_share"] * max(0, move - clause["deadband_pct"] / 100)
++        result += terms["unit_price"] * min(exposure, supplier.get("index_credit_cap", 0))
++    lead = supplier.get("capacity_lead")
++    if lead and terms.get("lead_time_days", lead) < lead:
++        result -= terms["unit_price"] * supplier.get("capacity_day_cost", 0) * (lead - terms["lead_time_days"])
++    return result
++
++
++def friendliness(terms):
++    # Only a tie-breaker after complete buyer cost; no extra value invented for surplus purchases.
++    return (terms.get("lead_time_days", 0), terms.get("contract_months", 0), -terms.get("payment_days", 0))
++
++
++def annotate(case, rows, std, supplier):
++    for row in rows:
++        row["cost_scenarios"] = costs(case, row["terms"], std, supplier)
++    names = set.intersection(*(set(r["cost_scenarios"]) for r in rows)) if rows else set()
++    best = {n: min(r["cost_scenarios"][n] for r in rows) for n in names}
++    for row in rows:
++        values = list(row["cost_scenarios"].values())
++        row["cost_sensitivity"] = {
++            "low": min(values) if values else None,
++            "high": max(values) if values else None,
++            "max_regret": max((row["cost_scenarios"][n] - best[n] for n in names), default=0),
++            "meaning": (
++                "Explicit supplier-cost bounds (or +/-5% fallback); not probabilities or known floors"
++                if len(names) > 1
++                else "No supplier-cost stress available; omitted relationship cost is unknown"
++                if case["buyer"].get("category_goal") in RELATIONSHIP_GOALS
++                else "Buyer cost only; this objective has no relationship-cost charge"
++            ),
++        }
++    return rows
++
++
++def materially_better(case, candidate, reference, std, supplier, fraction=0.005):
++    a, b = costs(case, candidate, std, supplier), costs(case, reference, std, supplier)
++    return bool(a) and a.keys() == b.keys() and all(a[n] < b[n] - abs(b[n]) * fraction for n in a)
+diff --git a/starter-kit/csee/negotiation/policy.py b/starter-kit/csee/negotiation/policy.py
+new file mode 100644
+index 0000000..1b3569a
+--- /dev/null
++++ b/starter-kit/csee/negotiation/policy.py
+@@ -0,0 +1,121 @@
++"""Final authority for a complete binding proposal. No post-validation term rewriting."""
++
++from arena_kit.cost import closing_terms, must_haves_ok
++
++from .. import levers
++from . import constraints, control, economics
++
++
++def binding_error(case, terms, std, supplier, ceiling):
++    if not must_haves_ok(case, terms, std):
++        return "buyer must-have violated"
++    if economics.decision_cost(case, terms, std, supplier) > ceiling + 0.01:
++        return "complete package exceeds decision-cost ceiling"
++    if economics.decision_cost(case, terms, std, supplier) >= levers.alternative_cost(case):
++        return "outside alternative is better under the decision objective"
++    if (
++        "unit_price" in case["negotiable"]
++        and terms["unit_price"] < economics.optimal_price(case, terms, std, supplier) - 0.01
++    ):
++        return "price below stable relationship-cost optimum"
++    return None
++
++
++def previously_tested(case, terms, events, std):
++    target = closing_terms(case, terms, std)
++    for event in events:
++        sheets = event.get("term_sheets", [])
++        if event.get("from") != "buyer" or len(sheets) < 2:
++            continue
++        main = closing_terms(case, sheets[0]["terms"], std)
++        for sheet in sheets[1:]:
++            alternative = closing_terms(case, sheet["terms"], std)
++            changed = [f for f in case["negotiable"] if f != "unit_price" and alternative.get(f) != main.get(f)]
++            if changed and all(target.get(f) == alternative.get(f) for f in changed):
++                return True
++    return False
++
++
++def finalize(
++    case,
++    events,
++    candidates,
++    selected,
++    alternative_ids,
++    state,
++    records,
++    std,
++    supplier,
++    ceiling,
++    constraint_override=False,
++    fallback=False,
++):
++    adjustments, rejected = [], []
++    valid = []
++    for row in candidates:
++        reason = binding_error(case, row["terms"], std, supplier, ceiling)
++        if not reason and constraints.violations(case, row["terms"], std, records):
++            reason = "contradicts a grounded supplier constraint"
++        if reason:
++            rejected.append({"candidate_id": row["id"], "reason": reason})
++        else:
++            valid.append(row)
++    if not valid:
++        return [], adjustments, rejected
++    established = state.get("established_package")
++    stable = next(
++        (r for r in valid if established and control.same_package(closing_terms(case, r["terms"], std), established)),
++        None,
++    )
++    if selected not in valid:
++        selected = stable or min(valid, key=lambda r: r["cost"])
++        adjustments.append("invalid selection replaced with an already validated complete package")
++    concession = selected.get("term_concession", {})
++    if concession.get("compensation") == "unconfirmed":
++        protected = [
++            r
++            for r in valid
++            if all(r["terms"].get(f) == concession["reference_terms"].get(f) for f in concession["fields"])
++        ]
++        if protected:
++            reference = min(protected, key=lambda r: r["cost"])
++            if not economics.materially_better(
++                case, selected["terms"], reference["terms"], std, supplier, fraction=0.001
++            ):
++                selected = reference
++                adjustments.append(
++                    "retained protected package: surrendered terms lack material full-package compensation"
++                )
++    if (
++        stable
++        and not constraint_override
++        and not control.same_package(closing_terms(case, selected["terms"], std), established)
++        and not economics.materially_better(case, selected["terms"], stable["terms"], std, supplier)
++    ):
++        selected = stable
++        adjustments.append("established primary retained: no material improvement supports a switch")
++    bundle = [selected]
++    # No speculative alternatives during a model failure. The default primary is sufficient.
++    ordered = [] if fallback else [r for id_ in alternative_ids for r in valid if r["id"] == id_]
++    for row in ordered:
++        if row in bundle or control.same_package(
++            closing_terms(case, row["terms"], std), closing_terms(case, selected["terms"], std)
++        ):
++            continue
++        reason = None
++        if previously_tested(case, row["terms"], events, std):
++            reason = "alternative lever already tested; do not repeat it as a learning probe"
++        elif not economics.materially_better(case, row["terms"], selected["terms"], std, supplier, fraction=0.001):
++            reason = "alternative lacks a material complete-cost improvement across assumptions"
++        elif any(
++            control.same_package(closing_terms(case, row["terms"], std), closing_terms(case, r["terms"], std))
++            for r in bundle
++        ):
++            reason = "duplicate structure"
++        if reason:
++            rejected.append({"candidate_id": row["id"], "reason": reason})
++        else:
++            bundle.append(row)
++        if len(bundle) == 3:
++            break
++    return bundle, adjustments, rejected

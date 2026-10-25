@@ -27,6 +27,8 @@ import logging
 import os
 from pathlib import Path
 
+import httpx
+
 from arena_kit.cli import load_env, summary
 from arena_kit.client import ArenaClient
 from arena_kit.play import hosted
@@ -44,6 +46,16 @@ def find_data():
         if p and (Path(p) / "facts.json").is_file():
             return str(p)
     return None
+
+
+def runtime_client(**kwargs):
+    """Return control promptly on a lost connection; keep long supplier reads.
+
+    The runner re-reads failed sends and retries until its case deadline. Six
+    client retries with 180-second connection timeouts can hide a whole wave
+    from that recovery loop. Two retries retain the same move ID in the kit.
+    """
+    return ArenaClient(retries=2, timeout=httpx.Timeout(180, connect=5, write=15, pool=5), **kwargs)
 
 
 def agent_factory(use_llm=True, variant="base", agent="base"):
@@ -182,7 +194,7 @@ def command(args, runs):
     if args.cmd == "play":
         from arena_kit.play import RemoteTable
 
-        client = ArenaClient()
+        client = runtime_client()
         if args.case_id.startswith("case:P"):
             guard_quota(client, 1, args.confirm)
         factory = agent_factory(not args.no_llm, args.variant, args.agent)
@@ -193,7 +205,7 @@ def command(args, runs):
         if result.get("replay_url") or result.get("session_id"):
             print("replay:", result.get("replay_url"))
     elif args.cmd == "run":
-        client = ArenaClient()
+        client = runtime_client()
         ids = args.cases or [c["case_id"] for c in hosted(client.cases(args.set))]
         if args.set == "practice":
             guard_quota(client, len(ids), args.confirm)
@@ -203,9 +215,9 @@ def command(args, runs):
             log_row(args, cid, args.set, res)
             print(cid, json.dumps(summary(res)) if isinstance(res, dict) else f"ERROR {res}")
     elif args.cmd == "final":
-        # a venue Wi-Fi blip: 6 retries (~30 s of backoff) instead of 3 before a thread's worker dies; idempotent
-        # via the client's X-Move-Id, so a retried move is never played twice (pre-mortem Sat night, risk 7)
-        client = ArenaClient(retries=6)
+        # Bounded connection retries, then the runner's deadline-aware recovery.
+        # The kit preserves X-Move-Id across the client's retries.
+        client = runtime_client()
         factory = agent_factory(not args.no_llm, args.variant, args.agent)
         out = play_waves(client, factory, args.waves, min(args.parallel, 10), run=new_run(args, runs, "final"))
         for cid, res in out.items():

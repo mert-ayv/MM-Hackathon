@@ -25,7 +25,10 @@ ROUTES = {
     "price_increase": "mert-plan-meso-lever-dc/v14a",  # P01 0.975 (planner + 14-day MESO; engine 0.962), P02 engine = mert-lever 0.733 (copper clause kept). NEVER mert-lever* on raw material
     "renewal": "mert-plan-dc/v14a",  # A/B Sat 20:43: P03 0.923 / P04 0.86 in both routers; planner far fewer walk-aways on perturbed suppliers
     "rfq": "mert-rfq-anchor-d/v7a",  # Sun 07:50: opening 28 % below own / 15 % below rivals (was 22 / 8): P05 0.831/0.831/0.854, D02 0.786/0.77/0.77 vs 0.736, 0 walks in 6 live runs (sweep +6 sim walks: model assumption)
-    "raw_material": "mert-plan-meso-raw-dc/v16c",  # Sun 10:10 A/B same hour vs router 09:10: P08 0.711 vs 0.581, P18 0.552 = 0.552; v16c = v16a
+    "raw_material": "ege-raw-forecast/v16c",  # Sun 11:29: same planner/packages/close, include current positive forecast below 3%.
+    # Paired P08 gains +.1082 (AI; control writer timeouts) / +.0541 (templates); P18 tied both. An independent
+    # reciprocal-policy pair also gained .0108 on P08 and tied P18. See docs/notes/ege-frontier-20261025.md.
+    # Previous route mert-plan-meso-raw-dc/v16c: Sun 10:10 P08 .711 vs .581, P18 .552 = .552; v16c = v16a
     # without order-history claims (0/26 ever moved a price) - rounds 2-3 cite index/QN instead; the other 9 cases were identical  # A/B: P08 0.744 vs skip-hedge 0.711 (its runs avg 0.72, best 0.754); P18 0.552 both; engine >=
     "capacity": "base-d/v14s",  # soft-anchor study Sat 21:30: Ravensteiner (desk authority 2 %) answers a 4 % anchor "open" (12 %: final at
     # reply 1); it charges ~2.00/unit for 42 vs 56 days lead, 14 late days cost us 0.71. base/v14s switched to 56 d itself -> 31.50 = 0.679;

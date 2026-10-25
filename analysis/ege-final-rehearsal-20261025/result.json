@@ -1,0 +1,32 @@
+{
+  "local_only": true,
+  "waves_closed": 2,
+  "resumed_session": true,
+  "deals": 4,
+  "cases": {
+    "case:R1-S01": {
+      "deal": true,
+      "score": 0.0
+    },
+    "case:R1-S03": {
+      "deal": false,
+      "score": 0.20484720976582824
+    },
+    "case:R1-S02": {
+      "deal": true,
+      "score": 0.0
+    },
+    "case:R2-S01": {
+      "deal": true,
+      "score": 0.0
+    },
+    "case:R2-S02": {
+      "deal": true,
+      "score": 0.0
+    },
+    "case:R2-S03": {
+      "deal": false,
+      "score": 0.20484720976582824
+    }
+  }
+}

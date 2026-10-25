@@ -10,10 +10,12 @@ from arena_kit.cost import must_haves_ok, total_cost
 from csee import variants
 from csee.agents.ege_frontier import (
     EgeRawDeadbandAgent,
+    EgeRawDualEvidenceAgent,
     EgeRawFinalAgent,
     EgeRawForecastAgent,
     EgeRawIndexMenuAgent,
     EgeRenewalStagedAgent,
+    owner_calculation_note,
 )
 from csee.intel import Claim
 
@@ -126,3 +128,61 @@ def test_raw_forecast_uses_only_latest_positive_growth(case, growth, expected):
         assert claims[0].ids == [current]
         assert "+1.9%" in claims[0].sentence
     assert agent.p.final_push == 0
+
+
+def test_dual_evidence_opening_preserves_second_index_and_restores_order(case):
+    sid = case["suppliers"][0]
+    threads = {sid: [opening(case, sid)]}
+    agent = EgeRawDualEvidenceAgent(params=variants.params("v16c"))
+    agent.prepare(case, threads)
+    original = [Claim("Index one", ["idx:A@1", "idx:A@2"], "index"),
+                Claim("Index two", ["idx:B@1", "idx:B@2"], "index"),
+                Claim("Demand", ["fc:part@latest"], "forecast")]
+    agent.threads[sid].intel.claims = original
+    budget = agent.p.max_claims
+    assert agent.pick_claims(case, threads, sid) == [original[0], original[2]]
+    assert agent.threads[sid].intel.claims is original
+    assert agent.p.max_claims == budget
+    assert "idx:B@1" not in agent.used_ids
+    threads[sid].append({"from": "buyer"})
+    assert agent.pick_claims(case, threads, sid) == [original[1]]
+
+
+def test_owner_invitation_requires_actual_supplier_document():
+    from types import SimpleNamespace
+
+    bodies = {"doc:2026-09": "The owner offered to walk us through their calculation.",
+              "doc:2026-10": "Sales declined to provide a calculation."}
+    pkg = SimpleNamespace(facts={ref: {"supplier": "sup:a"} for ref in bodies},
+                          document=lambda ref: bodies[ref])
+    assert owner_calculation_note({}, pkg, "sup:a") == "doc:2026-09"
+    assert owner_calculation_note({}, pkg, "sup:b") is None
+    bodies["doc:2026-09"] = "Owner has not offered a cost review."
+    assert owner_calculation_note({}, pkg, "sup:a") is None
+    assert owner_calculation_note({}, None, "sup:a") is None
+
+
+def test_modest_forecast_does_not_displace_stronger_cost_or_notice_evidence(case, monkeypatch):
+    from types import SimpleNamespace
+
+    from csee.agents.mert_dossier import PlanMesoRawDossierClaims
+
+    original = [Claim("Cost", ["cost:test"], "should_cost"),
+                Claim("Notice", ["doc:test", "ctr:test"], "notice"),
+                Claim("Index", ["idx:A@1", "idx:A@2"], "index"),
+                Claim("Delivery", ["sc:test"], "scorecard"),
+                Claim("Hedged index", ["idx:B@1", "idx:B@2"], "index")]
+    sid = case["suppliers"][0]
+    part = case["parts"][0].split(":")[-1]
+    case["facts"] = {f"fc:{part}@2026-09": {"change_pct": 1.9}}
+
+    def parent_prepare(self, case, threads):
+        self.threads = {sid: SimpleNamespace(intel=SimpleNamespace(claims=original.copy()))}
+
+    monkeypatch.setattr(PlanMesoRawDossierClaims, "prepare", parent_prepare)
+    agent = EgeRawForecastAgent()
+    agent.prepare(case, {sid: []})
+    claims = agent.threads[sid].intel.claims
+    assert claims[:3] == original[:3]
+    assert claims[3].kind == "forecast"
+    assert claims[4:] == original[3:]
