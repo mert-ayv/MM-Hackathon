@@ -233,9 +233,9 @@ Every practice session is logged with author, agent, variant, commit and score (
 
 The final router is the per-case-type winner of a 20-session A/B dress rehearsal. Full experiment log: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Research notes: [docs/notes/negotiation-research.md](docs/notes/negotiation-research.md).
 
-### Results (practice board, Sat evening)
+### Results (practice board, Sun 25 Oct)
 
-Mean 0.778 over the 10 practice suppliers, against 0.697 for Tacto's house agent. We beat the house agent on 8 of 10 cases, often by a wide margin: P05 0.81 vs 0.56, P11 0.71 vs 0.31, P18 0.55 vs 0.39.
+Mean of best scores 0.806 over the 10 practice suppliers, against 0.697 for Tacto's house agent. One single-shot run of the exact final router with the Sunday release loaded: 0.773, 10 of 10 deals, no errors. Largest gains over the house agent: P11 0.88 vs 0.31, P05 0.85 vs 0.56, P18 0.62 vs 0.39.
 
 ### Built for the Live Final
 
