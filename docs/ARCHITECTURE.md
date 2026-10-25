@@ -299,3 +299,7 @@ necessary to establish performance; existing runs predate this implementation.
 - **Live:** P05 0.831 (repeat possibly cached); sandbox D02 0.786 vs 0.736.
 - **Sweep, 138 RFQ cases:** 13 better, 3 worse, mean -0.003; supplier walks 39 -> 45, zeros 5 -> 6.
 - **Next:** a fresh live recheck.
+
+**Sun 07:50, RFQ route promoted:** `mert-rfq-anchor-d/v7a` = the deeper RFQ opening (Astra session) plus the dossier claims hook.
+- **Fresh live recheck:** P05 **0.854** (new team best, no walk-away); sandbox D02 0.77 twice. Together with the earlier runs: P05 0.831 / 0.831 / 0.854 and D02 0.786 / 0.77 / 0.77, against 0.810 and 0.736 for the old route.
+- **Risk accepted:** the sweep's extra simulated walks rest on the engine's walk assumption. Practice has shown no walks without a push.

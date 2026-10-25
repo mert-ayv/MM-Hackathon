@@ -90,6 +90,7 @@ from .records import (
     PledgeBase,
 )
 from .mert_dossier import (
+    RfqAnchorDossierClaims,
     PlannerTickClaims,
     PlanMesoLeverTickClaims,
     PlanMesoRawTickClaims,
@@ -182,6 +183,7 @@ AGENTS = {
     "mert-plan-meso-lever-tick": PlanMesoLeverTickClaims,  # + tick rule
     "mert-plan-meso-raw-tick": PlanMesoRawTickClaims,  # + tick rule
     "mert-plan-meso": PlanMesoBase,  # planner + payment MESO on base terms (renewal / capacity / bundling candidate)
+    "mert-rfq-anchor-d": RfqAnchorDossierClaims,  # final RFQ route: deeper opening + dossier claims
     "router": RouterAgent,
     "router-plan": RouterPlanAgent,  # A/B candidate: the planner on every non-RFQ type
     "router-c": RouterClaimsAgent,  # Sunday A/B candidate: ROUTES with every slot on its c-variant (claim_evidence)
