@@ -1,0 +1,42 @@
+diff --git a/starter-kit/csee/__main__.py b/starter-kit/csee/__main__.py
+index ce1b3f8..92e39b9 100644
+--- a/starter-kit/csee/__main__.py
++++ b/starter-kit/csee/__main__.py
+@@ -70,6 +70,28 @@ def agent_factory(use_llm=True, variant="base", agent="base"):
+     return lambda: cls(package, writer, params)
+ 
+ 
++def stay_awake():
++    """macOS: keep the machine awake while this process lives. Sat night a laptop slept 51 min mid-run; the arena's
++    60 s clock ran on, the session timed out and a 0.794 final offer was lost (P11). `caffeinate -w` ends with us."""
++    import shutil
++    import subprocess
++    import sys
++
++    if sys.platform == "darwin" and shutil.which("caffeinate"):
++        try:
++            # no inherited pipes and its own session: holding our stdout would keep `| tee` open after a crash and
++            # stall the final's restart loop
++            subprocess.Popen(
++                ["caffeinate", "-dimsu", "-w", str(os.getpid())],
++                stdin=subprocess.DEVNULL,
++                stdout=subprocess.DEVNULL,
++                stderr=subprocess.DEVNULL,
++                start_new_session=True,
++            )
++        except OSError as e:
++            logging.getLogger("csee").warning("caffeinate failed: %s - keep the machine awake by hand", e)
++
++
+ def main(argv=None):
+     load_env()
+     ap = argparse.ArgumentParser(prog="csee")
+@@ -120,6 +142,8 @@ def main(argv=None):
+         format="%(asctime)s %(threadName)s %(message)s",
+     )
+     runs = {}
++    if args.cmd in ("final", "run", "play"):
++        stay_awake()
+     try:
+         command(args, runs)
+     finally:
