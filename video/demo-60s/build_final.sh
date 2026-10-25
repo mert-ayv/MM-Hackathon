@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Final 60 s demo video, YC-launch style: presenter takes (front/side angles, punch-in, jump cuts),
-# Higgsfield foundry B-roll, the dashboard middle part, the Agent Studio cutaway, stat cards and an end card.
-# Inputs: source/takes/IMG_79xx.MOV (Mert intro, Ege outro), source/foundry_higgsfield.mp4,
+# a text match cut, the dashboard middle part, the Agent Studio cutaway, stat cards and an end card.
+# Inputs: source/takes/IMG_79xx.MOV (Mert intro, Ege outro), renders/matchcut/mc_*.png (make_matchcut.py),
 # renders/middle_v4.mp4, renders/overlays/*.png (make_overlays.py).
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -25,10 +25,38 @@ take() { # src start end face_x face_y zoom out [overlay filter chain on [v]]
 # overlay input numbers in take(): 1 card_95, 2 card_deals, 3 card_77, 4 card_70, 5 name_mert, 6 name_ege
 pop() { echo "[$1:v]format=rgba,fade=in:st=$2:d=0.2:alpha=1[o$1]"; }
 
-# 1. Intro (Mert). Line 1 starts over the foundry shot, then his front take; "+9.5 %" pops on "nine".
-ffmpeg -y -loglevel error -i source/foundry_higgsfield.mp4 -ss 0.75 -to 3.45 -i $T/IMG_7967.MOV -filter_complex \
-  "[0:v]trim=0:2.7,setpts=PTS-STARTPTS,scale=1920:1080,fps=$FPS,setsar=1,format=yuv420p[v];[1:a]$AFX[a]" \
-  -map "[v]" -map "[a]" -c:v libx264 -crf 17 -c:a aac -b:a 192k -shortest $W/a1.mp4
+# 1. Intro (Mert). Line 1 starts over a text match cut (make_matchcut.py: "price increase" in a dozen
+# procurement documents, always at the frame centre, cuts speeding up, last frame the Brandlhuber letter),
+# then his front take; "+9.5 %" pops on "nine".
+MC=renders/matchcut
+FR=(6 6 5 5 4 4 3 3 3 3 3 3 20)   # frames per document at 25 fps -> 2.72 s
+: > $MC/list.txt; i=0; CLICKS=""; t=0
+for f in "${FR[@]}"; do
+  printf "file 'mc_%02d.png'\nduration %s\n" $i "$(python3 -c "print($f/$FPS)")" >> $MC/list.txt
+  CLICKS="$CLICKS $t"; t=$(python3 -c "print(round($t+$f/$FPS,3))"); i=$((i+1))
+done
+printf "file 'mc_12.png'\n" >> $MC/list.txt
+python3 - $MC/clicks.wav 2.72 $CLICKS <<'PY'   # a short paper click at every cut
+import math, random, struct, sys, wave
+out, dur, cuts = sys.argv[1], float(sys.argv[2]), [float(x) for x in sys.argv[3:]]
+sr = 48000
+buf = [0.0] * int(sr * dur)
+for c in cuts:
+    for i in range(int(sr * 0.03)):
+        j = int(c * sr) + i
+        if j < len(buf):
+            buf[j] += 0.5 * random.uniform(-1, 1) * math.exp(-i / sr * 180)
+w = wave.open(out, "wb")
+w.setnchannels(1); w.setsampwidth(2); w.setframerate(sr)
+w.writeframes(b"".join(struct.pack("<h", int(max(-1, min(1, v)) * 32767)) for v in buf))
+w.close()
+PY
+ffmpeg -y -loglevel error -f concat -safe 0 -i $MC/list.txt -ss 0.75 -to 3.45 -i $T/IMG_7967.MOV \
+  -i $MC/clicks.wav -filter_complex \
+  "[0:v]fps=$FPS,scale=3840:2160,zoompan=z='1+0.0012*on':x='iw/2-iw/zoom/2':y='ih/2-ih/zoom/2':d=1:s=1920x1080:fps=$FPS,setsar=1,format=yuv420p[v];
+   [1:a]$AFX[voice];[2:a]highpass=f=1500,volume=0.35,aformat=channel_layouts=stereo[clk];
+   [voice][clk]amix=inputs=2:normalize=0:duration=first[a]" \
+  -map "[v]" -map "[a]" -t 2.7 -c:v libx264 -crf 17 -c:a aac -b:a 192k $W/a1.mp4
 take $T/IMG_7967.MOV 3.45 6.15 0.51 0.35 1.2 $W/a2.mp4 \
   "$(pop 1 1.2);$(pop 5 0);[v][o5]overlay=enable='lt(t,2.4)'[v1];[v1][o1]overlay=enable='gte(t,1.2)'[vo]"
 # Line 2 from the side angle, pauses cut out (jump cuts).
