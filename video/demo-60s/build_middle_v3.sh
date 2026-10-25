@@ -54,13 +54,13 @@ uv run --no-project --with playwright python capture_negview.py 20261025-080841-
 clip $W/blurred.mp4 3.0 4.95 $W/s1a.mp4
 hold $W/k0.png 4.55 760 525 1.8 "$(box 655 504 405 42)" $W/s1b.mp4                      # €138.55 from 1 Nov
 clip $W/blurred.mp4 4.95 8.80 $W/s2a.mp4
-hold $W/k1.png 3.95 510 595 1.6 "$(box 90 563 842 61)" $W/s2b.mp4                       # 51 days vs 90 days
+hold $W/k1.png 3.65 510 595 1.6 "$(box 90 563 842 61)" $W/s2b.mp4                       # 51 days vs 90 days
 clip $W/blurred.mp4 8.80 12.25 $W/s3a.mp4
-hold $W/k2.png 5.70 500 640 1.4 "$(box 420 414 304 33),$(box 270 832 307 36)" $W/s3b.mp4 # fair point + VERIFIED
-pan $W/gap.png 4.0 320 1.45 $W/s4.mp4                                                  # Anchor -> Push -> Trade -> Hold -> Accept
+hold $W/k2.png 5.45 500 640 1.4 "$(box 420 414 304 33),$(box 270 832 307 36)" $W/s3b.mp4 # fair point + VERIFIED
+pan $W/gap.png 2.8 320 1.45 $W/s4.mp4                                                  # Anchor -> Push -> Trade -> Hold -> Accept
 clip $W/blurred.mp4 30.0 31.75 $W/s5a.mp4
-hold $W/k3.png 5.00 546 760 1.55 "$(box 66 912 960 60)" $W/s5b.mp4                      # we accept €132.85
-hold $W/hero.png 4.00 600 320 1.45 "$(box 286 284 516 60),$(box 286 346 392 36)" $W/s6.mp4 # 47 % averted, €55,339 saved, +5.0 % not +9.5 %
+hold $W/k3.png 4.85 546 760 1.55 "$(box 66 912 960 60)" $W/s5b.mp4                      # we accept €132.85
+hold $W/hero.png 3.20 600 320 1.45 "$(box 286 284 516 60),$(box 286 346 392 36)" $W/s6.mp4 # 47 % averted, €55,339 saved, +5.0 % not +9.5 %
 
 printf "file '%s'\n" s1a.mp4 s1b.mp4 s2a.mp4 s2b.mp4 s3a.mp4 s3b.mp4 s4.mp4 s5a.mp4 s5b.mp4 s6.mp4 > $W/list.txt
 ffmpeg -y -loglevel error -f concat -safe 0 -i $W/list.txt -c copy $W/video.mp4
@@ -74,7 +74,7 @@ d = lambda f: float(subprocess.check_output(["ffprobe","-v","error","-show_entri
 s1 = 0; s2 = s1 + d("s1a.mp4") + d("s1b.mp4"); s3 = s2 + d("s2a.mp4") + d("s2b.mp4")
 s5 = s3 + d("s3a.mp4") + d("s3b.mp4") + d("s4.mp4")
 ms = lambda t: int(t * 1000)
-print(ms(s1 + .2), ms(s2 + .2), ms(s3 + .3), ms(s3 + 2.7), ms(s5 + .2))
+print(ms(s1 + .2), ms(s2 + .2), ms(s3 + .2), ms(s3 + 2.45), ms(s5 + .2))
 EOF
 )
 read A1 A2 A3 A4 A5 <<< "$T"
