@@ -135,3 +135,34 @@ class RouterClaimsAgent(RouterAgent):
     @staticmethod
     def fallback():
         return C_FALLBACK
+
+
+# Cross-check plan candidate (feat/xcheck-plan): the confirmed router, every slot with the xc_* switches named in
+# CSEE_XFLAGS (comma list; unset = all of them) turned on. Compare: `csee sim --agents router router-x`.
+XFLAGS = ("xc_claims", "xc_push", "xc_trade", "xc_answer", "xc_relfloor", "xc_hold", "xc_rfq", "xc_pace")
+
+
+def xflags():
+    import os
+
+    raw = os.environ.get("CSEE_XFLAGS")
+    names = XFLAGS if raw is None else tuple(f.strip() for f in raw.split(",") if f.strip())
+    unknown = set(names) - set(XFLAGS)
+    if unknown:
+        raise SystemExit(f"CSEE_XFLAGS: unknown switches {sorted(unknown)}")
+    return {n: True for n in names}
+
+
+class RouterXAgent(RouterAgent):
+    def _route(self, case):
+        if self.case_id != case["case_id"]:
+            from dataclasses import replace
+
+            route = self.routes().get(case.get("type"), self.fallback())
+            cls, params = resolve(route, self.params)
+            self.inner, self.case_id = cls(self.pkg, self.writer, replace(params, **xflags())), case["case_id"]
+            for name in self.FORWARD:
+                if name in self.__dict__:
+                    setattr(self.inner, name, self.__dict__[name])
+            log.info("%s (%s): %s + %s", case["case_id"], case.get("type"), route, ",".join(xflags()))
+        return self.inner

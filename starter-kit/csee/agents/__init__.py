@@ -105,7 +105,7 @@ from .mert_dossier import (
     PlanMesoRawSoftClaims,
     SkipHedgeDossier,
 )
-from .router import RouterAgent, RouterClaimsAgent, RouterPlanAgent
+from .router import RouterAgent, RouterClaimsAgent, RouterPlanAgent, RouterXAgent
 from .mert_sunday import MertRfqLeadMenuAgent, MertRawLongAgent, MertRawCashFirstAgent, MertRfqCashFirstAgent, MertQualityReciprocalAgent, MertQualityReciprocalSingleAgent, MertSundayRouterAgent
 from .mert_sunday import MertQualityMeasuredAgent, MertMeasuredRouterAgent, MertQualityRouterAgent
 from .mert_sunday import MertRawFrontloadAgent
@@ -189,6 +189,7 @@ AGENTS = {
     "router": RouterAgent,
     "router-plan": RouterPlanAgent,  # A/B candidate: the planner on every non-RFQ type
     "router-c": RouterClaimsAgent,  # Sunday A/B candidate: ROUTES with every slot on its c-variant (claim_evidence)
+    "router-x": RouterXAgent,  # cross-check plan: ROUTES + the xc_* switches in CSEE_XFLAGS (default all)
 }
 
 
