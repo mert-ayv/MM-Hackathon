@@ -313,3 +313,18 @@ necessary to establish performance; existing runs predate this implementation.
 1. **Steinfelder (70340) steel hedge.** Its letter says "secured ... for 2027, bought forward ... reaches our prices only from 2028". The dossier read only "until <month> <year>"; it now also reads "for <year>" (until December). Steel index arguments go last for this supplier.
 2. **`customer_loss` news** (Pfaffenreuth lost its heating customer) now counts as an argument for us (the supplier needs volume).
 3. **Cash requests in the release** (Vrbensky, Pfaffenreuth: "please pay within 10 days") mark the supplier cash-short in every agent: payment trade sheets and the money-rate estimate. Only letters after the package froze count, so practice suppliers keep their measured behaviour. Newly flagged: 70190.
+
+**Sun 08:25, release check: exact final router single-shot on the 10 practice cases** (release loaded, AI writer). All deals, no errors, **mean 0.773**.
+
+| Case | Score | Note |
+|---|---|---|
+| P01 | 0.971 | |
+| P02 | 0.733 | |
+| P03 | 0.923 | |
+| P04 | 0.86 | |
+| P05 | 0.831 | new rfq route |
+| P07 | 0.747 | |
+| P08 | 0.581 | inside its router spread 0.58-0.73 over 5 single-shots: one working index argument, then order history it ignores |
+| P10 | 0.656 | |
+| P11 | 0.877 | new quality route |
+| P18 | 0.552 | |
