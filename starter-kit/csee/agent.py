@@ -139,6 +139,15 @@ class Params:
     sticky_fields: tuple = ()  # with sticky_terms: only these fields stick (empty = all non-price fields)
     value_neutral_terms: bool = False  # pick chargeback/ppm/payment at the price that keeps its value equal
     contract_at_horizon: bool = False  # no contract beyond the horizon when an index clause is in play and rising  # infer cash/capacity/volume pressure from the supplier's e-mails, not only profiles
+    # cross-check plan (feat/xcheck-plan, Sun 25 Oct; vault "Case Audits/00 Cross-check"): all off = today's behaviour
+    xc_claims: bool = False  # 1 claim selection: supplier-own evidence first, largest forecast, drop dead claim kinds
+    xc_push: bool = False  # 2 one guarded push after a final offer (only if its last step > 0)
+    xc_trade: bool = False  # 3 term exchange rates: sell terms it values more than they cost us, buy the cheap ones
+    xc_answer: bool = False  # 4 answer the supplier's direct questions with the fixed fact; never dangle fixed terms
+    xc_relfloor: bool = False  # 5 relationship floor (no sheet below its C-minimal price) + fixed track before a clause
+    xc_hold: bool = False  # 6 hold/repeat discipline: never resend a sheet; after a hold change a term or the evidence
+    xc_rfq: bool = False  # 7 RFQ ratchet: re-cite the lowest agreed offer, close only when bidders stop moving
+    xc_pace: bool = False  # 8 patience-aware pacing (within ~1 % of its standing price by round 3, steps >= its tick)
 
 
 @dataclass
