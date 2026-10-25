@@ -1,7 +1,27 @@
 # Narration cue sheet (technical video, 60 s)
 
-Both masters are silent on purpose: `tech-60s_motion_v1_silent.mp4` (Claude Motion, footer removed) and
-`tech-60s_v1_silent.mp4` (local build). Add the voice with one of the two routes below. 158 words, 2.6 words/s.
+**Done (Sun 11:40): `tech-60s_v1_elevenlabs.mp4`** = the Claude Motion master + ElevenLabs narration (voice
+"Artaius, Calm British Narrator", model eleven_v4, nine clips on flow `SiYdq5NFhjd2HYwTDuyt`, clips in
+`narration/`, placement in `narration/layout.txt`). The voice reads at about 2.2 words/s, slower than the
+script's 2.6, so three lines were shortened and all clips run at tempo 1.11. Lines as recorded:
+
+| Start (s) | Line as voiced |
+|---|---|
+| 0.5 | Supplier bots, one minute per thread, scored on total cost. Our rule: |
+| 6.3 | Code decides every number. The language model only reads and writes. |
+| 11.1 | Offline, a dossier on all forty-six suppliers. Every cited ID is checked by code. |
+| 17.5 | An engine prices every term with the arena's exact cost model. |
+| 21.5 | A policy anchors, paces the concessions, and sends up to three term sheets per e-mail. |
+| 27.5 | Claude words the reply in the supplier's register. Numbers and claim sentences stay verbatim. |
+| 34.5 | From two hundred and sixty of our own sessions we fitted the bots: tit-for-tat, a shrinking cap, fixed patience. So we concede exactly what they will mirror, and never push after a final offer. |
+| 46.6 | Every change climbed one ladder: simulator, sandbox, one practice run. A router picks the measured winner per case type. An LLM choosing the moves scored worse. |
+| 57.9 | Code checks every euro. |
+
+Clip 7 starts 2 s before its chart on purpose (voice leads picture over the silent guardrails band). If a human
+reads it instead (Route A), use the original lines below; a person at 2.6 words/s fits them.
+
+Both masters are silent: `tech-60s_motion_v1_silent.mp4` (Claude Motion, footer removed) and
+`tech-60s_v1_silent.mp4` (local build). Original cue sheet, 158 words at 2.6 words/s:
 
 | Cue (s) | Line |
 |---|---|

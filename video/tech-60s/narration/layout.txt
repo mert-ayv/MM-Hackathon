@@ -1,10 +1,10 @@
-tempo 1.25
-n01 start 0.50
-n02 start 6.30
-n03 start 10.61
-n04 start 16.29
-n05 start 20.50
-n06 start 27.50
-n07 start 36.50
-n08 start 47.30
-n09 start 58.66
+tempo 1.11
+n01 start 0.50 len 5.22
+n02 start 6.30 len 4.46
+n03 start 11.11 len 5.99
+n04 start 17.46 len 3.72
+n05 start 21.53 len 5.03
+n06 start 27.50 len 5.33
+n07 start 34.50 len 11.43
+n08 start 46.60 len 10.93
+n09 start 57.88 len 1.71
