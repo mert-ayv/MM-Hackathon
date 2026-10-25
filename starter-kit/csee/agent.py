@@ -192,6 +192,14 @@ INTERNAL = re.compile(
     r"needs? (the )?approval|discuss (it|this) with (our )?management",
     re.I,
 )
+# the supplier refuses a fixed price for the term in words (xc_relfloor: the clause track may then open). Logged
+# raw-material wording: "cannot offer a fixed price over a 24-month term", "unable to offer a fixed price for",
+# "cannot accept a fixed price without an index clause", "cannot offer fixed pricing for extended periods"
+FIXED_REFUSED = re.compile(
+    r"(cannot|can ?not|can't|unable to|not able to|not in a position to|no longer) "
+    r"(offer|accept|provide|agree to|quote|give|commit to|hold|guarantee) (you )?(a |any )?fixed[- ]?pric",
+    re.I,
+)
 
 
 @dataclass
@@ -498,7 +506,7 @@ class CseeAgent:
         last = latest(ev)
         status = last.get("status")
         std = standard_terms(ev)
-        sheet_id, theirs = self.their_sheet(case, ev, std, self.supplier_estimate(case, sid, std))
+        sheet_id, theirs = self.their_sheet(case, ev, std, self.rel_estimate(case, sid, std))
         for att in last.get("attachments") or []:
             if "breakdown" in (att.get("name") or "").lower() and att.get("text"):
                 parsed = intel_mod.parse_cost_breakdown(att["text"])
@@ -515,6 +523,8 @@ class CseeAgent:
             self.note_decision(ev, sid, "wait", f"thread ended ({status})", t0)
             return None
         left = moves_left(case, ev)
+        if self.rfq_ratchet(case, threads, sid, status, left):
+            status = "open"  # xc_rfq: an agreed bidder with rounds left is still in the auction (see rfq_ratchet)
         # Only the FIRST sheet of a reply is standing and acceptable (422 "not a standing offer" otherwise).
         # Its alternative is better for us: propose it back word for word; the supplier then agrees to it.
         first_id = (latest(ev).get("term_sheets") or [{}])[0].get("term_sheet_id")
@@ -525,6 +535,7 @@ class CseeAgent:
             and sheet_id != first_id
             and left >= 1
             and st.alt_requested != sheet_id
+            and not (self.p.xc_relfloor and self.below_floor(case, sid, theirs, std, self.rel_estimate(case, sid, std)))
             and (closing or self.nothing_to_win(case, threads, sid, theirs, std, left))
         ):
             st.alt_requested = sheet_id
@@ -547,6 +558,7 @@ class CseeAgent:
             and theirs.get("unit_price") is not None
             and left >= 1
             and st.completion_requested != sheet_id
+            and not (self.p.xc_relfloor and self.below_floor(case, sid, theirs, std, self.rel_estimate(case, sid, std)))
             and (closing or self.nothing_to_win(case, threads, sid, theirs, std, left))
         ):
             present = tuple(f for f in case["negotiable"] if f in theirs)
@@ -617,9 +629,11 @@ class CseeAgent:
             st.ready = True
             self.note_decision(ev, sid, "wait", "xc_hold: it held its sheet twice while we moved: close on it", t0)
             return None
-        supplier = self.supplier_estimate(case, sid, std)
+        supplier = self.rel_estimate(case, sid, std)
         st.why = ""
         ours = self.next_terms(case, threads, sid, theirs, std, supplier, left)
+        if self.p.xc_relfloor:
+            ours = self.xc_floor_terms(case, threads, sid, ours, theirs, std, supplier, left)
         if ours is None:
             st.ready = True
             self.note_decision(ev, sid, "wait", st.why or "next_terms: nothing to win by writing", t0)
@@ -627,6 +641,8 @@ class CseeAgent:
         if self.p.xc_pace and "unit_price" in case["negotiable"] and st.our_prices:
             ours = self.xc_pace_price(case, sid, ev, ours, theirs)
         sheets = self.sheets(case, sid, ours, std, supplier)
+        if self.p.xc_relfloor:
+            sheets = self.xc_relfloor_sheets(case, threads, sid, sheets, std, supplier, left)
         st.our_prices.append(ours["unit_price"])  # sheets carry no price when the price is fixed
         if self.p.xc_trade:
             st.xc_cut = st.xc_pending  # the cut is in the price we send: next round concedes on its scale
@@ -938,7 +954,14 @@ class CseeAgent:
             if near is not None:
                 fixed[k] = near
         exclude = {}
-        if self.p.clause_when_insisted and self.clause_insisted(threads[sid]):
+        if self.rfq_mode(case) and not self.cash_short(sid):
+            fixed.pop("payment_days", None)  # xc_rfq: 90 d stays the main sheet; faster payment is the priced cash sheet
+        fixed_track = self.p.xc_relfloor and not self.xc_clause_allowed(case, threads, sid, left)
+        if fixed_track:
+            # xc_relfloor, rising index: the fixed-price track first - no clause on the main sheet yet
+            fixed.pop("index_clause", None)
+            exclude = {"index_clause": [c for c in levers.options(case, "index_clause") if c]}
+        elif self.p.clause_when_insisted and self.clause_insisted(threads[sid]):
             fixed.pop("index_clause", None)
             exclude = {"index_clause": [None]}  # a clause it is: the cheapest one for us (widest deadband)
         value_of = self.value_fn(case, sid, std) if self.p.value_neutral_terms else None
@@ -1017,7 +1040,8 @@ class CseeAgent:
                 step = min(step, max(their_step * self.p.follow_share, 0.05 * gap))
             if self.p.hold_above_floor and floor and p_b > floor * 1.08:
                 step *= self.p.hold_above_floor  # we know there is room above its cost: hold
-            if self.p.hold_on_internal and INTERNAL.search(latest(threads[sid]).get("body") or ""):
+            internal = bool(INTERNAL.search(latest(threads[sid]).get("body") or ""))
+            if (self.p.hold_on_internal or self.rfq_mode(case)) and internal:
                 step = 0.0  # it is asking its boss for a further step: give it nothing to answer
             p = p_b + max(step, 0)
             st.why = (
@@ -1025,6 +1049,8 @@ class CseeAgent:
                 f"{their_step:.2f})"
                 + (", holding above floor" if self.p.hold_above_floor and floor and p_b > floor * 1.08 else "")
             )
+            if self.rfq_mode(case) and gap <= 0 and not internal:
+                p, st.why = self.rfq_ratchet_price(case, threads, sid, base, p_s, std, supplier, floor)
         if "unit_price" not in case["negotiable"]:
             p = p_s  # a fixed price: we negotiate the other terms only
         cap_p = levers.price_cap(case)
@@ -1048,8 +1074,8 @@ class CseeAgent:
         ours = {**base, "unit_price": round(p, 2)}
         if self.p.xc_trade:
             ours = self.xc_trade_terms(case, sid, ours, theirs, std, supplier, fixed)
-        if self.p.rfq_beat_leader and len(case["suppliers"]) > 1:
-            leader = self.leader_cost(case, threads, exclude=sid)
+        if (self.p.rfq_beat_leader or self.rfq_mode(case)) and len(case["suppliers"]) > 1:
+            leader = self.xc_leader(case, threads, sid)[0] if self.rfq_mode(case) else self.leader_cost(case, threads, exclude=sid)
             if leader < math.inf:
                 # ask for a package that beats the best rival; conceding past the rival is pointless
                 cap = levers.price_for(case, ours, leader * (1 - self.p.rfq_margin), std, supplier)
@@ -1120,7 +1146,10 @@ class CseeAgent:
             t = complete_offer(case, {**out[0], **change})
             if not must_haves_ok(case, t, std):
                 continue
-            price = levers.price_for(case, t, target, std, supplier)
+            # xc_rfq: the cash sheet at our own money rate (equal C to the main sheet: the case's interest rate, no extra
+            # trade gain), so taking it never costs us the payment days (P05: 28.13 @ 30 d accepted, C_best sits at 90 d)
+            cash = self.rfq_mode(case) and set(change) == {"payment_days"}
+            price = levers.price_for(case, t, c_main if cash else target, std, supplier)
             if price is None or price <= 0:
                 continue  # no price on the monotone branch reaches the target: no trade sheet
             t["unit_price"] = price
@@ -1239,7 +1268,14 @@ class CseeAgent:
     def pick_claims(self, case, threads, sid):
         st = self.threads[sid]
         claims = [c for c in st.intel.claims if self.p.history_claims or c.source != "history"]
-        if len(case["suppliers"]) > 1:
+        if self.rfq_mode(case):
+            # xc_rfq: the lowest valid rival sheet (must-haves kept) by C, cited whenever its price is below this bidder's
+            # standing price - its id is new every reply, so the latest agreed offer is re-cited each round
+            rivals = self.xc_rival_claims(case, threads, sid)
+            if rivals:
+                st.cited_rival = rivals[0].price if st.cited_rival is None else min(st.cited_rival, rivals[0].price)
+            claims = rivals + claims
+        elif len(case["suppliers"]) > 1:
             stand = {s: standing(threads[s]) for s in threads}
             rivals = intel_mod.rival_claims(case, stand, sid)
             if self.p.rival_only_lower:
@@ -1451,6 +1487,231 @@ class CseeAgent:
         ):
             est = {**est, "full_cost": max(est["full_cost"], st.intel.full_cost * self.p.rel_full)}
         return est
+
+    # ---------- cross-check plan, stream D: xc_relfloor (item 5) and xc_rfq (item 7); all off = nothing changes ----------
+    def rel_estimate(self, case, sid, std):
+        """The supplier estimate our own sheets are priced and ranked with. xc_relfloor in a relationship goal: the
+        close() estimate (own-plant should-cost x rel_full; the arena's relationship charge back-solves to 0.974-0.991 x
+        should-cost on P01/P02/P03, 0.98 is the centre), so asks and accepts use the same relationship term. Else
+        supplier_estimate (should-cost x fullcost_discount)."""
+        if self.p.xc_relfloor and case["buyer"].get("category_goal") in RELATIONSHIP_GOALS:
+            return self.close_estimate(case, sid, std)
+        return self.supplier_estimate(case, sid, std)
+
+    def rel_floor_price(self, case, sid, terms, std, supplier):
+        """xc_relfloor: the unit price of `terms` that minimises our C with the relationship charge, rounded up to the
+        cent (None without a full-cost estimate, outside relationship goals, or when the charge is too weak to turn C
+        up again). Below it every euro saved on the price comes back as relationship charge (P02: asks at 351-358
+        cost 38-101k EUR of charge against a 6,110 EUR/EUR price lever)."""
+        if (
+            not supplier
+            or not supplier.get("full_cost")
+            or case["buyer"].get("category_goal") not in RELATIONSHIP_GOALS
+            or "unit_price" not in case["negotiable"]
+        ):
+            return None
+        full = supplier["full_cost"]
+        ref = max(terms.get("unit_price") or 0.0, (self.threads[sid].opening or {}).get("unit_price") or 0.0, full)
+        lo = full * 0.7
+        try:
+            p = levers.cost_minimal_price(case, terms, std, supplier, lo=lo, hi=ref * 1.1)
+        except Exception:
+            return None
+        if not p or not math.isfinite(p) or p <= lo * 1.001:
+            return None  # the minimum sits at the scan's edge: no floor the charge defines
+        cap = levers.price_cap(case)
+        if cap is not None:
+            p = min(p, cap)
+        return math.ceil(p * 100 - 1e-6) / 100
+
+    def below_floor(self, case, sid, terms, std, supplier):
+        """`terms` (a supplier sheet) priced below the relationship floor of its own terms."""
+        if terms.get("unit_price") is None:
+            return False
+        floor = self.rel_floor_price(case, sid, terms, std, supplier)
+        return floor is not None and terms["unit_price"] < floor - 1e-9
+
+    def xc_floor_terms(self, case, threads, sid, ours, theirs, std, supplier, left):
+        """Our main sheet at or above the relationship floor; None when its standing sheet already costs us no more
+        than the floored ask (relationship charge included): nothing to win by writing. When the parent stops writing
+        (`ours` None) while ITS sheet lies below the floor of its own terms (P02: 346.18 @ 14 d + clause = 120k EUR of
+        charge), we propose its terms at the floor instead of taking the sheet - the charge, not the price, decides."""
+        st = self.threads[sid]
+        if ours is None:
+            if not self.below_floor(case, sid, theirs, std, supplier):
+                return None
+            cand = complete_offer(case, theirs)
+            if self.clause_rising(case) and not self.xc_clause_allowed(case, threads, sid, left):
+                cand = complete_offer(case, {**cand, "index_clause": None})
+            floor = self.rel_floor_price(case, sid, cand, std, supplier)
+            if floor is None:
+                return None
+            cand = {**cand, "unit_price": floor}
+            if not must_haves_ok(case, cand, std) or total_cost(case, cand, std, supplier) >= total_cost(
+                case, theirs, std, supplier
+            ) - 1e-6:
+                return None
+            sent = [s.get("terms", s) for m in threads[sid] if m.get("from") == "buyer" for s in m.get("term_sheets") or []]
+            if any(all(s.get(f) == cand.get(f) for f in case["negotiable"]) for s in sent):
+                return None  # proposed once already: a resend would be a hold - take what stands
+            st.why = f"its {theirs['unit_price']:.2f} is below the relationship floor {floor:.2f} of its terms: we propose the floor"
+            return cand
+        floor = self.rel_floor_price(case, sid, ours, std, supplier)
+        if floor is None or ours.get("unit_price") is None or ours["unit_price"] >= floor:
+            return ours
+        ours = {**ours, "unit_price": floor}
+        st.why = f"{st.why}; relationship floor {floor:.2f}"
+        if theirs.get("unit_price") is not None and total_cost(case, theirs, std, supplier) <= total_cost(
+            case, ours, std, supplier
+        ) + 1e-6:
+            st.why += ": its sheet costs us no more than the floored ask - ready"
+            return None
+        return ours
+
+    def xc_clause_allowed(self, case, threads, sid, left):
+        """xc_relfloor on a RISING index path: a clause costs us index + index_risk, so the fixed-price track runs
+        first. Clause sheets open once the supplier refuses a fixed price in words, holds its price (open, no step)
+        or goes final, or at our last writable message. Always allowed when no clause option rises."""
+        if not self.p.xc_relfloor or not self.clause_rising(case):
+            return True
+        ev = threads[sid]
+        if any(FIXED_REFUSED.search(m.get("body") or "") for m in ev if m.get("from") != "buyer"):
+            return True
+        if self.clause_insisted(ev):
+            return True  # its own sheets answer our fixed price with a clause: a refusal in terms, not in words
+        if latest(ev).get("status") == "final_offer":
+            return True
+        if self.held_rounds(ev) >= 1:
+            return True
+        return self.rounds_left(sid, left) <= self.p.reserve_moves + 1
+
+    def xc_relfloor_sheets(self, case, threads, sid, sheets, std, supplier, left):
+        """Every sheet of the message: no clause while the fixed track runs (never a 0 % deadband on a rising path),
+        then no price below the relationship floor of its own terms; a trade the floor raised above the main sheet's
+        C is dropped (a gift, not a trade); duplicates removed."""
+        st = self.threads[sid]
+        if not sheets:
+            return sheets
+        if self.clause_rising(case):
+            if not self.xc_clause_allowed(case, threads, sid, left):
+                fixed = [s for s in sheets if not s.get("index_clause")]
+                sheets = fixed or [complete_offer(case, {**sheets[0], "index_clause": None})]
+                st.why = f"{st.why}; fixed track first: clause sheets held back"
+            else:
+                opts = [c for c in levers.options(case, "index_clause") if c]
+                wider = {c["series"] for c in opts if c.get("deadband_pct")}
+                kept = [
+                    s
+                    for s in sheets
+                    if not (
+                        s.get("index_clause")
+                        and not s["index_clause"].get("deadband_pct")
+                        and s["index_clause"].get("series") in wider
+                    )
+                ]
+                sheets = kept or sheets
+        if not supplier or not supplier.get("full_cost") or case["buyer"].get("category_goal") not in RELATIONSHIP_GOALS:
+            return sheets
+        out, c_main = [], None
+        for i, s in enumerate(sheets):
+            c_before = total_cost(case, s, std, supplier) if s.get("unit_price") is not None else math.inf
+            raised = False
+            if s.get("unit_price") is not None:
+                floor = self.rel_floor_price(case, sid, s, std, supplier)
+                if floor is not None and s["unit_price"] < floor - 1e-9:
+                    s, raised = {**s, "unit_price": floor}, True
+            c = total_cost(case, s, std, supplier) if s.get("unit_price") is not None else math.inf
+            if i == 0:
+                c_main = c
+            elif raised and c > c_main + 1e-6 and c_before <= c_main + 1e-6:
+                continue  # a trade that was cheaper for us than the main sheet and is dearer now: a gift, not a trade
+            if s not in out:
+                out.append(s)
+        return out
+
+    @staticmethod
+    def held_rounds(events):
+        """Consecutive latest supplier replies whose standing price did not fall against the reply before (0 after
+        its opening alone)."""
+        prices = [
+            (m.get("term_sheets") or [{}])[0].get("terms", {}).get("unit_price")
+            for m in events
+            if m.get("from") != "buyer" and m.get("term_sheets")
+        ]
+        n = 0
+        for i in range(len(prices) - 1, 0, -1):
+            if prices[i] is None or prices[i - 1] is None or prices[i] < prices[i - 1] - 1e-9:
+                break
+            n += 1
+        return n
+
+    def rfq_mode(self, case):
+        return bool(self.p.xc_rfq) and case.get("type") == "rfq" and len(case["suppliers"]) > 1
+
+    def rfq_ratchet(self, case, threads, sid, status, left):
+        """xc_rfq: an 'agreed' bidder is not the end of its thread while rounds remain. P05: all three bots agree to any
+        ask above their floor and close() took the deal at round 2 with 7 rounds unused. Its thread stays in the
+        auction (a lower ask, the lowest rival offer cited) until it holds twice, goes final, is alone, or the reserve
+        is reached."""
+        if not self.rfq_mode(case) or status != "agreed":
+            return False
+        if left <= self.p.reserve_moves + 1 or len(live_threads(threads)) < 2:
+            return False
+        if self.held_rounds(threads[sid]) == 0:
+            return True  # it moved (agreed to a lower ask than it stood at): ask once more
+        # it agreed to a repeated ask (a hold): only with new evidence - a lower rival offer it has not seen yet
+        rivals = self.xc_rival_claims(case, threads, sid)
+        return bool(rivals) and (sid, *rivals[0].ids) not in self.used_ids
+
+    def xc_leader(self, case, threads, sid):
+        """(C, offer id, unit price) of the cheapest VALID standing rival sheet (must-haves kept: P05 Hrvelec's 56 d
+        against our <= 42 never counts), or (inf, None, None)."""
+        best = (math.inf, None, None)
+        for s in live_threads(threads):
+            if s == sid:
+                continue
+            std = standard_terms(threads[s])
+            offer_id, terms = standing(threads[s])
+            if not offer_id or terms.get("unit_price") is None or not must_haves_ok(case, terms, std):
+                continue
+            c = total_cost(case, terms, std)
+            if c < best[0]:
+                best = (c, offer_id, terms["unit_price"])
+        return best
+
+    def xc_rival_claims(self, case, threads, sid):
+        """The lowest-priced standing rival sheet (agreed or open; a sheet outside our must-haves is still a true,
+        verifiable competing quote - only the ratchet target ignores it), cited to this bidder when its unit price is
+        below this bidder's standing price (a dearer rival is no argument: P05 "still higher than our price")."""
+        best = None
+        for s in live_threads(threads):
+            if s == sid:
+                continue
+            offer_id, terms = standing(threads[s])
+            if offer_id and terms.get("unit_price") is not None and (best is None or terms["unit_price"] < best[1]):
+                best = (offer_id, terms["unit_price"])
+        if best is None:
+            return []
+        offer_id, price = best
+        mine = (standing(threads[sid])[1] or {}).get("unit_price")
+        if mine is not None and price >= mine:
+            return []
+        return [intel_mod.Claim(f"We hold a competing offer at EUR {price:.2f} per unit ({offer_id}).", [offer_id], "rival", 2.5, price)]
+
+    def rfq_ratchet_price(self, case, threads, sid, base, p_s, std, supplier, floor):
+        """xc_rfq: the next ask to a bidder whose standing price already meets our last ask (it agreed): a package that
+        beats the cheapest valid rival by rfq_margin when one is cheaper for us, else rfq_margin below its own price;
+        never below a known cost floor that lies under its price."""
+        margin = self.p.rfq_margin
+        leader_c, leader_id, _ = self.xc_leader(case, threads, sid)
+        p, why = p_s * (1 - margin), f"rfq ratchet: {margin:.0%} below its agreed {p_s:.2f}"
+        if leader_c < total_cost(case, closing_terms(case, {**base, "unit_price": p_s}, std), std):
+            beat = levers.price_for(case, {**base, "unit_price": p_s}, leader_c * (1 - margin), std, supplier)
+            if beat is not None and beat > 0:
+                p, why = min(p, beat), f"rfq ratchet: beat the leader {leader_id} by {margin:.0%} -> {beat:.2f}"
+        if floor and floor < p_s:
+            p = max(p, floor)
+        return p, why
 
     # ---------- the kit's sequential interface (arena_kit.play.play) ----------
     def decide(self, case, threads):
