@@ -144,15 +144,15 @@ def test_dead_kinds_after_does_not_change():
     assert not is_dead(intel.Claim("x", ["idx:AS-14404@2026-06", "idx:AS-14404@2026-09"], "index"), dead)
 
 
-def test_weak_claims_only_when_nothing_else(pkg, cases):
+def test_weak_claims_never(pkg, cases):
+    """Order history (0/94) and the delivery record (7/29, an attack on a sole-source supplier) are never cited."""
     case = cases["case:P08"]
     agent, threads, _ = picked(pkg, case, xc_claims=True, history_claims=True)
     sid = "sup:70710"
     pools = agent.xc_pools(threads[sid], agent.threads[sid].intel.claims)
-    assert all(c.tag not in ("po", "otd") for c in pools[0]) and all(c.tag in ("po", "otd") for c in pools[1])
+    assert len(pools) == 1 and all(c.tag not in ("po", "otd") for c in pools[0])
     agent.used_ids.update(i for c in pools[0] for i in c.ids)  # everything else spent
-    rest = agent.pick_claims(case, threads, sid)
-    assert rest and all(c.tag in ("po", "otd") for c in rest)
+    assert all(c.tag not in ("po", "otd") for c in agent.pick_claims(case, threads, sid))
 
 
 # ---------- item 4: answer the supplier's questions ----------

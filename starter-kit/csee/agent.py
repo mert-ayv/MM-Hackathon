@@ -117,7 +117,7 @@ NO_CHANGE_KINDS = (
     (re.compile(r"news|press|report", re.I), "news"),
     (re.compile(r"notice", re.I), "notice"),
 )
-WEAK_TAGS = ("po", "otd")  # order history 0/94 moved a price; delivery record 7/29 - last resort only
+WEAK_TAGS = ("po", "otd")  # order history 0/94 moved a price; delivery record 7/29 - never cited under xc_claims
 
 
 def dead_kinds(events):
@@ -1325,11 +1325,14 @@ class CseeAgent:
     def xc_pools(events, claims):
         """xc_claims: [arguments worth making, last-resort ones]. Kinds this supplier waved away ("does not change our
         calculation") are gone; order history and the delivery record (WEAK_TAGS) are cited only when nothing else
-        is left; an index that rose never argues for a lower price."""
+        is left - now never: order history moved 0 of 94 prices, the delivery record 7 of 29; an index that rose never argues
+        for a lower price."""
         dead = dead_kinds(events)
         live = [c for c in claims if not is_dead(c, dead)]
         live = [c for c in live if not (c.kind == "index" and re.search(r"changed \+", c.sentence))]
-        return [[c for c in live if c.tag not in WEAK_TAGS], [c for c in live if c.tag in WEAK_TAGS]]
+        # never the weak ones: an on-time-delivery figure reads as an attack on a sole-source supplier (Opus rehearsal
+        # Sun 03:00: P10/P11 round 2 led with "your on-time delivery was 79.5 %" once the strong kinds were used up)
+        return [[c for c in live if c.tag not in WEAK_TAGS]]
 
     def answer_claims(self, case, threads, sid, sheets, claims):
         """xc_answer: one sentence per direct question in its latest reply, as Claim objects (kept verbatim by every
