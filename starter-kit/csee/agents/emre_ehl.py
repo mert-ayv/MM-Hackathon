@@ -190,3 +190,18 @@ class AuthorityRouterAgent(TypedRouterAgent):
         ("corporate", False),
         ("corporate_anchor_cap", 0.12),
     )
+
+
+class SlowRouterAgent(TypedRouterAgent):
+    """A2 "slow down": openings as routed (A1: a 12 % corporate cap made P08 walk and cost P11 0.08), owners 22 % also
+    with relationship goals (16 %); our steps x 0.67 for both types - owners give big early steps, corporate desks
+    decide late (EHL KAM final at reply 5). Capacity as routed."""
+
+    settings = (
+        ("owner_anchor", 0.22),
+        ("owner_anchor_rel", 0.16),
+        ("owner_step", 0.67),
+        ("corporate", False),
+        ("corporate_step", 0.67),
+        ("skip_types", frozenset({"capacity"})),
+    )
